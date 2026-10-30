@@ -139,11 +139,15 @@
   }
 
   // ------------------------------------------------------------------ 進行
+  // 「新しい対局」を開いている間は裏の卓を進めない（CPU も観戦も止める）。閉じたら止めたところから。オンラインの卓は止めない
+  const paused = () => !S.online && !$('dlg-new').hidden;
+  function resume() { if (!paused() && S.g && live() && !S.busy) schedule(); }
   function schedule() {
     clearTimeout(S.timer);
     const g = S.g;
     if (!g) return;
     S.thinking = -1;
+    if (paused()) { renderAll(); return; }
     if (!live()) { renderAll(); return; }
     if (g.phase === 'done') { renderAll(); finishRound(); return; }
     const p = g.actor, st = S.seats[p];
@@ -152,7 +156,7 @@
       const L = g.legal();
       renderAll();
       if (!g.pend && settings.autopass && L.length === 1 && L[0].k === PASS) {
-        S.timer = setTimeout(() => { if (isHumanTurn() && S.g === g) submit(L[0], true); }, settings.fast ? 450 : 900);
+        S.timer = setTimeout(() => { if (isHumanTurn() && S.g === g && !paused()) submit(L[0], true); }, settings.fast ? 450 : 900);
         return;
       }
       if (aiOn()) analyze();
@@ -165,13 +169,13 @@
     renderOpponents();
     const t0 = Date.now(), snap = S.moves.length;
     AI.ask({ type: 'move', game: g.toJSON(), level: st.level || 'normal' }).then(r => {
-      if (S.g !== g || S.moves.length !== snap || !live()) return;
+      if (S.g !== g || S.moves.length !== snap || !live() || paused()) return;
       const legal = g.legal();
       let mv = r && r.mv;
       if (!mv || !legal.some(x => D.moveKey(x) === D.moveKey(mv))) mv = A.chooseWeakest(g);
       let pace = settings.fast ? 220 : mv.k === PASS ? 520 : g.pend ? 380 : 820;
       if (g.out[S.me]) pace = Math.round(pace * 0.5);   // 自分があがったあとは早送り
-      S.timer = setTimeout(() => { if (S.g === g && S.moves.length === snap && live()) submit(mv); }, Math.max(0, pace - (Date.now() - t0)));
+      S.timer = setTimeout(() => { if (S.g === g && S.moves.length === snap && live() && !paused()) submit(mv); }, Math.max(0, pace - (Date.now() - t0)));
     });
   }
 
@@ -911,6 +915,8 @@
     draft = JSON.parse(JSON.stringify(cfg));
     drawNew();
     $('dlg-new').hidden = false;
+    // 選んでいる間は裏の卓を止める（考え中の CPU も、その手は出さない）
+    if (!S.online) { clearTimeout(S.timer); S.thinking = -1; renderOpponents(); }
     // いちばん上（遊び方）から見えるように。「始める」に移すときも画面は動かさない
     $('dlg-new').querySelector('.dialog').scrollTop = 0;
     try { $('ng-start').focus({ preventScroll: true }); } catch (e) { /* 古いブラウザ */ }
@@ -1139,7 +1145,7 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
-        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; $('btn-online').click(); return; }
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; resume(); $('btn-online').click(); return; }
         if (id === 'ng-mode') draft.watch = v === 'watch';
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-games') draft.games = Number(v);
@@ -1147,10 +1153,10 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) { $('dlg-new').hidden = true; resume(); }
     });
     $('dlg-new').addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.rule; if (k) draft.rules[k] = e.target.checked; });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; resume(); });
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startMatch(draft); });
     // 結果
     $('rs-next').addEventListener('click', nextRound);
@@ -1158,7 +1164,7 @@
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewSnap(0); reviewAnalysis(); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel.size) { S.sel.clear(); renderAll(); } return; }
+      if (e.key === 'Escape') { const wasNew = !$('dlg-new').hidden; closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel.size) { S.sel.clear(); renderAll(); } if (wasNew) resume(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewSnap((live() ? S.snaps.length - 1 : S.view) - 1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); viewSnap((live() ? S.snaps.length - 1 : S.view) + 1); }

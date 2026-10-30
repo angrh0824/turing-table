@@ -48,7 +48,7 @@
   const S = {
     seats: ['human', 'normal'], startFen: START_FEN, pos: Position.start(), start0: Position.start(), moves: [], cn: [], ic: [], evals: [], view: null, dpos: null, result: null,
     legal: [], sel: -1, targets: new Map(), inspect: -1, hover: -1,
-    info: null, cpuInfo: null, thinking: false, timer: 0, resultShown: false, flip: false,
+    info: null, cpuInfo: null, thinking: false, timer: 0, resultShown: false, flip: false, paused: false, // paused: 「新しい対局」を選んでいる間
     online: null, // { mid, myColor, opp: {name, ai, hints}, myHints, oppPresent, lostAt, myRe, oppRe, drawOffer: 0|1(相手から)|2(自分から) }
   };
   const live = () => S.view === null;
@@ -245,6 +245,8 @@
   function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
+    // 「新しい対局」を選んでいる間は、裏の対局を進めない（CPU は読まず・指さない。閉じたらここから続ける）
+    if (S.paused) { AI.cancel(); return; }
     if (!live() || S.result) { analyze(); return; }
     const c = S.pos.stm;
     if (isRemote(c)) { AI.cancel(); renderEval(); renderArrows(); return; } // オンラインの相手の番: 届くのを待つ
@@ -264,6 +266,7 @@
   // 人間の手番（または棋譜を見返しているとき）に形勢を読む
   function analyze(force, ms, kind = 'analysis') {
     const pos = shownPos();
+    if (S.paused) { AI.cancel(); return; }
     if (((!settings.analyze || !aiOn()) && !force) || (live() && S.result) || !pos.hasLegal()) { AI.cancel(); renderEval(); renderArrows(); return; }
     const ply = shownPly(), c = pos.stm;
     AI.start({ fen: S.startFen, moves: S.moves.slice(0, ply), timeMs: ms || ANALYZE_MS, analyze: true, parallel: true },
@@ -908,11 +911,22 @@
 
   // ------------------------------------------------------------------ ダイアログ
   let draft = null;
+  // 「新しい対局」を開いている間は、裏の対局を止める（CPU の読み・指す予定の手・形勢の読みを止める）
   function openNew() {
+    S.paused = true;
+    AI.cancel(); clearTimeout(S.timer);
+    if (S.thinking) { S.thinking = false; renderPlayers(); }
     draft = Object.assign({}, cfg);
     drawNew();
     $('dlg-new').hidden = false;
     $('ng-start').focus({ preventScroll: true });
+  }
+  // 「やめる」・背景のタップ・Esc で閉じたら、止めたところから続ける
+  function closeNew() {
+    if ($('dlg-new').hidden && !S.paused) return;
+    $('dlg-new').hidden = true;
+    S.paused = false;
+    schedule();
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
@@ -1292,7 +1306,7 @@
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
         // オンライン対戦: ダイアログを閉じて、オンラインのパネルを開く（上の丸いボタンと同じ）。今の対局は、オンラインの対局が始まるまでそのまま
-        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
+        if (id === 'ng-mode' && v === 'online') { closeNew(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1302,16 +1316,16 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) closeNew();
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', closeNew);
     $('ng-start').addEventListener('click', () => {
       if (draft.start === 'fen') {
         let f = $('ng-fen').value.trim();
         if (f && !/\s[wrbWRB]/.test(f)) f += ' w';
         try { const p = Position.fromFEN(f); if (!p.hasLegal()) throw new Error('この局面はもう終わっています（指せる手がありません）'); draft.fen = f; } catch (err) { $('ng-fen-msg').textContent = err.message; return; }
       }
-      $('dlg-new').hidden = true; startGame(draft);
+      $('dlg-new').hidden = true; S.paused = false; startGame(draft);
     });
     // 終局
     $('rs-again').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online) requestRematch(); else startGame(cfg); });
@@ -1319,7 +1333,7 @@
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewPly(0); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); ['dlg-new', 'dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
+      if (e.key === 'Escape') { closeSheet(); if (!$('dlg-new').hidden) closeNew(); ['dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }
@@ -1567,7 +1581,8 @@
       if (S.online && NET_) NET_.rejoin({ mid: S.online.mid, myColor: S.online.myColor, opp: { id: '', name: S.online.opp.name, ai: S.online.opp.ai } }); // 対局の途中に戻る
     } catch (e) { startGame(cfg); }
   } else {
-    // はじめて開いたときは対局の設定から
+    // はじめて開いたときは対局の設定から（選んでいる間は、裏の対局を始めない）
+    S.paused = true;
     startGame(cfg);
     openNew();
   }

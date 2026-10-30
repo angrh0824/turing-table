@@ -177,11 +177,14 @@
     return Math.round(({ cpuTurn: 620, cpuReact: 380, auto: 450, end: 900 })[kind] * f);
   }
 
+  // 「新しい対局」を開いている間は、裏の卓を進めない（CPU はツモ・打牌・鳴きをしない）。オンラインの卓はほかの人がいるので止めない
+  const paused = () => !S.online && !$('dlg-new').hidden;
   function schedule() {
     clearTimeout(S.timer);
     const r = S.round;
     if (!r || !live()) return;
     if (S.online && window.MJOnline && window.MJOnline.drives()) { window.MJOnline.schedule(); return; }
+    if (paused()) return;
     if (r.phase === 'end') {
       if (!S.resultShown) { S.resultShown = true; S.timer = setTimeout(showResult, delay('end')); }
       return;
@@ -223,13 +226,14 @@
   }
   function cpuTurn(s) {
     const r = S.round;
-    if (!live() || !r || r.phase !== 'turn' || r.cur !== s || !isCPU(s) || !S.agents[s]) return;
+    if (paused() || !live() || !r || r.phase !== 'turn' || r.cur !== s || !isCPU(s) || !S.agents[s]) return;
     const ag = S.agents[s];
     if (ag.async) {
       S.thinkingAsync = s;
       ag.chooseTurnAsync(r).then(a => {
         S.thinkingAsync = -1;
-        if (!live() || S.round !== r || r.phase !== 'turn' || r.cur !== s) return;
+        // 考えている間に「新しい対局」が開いたら、その手は捨てる（閉じたら考え直す）
+        if (paused() || !live() || S.round !== r || r.phase !== 'turn' || r.cur !== s) return;
         r.doTurn(a);
         afterChange();
       });
@@ -470,7 +474,7 @@
   }
   const REL_NAME = ['あなた', '下家', '対面', '上家'];
   const shortName = s => (S.online ? S.names[s] : s === S.me ? 'あなた' : REL_NAME[rel(s)]);
-  const thinking = s => live() && S.round && S.round.phase === 'turn' && S.round.cur === s && isCPU(s);
+  const thinking = s => live() && !paused() && S.round && S.round.phase === 'turn' && S.round.cur === s && isCPU(s);
   const onlineTag = s => (S.online && window.MJOnline ? window.MJOnline.tag(s) : '');
 
   // 手牌
@@ -853,7 +857,20 @@
 
   // ------------------------------------------------------------------ 新しい対局
   let draft = null;
-  function openNew() { draft = Object.assign({}, cfg); drawNew(); $('dlg-new').hidden = false; }
+  function openNew() {
+    draft = Object.assign({}, cfg); drawNew(); $('dlg-new').hidden = false;
+    if (S.online) return;
+    // 待っている CPU の手・局の結果の表示を止める（閉じたら止めたところから）
+    clearTimeout(S.timer);
+    if (S.round && S.round.phase === 'end' && $('dlg-result').hidden && $('dlg-final').hidden) S.resultShown = false;
+    render();
+  }
+  // 「やめる」・背景・Esc・「オンラインの卓」で閉じたとき（「始める」は新しい対局を始める）
+  function closeNew() {
+    if ($('dlg-new').hidden) return;
+    $('dlg-new').hidden = true;
+    schedule();
+  }
   function drawNew() {
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = NET ? CPU[draft.cpu].desc : `${CPU[draft.cpu].desc}（学習したネットがまだないので、いまはどの強さも牌効率で打ちます）`;
@@ -1116,14 +1133,14 @@
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
         // 今の対局は、オンラインで卓に着くまでそのまま
-        if (id === 'ng-mode') { if (v === 'online') { $('dlg-new').hidden = true; if (window.MJOnline) window.MJOnline.open(); } return; }
+        if (id === 'ng-mode') { if (v === 'online') { closeNew(); if (window.MJOnline) window.MJOnline.open(); } return; }
         if (id === 'ng-cpu') draft.cpu = v; else if (id === 'ng-len') draft.length = v; else if (id === 'ng-aka') draft.aka = +v; else if (id === 'ng-seat') draft.seat = v;
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) closeNew();
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; if (!S.game) { /* 何もしない */ } });
+    $('ng-cancel').addEventListener('click', closeNew);
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startGame(draft); });
     $('rs-next').addEventListener('click', nextRound);
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online) { openHist(); return; } viewRound(-1, 0); openHist(); });
@@ -1140,7 +1157,7 @@
     $('on-close').addEventListener('click', () => { $('dlg-online').hidden = true; });
     window.addEventListener('resize', fitSoon);
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { ['dlg-new', 'dlg-menu', 'dlg-online'].forEach(id => { $(id).hidden = true; }); closeHist(); $('settings').hidden = true; if (S.sel >= 0) { S.sel = -1; S.riichiMode = false; render(); } return; }
+      if (e.key === 'Escape') { closeNew(); ['dlg-menu', 'dlg-online'].forEach(id => { $(id).hidden = true; }); closeHist(); $('settings').hidden = true; if (S.sel >= 0) { S.sel = -1; S.riichiMode = false; render(); } return; }
       if (e.target.closest('input, textarea, .dialog') || $('view-play').hidden) return;
       if (S.view) {
         if (e.key === 'ArrowLeft') { e.preventDefault(); viewRound(S.view.ri, S.view.step - 1); }

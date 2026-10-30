@@ -245,9 +245,12 @@
     schedule();
   }
 
+  // 「新しい対局」を選んでいる間は、裏の対局を進めない（CPU は読まず・指さず、観戦も止める。CONVENTIONS 3章）
+  const choosing = () => !$('dlg-new').hidden;
   function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
+    if (choosing()) { AI.cancel(); renderPlayers(); return; }
     if (!live() || S.result) { analyze(); return; }
     const c = S.pos.stm;
     if (isRemote(c)) { AI.cancel(); renderEval(); renderArrows(); return; } // オンラインの相手の番: 届くのを待つ
@@ -260,7 +263,7 @@
       info => {
         onInfo(ply, c, info, 'cpu');
         S.thinking = false;
-        if (live() && S.moves.length === ply && !S.result) S.timer = setTimeout(() => play(info.move), 160);
+        if (live() && S.moves.length === ply && !S.result && !choosing()) S.timer = setTimeout(() => { if (!choosing()) play(info.move); }, 160);
       });
   }
 
@@ -901,6 +904,13 @@
     drawNew();
     $('dlg-new').hidden = false;
     $('ng-start').focus({ preventScroll: true });
+    schedule(); // 読んでいる途中なら止める
+  }
+  // 「やめる」・背景・Esc・「オンライン対戦」で閉じたら、止めたところから続ける
+  function closeNew() {
+    if (!choosing()) return;
+    $('dlg-new').hidden = true;
+    schedule();
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
@@ -1260,7 +1270,7 @@
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
         // 今の対局は、オンラインで対局が始まるまでそのまま
-        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
+        if (id === 'ng-mode' && v === 'online') { closeNew(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1270,9 +1280,9 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) closeNew();
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', closeNew);
     $('ng-start').addEventListener('click', () => {
       if (draft.start === 'fen') {
         const f = $('ng-fen').value.trim();
@@ -1286,7 +1296,7 @@
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewPly(0); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); hidePromo(); ['dlg-new', 'dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
+      if (e.key === 'Escape') { closeSheet(); hidePromo(); closeNew(); ['dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }

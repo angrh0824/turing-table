@@ -212,9 +212,12 @@
     schedule();
   }
 
+  // 「新しい対局」を選んでいる間か（そのあいだ裏の対局は進めない。オンラインの卓は止めない）
+  const newPaused = () => !$('dlg-new').hidden && !S.online;
   function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
+    if (newPaused()) { AI.cancel(); return; }
     if (!live() || S.result) { analyze(); return; }
     const c = S.pos.turn;
     if (isRemoteColor(c)) { AI.cancel(); renderPlayers(); return; }
@@ -947,7 +950,15 @@
     draft = Object.assign({}, cfg);
     drawNew();
     $('dlg-new').hidden = false;
+    // 選んでいる間は裏の対局を進めない（CPU も観戦も止める。オンラインの卓はほかの人がいるので止めない）
+    if (newPaused()) { AI.cancel(); clearTimeout(S.timer); S.thinking = false; renderPlayers(); renderInfo(); }
     $('ng-start').focus();
+  }
+  // 「やめる」・背景のタップ・Esc で閉じたら、止めたところから続ける
+  function closeNew() {
+    if ($('dlg-new').hidden) return;
+    $('dlg-new').hidden = true;
+    if (!S.online) schedule();
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
@@ -1183,8 +1194,8 @@
       if (b) {
         const id = b.parentElement.id, v2 = b.dataset.v;
         if (id === 'ng-mode' && v2 === 'online') {
-          // オンラインの卓: 上の丸いボタンを押したのと同じ（卓に着くまで、いまの対局はそのまま）
-          $('dlg-new').hidden = true;
+          // オンラインの卓: 上の丸いボタンを押したのと同じ（卓に着くまで、いまの対局はそのまま続く）
+          closeNew();
           if (window.BKOnline) window.BKOnline.open();
           return;
         }
@@ -1195,9 +1206,9 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) closeNew();
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', closeNew);
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startGame(draft); });
     $('rs-again').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online && window.BKOnline) window.BKOnline.again(); else startGame(cfg); });
     $('rs-new').addEventListener('click', () => { $('dlg-result').hidden = true; openNew(); });
@@ -1205,7 +1216,7 @@
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     $('on-close').addEventListener('click', () => { $('dlg-online').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); ['dlg-new', 'dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel) deselect(); return; }
+      if (e.key === 'Escape') { closeSheet(); closeNew(); ['dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel) deselect(); return; }
       const tg = e.target && e.target.closest ? e.target : document.body;
       if (tg.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (S.sel && humanTurn()) {
