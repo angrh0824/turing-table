@@ -57,11 +57,11 @@ function ShogiAI(S) {
   // ------------------------------------------------------------------ NN の重み
   const b64 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
   const i16 = s => { const u = b64(s); return new Int16Array(u.buffer, u.byteOffset, u.byteLength >> 1); };
-  // format 2: 最初の層は int8 と特徴ごとの整数の倍率（重み = int8 × 倍率。ほとんどの特徴は倍率 1 で int16 と同じ値）
-  const w1of = (W, H) => {
+  // format 2: 最初の層は1バイトずつ。-128 は「別の列（w1x）の次の int16」の印（値は format 1 とまったく同じ。大きさは約半分）
+  const w1of = W => {
     if (!W.w1q) return i16(W.w1);
-    const u = b64(W.w1q), sc = i16(W.w1s), w = new Int16Array(u.length);
-    for (let f = 0, o = 0; f < sc.length; f++) { const k = sc[f]; for (let h = 0; h < H; h++, o++) w[o] = ((u[o] << 24) >> 24) * k; }
+    const u = b64(W.w1q), x = i16(W.w1x), w = new Int16Array(u.length);
+    for (let i = 0, j = 0; i < u.length; i++) w[i] = u[i] === 128 ? x[j++] : (u[i] << 24) >> 24;
     return w;
   };
   class Net {
@@ -75,7 +75,7 @@ function ShogiAI(S) {
         this.w1 = new Int16Array(NF * H); this.p1 = new Int16Array(NF); this.b1 = new Int16Array(H);
         this.w2 = new Float32Array(2 * H * L2); this.b2 = new Float32Array(L2); this.w3 = new Float32Array(L2 * L3); this.b3 = new Float32Array(L3); this.w4 = new Float32Array(L3); this.b4 = 0;
       } else {
-        this.w1 = w1of(W, H); this.p1 = i16(W.p1); this.b1 = Int16Array.from(W.b1);
+        this.w1 = w1of(W); this.p1 = i16(W.p1); this.b1 = Int16Array.from(W.b1);
         this.w2 = Float32Array.from(W.w2); this.b2 = Float32Array.from(W.b2); this.w3 = Float32Array.from(W.w3); this.b3 = Float32Array.from(W.b3); this.w4 = Float32Array.from(W.w4); this.b4 = +W.b4 || 0;
       }
       // 探索の手の並べ替え・枝刈りに使う駒の価値も、学んだ線形の部分から取り出す（人が決めた駒の価値は使わない）
