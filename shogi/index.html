@@ -336,6 +336,7 @@ main.docmode { overflow-y: auto; overscroll-behavior: contain; }
 .cards button b { font-size: 15px; }
 .cards button small { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .cards button .stars { color: var(--gold); letter-spacing: 2px; font-size: 12px; }
+.cards button .tm { font-size: 11px; color: var(--muted); font-weight: 700; }
 .cards button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
 .hint { font-size: 12px; color: var(--muted); }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
@@ -348,11 +349,12 @@ main.docmode { overflow-y: auto; overscroll-behavior: contain; }
   .field { margin-bottom: 9px; gap: 5px; }
   .seg { gap: 4px; }
   .seg button { padding: 5px 9px; font-size: 13px; }
-  .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-  .cards button { padding: 7px 4px; text-align: center; border-radius: 10px; }
-  .cards button b { font-size: 13px; }
+  .cards { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .cards button { padding: 6px 2px; text-align: center; border-radius: 10px; }
+  .cards button .tm { font-size: 9.5px; letter-spacing: -.02em; }
+  .cards button b { font-size: 12.5px; white-space: nowrap; }
   .cards button small { display: none; }
-  .cards button .stars { letter-spacing: 0; font-size: 10px; }
+  .cards button .stars { letter-spacing: -1px; font-size: 9px; }
   .on-stats { gap: 16px; margin-bottom: 6px; }
   .on-stats .stat b { font-size: 24px; }
   .on-stats .stat span { font-size: 11px; }
@@ -469,6 +471,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .evstrip { padding: 5px 10px; }
 }
 @media (max-width: 360px) {
+  .cards button b { font-size: 11px; letter-spacing: -.04em; }
+  .cards button .tm { font-size: 8.5px; }
   .tabs button { padding: 5px 6px; font-size: 12px; }
   .top { gap: 4px; }
   .onbtn { padding: 0 7px; }

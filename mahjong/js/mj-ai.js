@@ -746,6 +746,84 @@
       return top[best].a;
     }
   }
+  // 浅い先読み（最強の候補 その2）: 候補ごとに、見えない牌を決め直した世界で「自分の次の判断（手番・鳴きの返事）か局の終わり」まで
+  // ネットどうしで進め、そこでのネットの一番よい値（局が終わっていれば局のあとの値）を平均する。最後まで打つ先読みよりずっと軽く、ぶれも小さい
+  class LookaheadAgent {
+    // o: { samples（ありうる世界の数）, k（くらべる候補の数）, margin（一番よい候補からこれ以内の値の候補だけ）, rng, ms（考える時間の上限） }
+    constructor(net, vp, o = {}) {
+      this.net = net; this.vp = vp; this.rng = o.rng || Math.random;
+      this.samples = o.samples || 32; this.k = o.k || 4; this.margin = o.margin == null ? 0.05 : o.margin; this.ms = o.ms || 0;
+      this.base = new NetAgent(net, { rng: this.rng });
+      this.play = [0, 1, 2, 3].map(() => new NetAgent(net, { rng: this.rng }));
+      this.eva = new NetAgent(net, { rng: this.rng });
+      this.name = o.name || '最強';
+      this.tmp = new Float32Array(VD);
+      this.stats = { searched: 0, changed: 0 };
+    }
+    chooseReact(r, s) { return this.base.chooseReact(r, s); }
+    chooseTurn(r) {
+      const acts = r.turnActions();
+      const ts = acts.find(a => a.t === 'tsumo');
+      if (ts) return ts;
+      const s = r.cur, v = this.base.v.load(r, s);
+      const cands = turnCandidates(v, acts);
+      if (cands.length === 1) return cands[0].a;
+      this.base.evalCands(r, s, r.drawn >= 0 ? 0 : 1, cands);
+      cands.sort((a, b) => b.q - a.q);
+      const top = cands.filter(c => c.q >= cands[0].q - this.margin).slice(0, this.k);
+      if (top.length < 2) return cands[0].a;
+      this.stats.searched++;
+      const ctx = { rules: r.rules, scores: (r.scoresBefore || r.scores).slice(), roundWind: r.roundWind, kyoku: r.kyoku, honba: r.honba, kyotaku: r.kyotakuStart != null ? r.kyotakuStart : r.kyotaku };
+      const t0 = Date.now();
+      const sum = top.map(() => 0);
+      let n = 0;
+      for (let i = 0; i < this.samples; i++) {
+        const w = determinize(r, s, this.rng);
+        for (let j = 0; j < top.length; j++) {
+          const c = w.clone();
+          try { c.doTurn(top[j].a); sum[j] += this.until(c, s, ctx); } catch (e) { sum[j] += top[j].q; }
+        }
+        n++;
+        if (this.ms && Date.now() - t0 > this.ms) break;
+      }
+      let best = 0;
+      for (let j = 1; j < top.length; j++) if (sum[j] > sum[best]) best = j;
+      if (best !== 0) this.stats.changed++;
+      return top[best].a;
+    }
+    // 自分の次の判断か局の終わりまで進めて、その時点の値
+    until(c, s, ctx) {
+      let guard = 0;
+      while (c.phase !== 'end' && guard++ < 400) {
+        if (c.phase === 'turn') {
+          if (c.cur === s) {
+            const acts = c.turnActions();
+            const ts = acts.find(a => a.t === 'tsumo');
+            if (ts) { c.doTurn(ts); continue; }
+            const v = this.eva.v.load(c, s);
+            const cands = turnCandidates(v, acts);
+            this.eva.evalCands(c, s, c.drawn >= 0 ? 0 : 1, cands);
+            let m = -1e9; for (const x of cands) if (x.q > m) m = x.q;
+            return m;
+          }
+          c.doTurn(this.play[c.cur].chooseTurn(c));
+        } else {
+          const o = c.react.options;
+          if (o[s] && !o[s].some(a => a.t === 'ron')) {
+            const v = this.eva.v.load(c, s);
+            const cands = reactCandidates(v, o[s], c.react.tile);
+            this.eva.evalCands(c, s, c.react.kind === 'discard' ? 2 : 3, cands);
+            let m = -1e9; for (const x of cands) if (x.q > m) m = x.q;
+            return m;
+          }
+          const resp = [null, null, null, null];
+          for (let p = 0; p < 4; p++) if (o[p]) resp[p] = this.play[p].chooseReact(c, p);
+          c.doReact(resp);
+        }
+      }
+      return roundValue(c, s, ctx, this.vp, this.tmp);
+    }
+  }
   function playOut(r, agents) {
     let guard = 0;
     while (r.phase !== 'end' && guard++ < 1000) {
@@ -796,7 +874,7 @@
 
   return {
     SL, AL, S_BITS, A_BITS, S_BYTES, A_BYTES, T, packWeights, unpackWeights, unpackV,
-    VD, VH, vSizes, vCount, vView, vFeatures, vForward, roundValue, determinize, SearchAgent, playOut,
+    VD, VH, vSizes, vCount, vView, vFeatures, vForward, roundValue, determinize, SearchAgent, LookaheadAgent, playOut,
     View, encodeState, encodeAction, handMetrics, turnCandidates, reactCandidates, yakuFlags,
     Net, paramSizes, viewParams, paramCount, initParams, quantize, dequantize, SIMD, simdLayout,
     EfficiencyAgent, NetAgent, analyzeTurn, analyzeReact, waitInfo,

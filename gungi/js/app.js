@@ -21,8 +21,10 @@
     normal: { label: 'ふつう', stars: 2, desc: '3手先まで読みます', time: 700, depth: 3, noise: 15 },
     strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習済みの評価で深く読みます', time: 2000 },
     max: { label: '最強', stars: 4, desc: '1手8秒。全力で読みます', time: 8000 },
+    // 超最強: 最強と同じ AI で、考える時間だけ延ばす（読む時間を2倍にすると Elo +37、4倍で +76 と測れている。README）
+    ultra: { label: '超最強', stars: 5, desc: '1手 約30秒。最強と同じAIで、じっくり読みます', time: 30000 },
   };
-  const CPU_KEYS = ['easy', 'normal', 'strong', 'max'];
+  const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   const ANALYZE_MS = 6000, HINT_MS = 2500;
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -1008,7 +1010,7 @@
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦']], draft.mode);
-    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
+    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(5 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small><i class="tm">1手 約${CPU[k].time / 1000}秒</i></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['black', '先手（先に指す）'], ['white', '後手'], ['random', 'ランダム']], draft.side);
     seg('ng-cpu-b', CPU_KEYS.map(k => [k, CPU[k].label]), draft.cpuB);
@@ -1226,10 +1228,13 @@
         <h3>しくみ</h3>
         <ul>
           <li><b>探索</b>：将棋・チェスのソフトと同じ αβ 探索（反復深化・置換表・静止探索・Null Move・LMR・枝刈り）。ブラウザでも1秒に数十万局面を読みます。</li>
-          <li><b>評価関数</b>：駒の価値・手駒・段・動ける範囲・取られそうな駒・帥の守りなど約800項目に加えて、<b>「自分の帥・相手の帥から見た各駒の位置」</b>（約10万項目）の重み付き和。将棋ソフト Bonanza・elmo 系と同じ考え方です。</li>
+          ${W.nn ? `<li><b>評価関数</b>：${W.w ? '駒の価値・段・取られそうな駒・帥から見た各駒の位置などの重み付き和（約10万項目）に、' : ''}<b>小さなニューラルネット（NNUE）</b>${W.w ? 'の補正を足したもの' : 'だけで評価します'}。ネットの入力は盤上の駒（段・重なり）・帥から見た近くの駒・手駒で、指した手で変わった分だけ計算し直します（ブラウザでは WebAssembly SIMD）。</li>
+          <li><b>強化学習</b>：AI同士の自己対局で局面を集め、「この局面から勝つ確率」を当てるようにネットを学習します（JAX）。学習した版が今の版に先後入れ替えの対戦ではっきり勝ったときだけ採用します。</li>
+          <li><b>評価値</b>：勝率 = 1 / (1 + e<sup>−評価値/600</sup>) になるよう学習しているので、評価値+600で先手の勝率は約73%です。</li>
+          <li><b>学習と対局</b>：ネットの学習は Colab の GPU で行い、対局（探索）はブラウザの CPU だけで動きます。</li>` : `<li><b>評価関数</b>：駒の価値・手駒・段・動ける範囲・取られそうな駒・帥の守りなど約800項目に加えて、<b>「自分の帥・相手の帥から見た各駒の位置」</b>（約10万項目）の重み付き和。将棋ソフト Bonanza・elmo 系と同じ考え方です。</li>
           <li><b>強化学習</b>：AI同士の自己対局で局面を集め、「この局面から先手が勝つ確率」を当てるように重みを調整します（Texel法・ロジスティック回帰）。調整した版が旧版に勝ち越したときだけ採用します。</li>
           <li><b>評価値</b>：勝率 = 1 / (1 + e<sup>−評価値/600</sup>) になるよう学習しているので、評価値+600で先手の勝率は約73%です。</li>
-          <li><b>GPUは不要</b>：この方式はCPUだけで速く学習できます。</li>
+          <li><b>GPUは不要</b>：この方式はCPUだけで速く学習できます。</li>`}
         </ul>
         <table class="lv wide-only" style="margin-top:8px"><thead><tr><th>CPUの強さ</th><th>1手の考える時間</th><th>特徴</th></tr></thead><tbody>
           ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time / 1000}秒</td><td>${CPU[k].desc}</td></tr>`).join('')}

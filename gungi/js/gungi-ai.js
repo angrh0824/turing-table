@@ -72,7 +72,7 @@ function GungiAI(G) {
 
   // 古い形式（v1: 帥との位置関係なし）の重みを読み込めるようにする
   function upgradeWeights(weights) {
-    if (weights.nn) return weights; // NNUE の重み（線形の w は持たない）
+    if (weights.nn && !weights.w) return weights; // NNUE だけの重み（線形の w は持たない）
     if (weights.version === FEATURE_VERSION && weights.w.length === NFEAT) return weights;
     // 古い形式は、足りない項目を 0 で埋める（評価値は変わらない）
     if ((weights.version === 1 && weights.w.length === NFEAT_V1) || (weights.version === 2 && weights.w.length === NFEAT_V2)) {
@@ -493,42 +493,157 @@ function GungiAI(G) {
     return net;
   }
 
+  // WebAssembly（SIMD）版: 隠れ層の行の足し引きと順伝播を 4〜8 個ずつまとめて計算する。使えない環境では JS のまま（同じ整数の計算なので値は同じ）
+  //   a(dst, src, w1, subList, nSub, addList, nAdd, H): int32 の隠れ層 dst = src − Σ w1[sub] + Σ w1[add]（w1 は int16）
+  //   f(us, them, H, x, w2, b2, L2, w3, b3, L3, w4, b4): 順伝播（w2・w3 は出力ごとの行に並べ替えた int16）
+  function nuWasmBytes() {
+    const u = n => { const r = []; do { let b = n & 127; n >>>= 7; if (n) b |= 128; r.push(b); } while (n); return r; };
+    const sl = n => { const r = []; for (;;) { const b = n & 127; n >>= 7; if ((n === 0 && !(b & 64)) || (n === -1 && (b & 64))) { r.push(b); return r; } r.push(b | 128); } };
+    const LG = i => [0x20, ...u(i)], LS = i => [0x21, ...u(i)], C = v => [0x41, ...sl(v)];
+    const ADD = 0x6a, MUL = 0x6c, SHL = 0x74, SHRS = 0x75, LTS = 0x48, GTS = 0x4a, GES = 0x4e, SELECT = 0x1b;
+    const V = (o, ...imm) => [0xfd, ...u(o), ...imm];
+    const VLOAD = off => V(0x00, 4, ...u(off)), VSTORE = off => V(0x0b, 4, ...u(off)), VL16 = off => V(0x03, 3, ...u(off));
+    const I32LOAD = [0x28, 2, 0], I16LOAD = [0x2e, 1, 0], I16STORE = [0x3b, 1, 0];
+    const X4ADD = V(0xae), X4SUB = V(0xb1), X4MIN = V(0xb6), X4MAX = V(0xb8), DOT = V(0xba), NARROW = V(0x85), LANE = i => V(0x1b, i);
+    // for (i = start; i < lim; i += step) { body }
+    const FOR = (i, start, lim, step, body) => [start, LS(i), 0x02, 0x40, 0x03, 0x40, LG(i), lim, GES, 0x0d, 1, body, LG(i), C(step), ADD, LS(i), 0x0c, 0, 0x0b, 0x0b];
+    // ---- a: 引数 0 dst 1 src 2 w1 3 subList 4 nSub 5 addList 6 nAdd 7 H / ローカル 8 c 9 k 10 r 11-14 v128
+    const rowAddr = L => [LG(2), LG(L), LG(9), C(2), SHL, ADD, I32LOAD, LG(7), MUL, LG(8), ADD, C(1), SHL, ADD, LS(10)];
+    const rowOp = OP => [0, 1, 2, 3].map(q => [LG(11 + q), LG(10), VL16(q * 8), OP, LS(11 + q)]);
+    const fa = [
+      FOR(8, C(0), LG(7), 16, [
+        LG(1), LG(8), C(2), SHL, ADD, LS(10),
+        [0, 1, 2, 3].map(q => [LG(10), VLOAD(q * 16), LS(11 + q)]),
+        FOR(9, C(0), LG(4), 1, [rowAddr(3), rowOp(X4SUB)]),
+        FOR(9, C(0), LG(6), 1, [rowAddr(5), rowOp(X4ADD)]),
+        LG(0), LG(8), C(2), SHL, ADD, LS(10),
+        [0, 1, 2, 3].map(q => [LG(10), LG(11 + q), VSTORE(q * 16)]),
+      ]),
+    ];
+    // ---- f: 引数 0 us 1 them 2 H 3 x 4 w2 5 b2 6 L2 7 w3 8 b3 9 L3 10 w4 11 b4 / ローカル 12 i 13 j 14 2H 15 x2 16 x3 17 a 18 h（i32）19 s 20 0 21 127（v128）
+    const half = (acc, them) => [
+      LG(acc), LG(12), C(2), SHL, ADD, LS(17),
+      LG(3), LG(12), them ? [LG(2), ADD] : [], C(1), SHL, ADD,
+      LG(17), VLOAD(0), LG(20), X4MAX, LG(21), X4MIN,
+      LG(17), VLOAD(16), LG(20), X4MAX, LG(21), X4MIN,
+      NARROW, VSTORE(0),
+    ];
+    const dense = (inp, nIn, w, b, nOut, out) => FOR(13, C(0), nOut, 1, [
+      LG(20), LS(19),
+      w, LG(13), nIn, MUL, C(1), SHL, ADD, LS(17),
+      FOR(12, C(0), nIn, 8, [LG(19), inp, LG(12), C(1), SHL, ADD, VLOAD(0), LG(17), LG(12), C(1), SHL, ADD, VLOAD(0), DOT, X4ADD, LS(19)]),
+      b, LG(13), C(2), SHL, ADD, I32LOAD,
+      [0, 1, 2, 3].map(q => [LG(19), LANE(q), ADD]),
+      C(6), SHRS, LS(18),
+      LG(18), C(0), LG(18), C(0), GTS, SELECT, LS(18),
+      LG(18), C(127), LG(18), C(127), LTS, SELECT, LS(18),
+      out, LG(13), C(1), SHL, ADD, LG(18), I16STORE,
+    ]);
+    const ff = [
+      C(127), V(0x11), LS(21),
+      LG(2), C(1), SHL, LS(14),
+      LG(3), LG(14), C(1), SHL, ADD, LS(15),
+      LG(15), LG(6), C(1), SHL, ADD, LS(16),
+      FOR(12, C(0), LG(2), 8, [half(0, false), half(1, true)]),
+      dense(LG(3), LG(14), LG(4), LG(5), LG(6), LG(15)),
+      dense(LG(15), LG(6), LG(7), LG(8), LG(9), LG(16)),
+      LG(11), LS(18),
+      FOR(13, C(0), LG(9), 1, [LG(18), LG(16), LG(13), C(1), SHL, ADD, I16LOAD, LG(10), LG(13), C(1), SHL, ADD, I16LOAD, MUL, ADD, LS(18)]),
+      LG(18), C(32), ADD, C(6), SHRS,
+    ];
+    const body = (locals, code) => { const b = [...locals, ...code.flat(Infinity), 0x0b]; return [...u(b.length), ...b]; };
+    const sec = (id, c) => [id, ...u(c.length), ...c];
+    const I = 0x7f;
+    return new Uint8Array([
+      0, 0x61, 0x73, 0x6d, 1, 0, 0, 0,
+      ...sec(1, [2, 0x60, 8, I, I, I, I, I, I, I, I, 0, 0x60, 12, I, I, I, I, I, I, I, I, I, I, I, I, 1, I]),
+      ...sec(2, [1, 1, 0x65, 1, 0x6d, 2, 0, 1]),
+      ...sec(3, [2, 0, 1]),
+      ...sec(7, [2, 1, 0x61, 0, 0, 1, 0x66, 0, 1]),
+      ...sec(10, [2, ...body([2, 3, I, 4, 0x7b], fa), ...body([2, 7, I, 3, 0x7b], ff)]),
+    ]);
+  }
+  let nuMod;
+  function nuWasm(net) {
+    const H = net.H, L2 = net.L2, L3 = net.L3;
+    if (H % 16 || L2 % 8 || L3 % 8) return null;
+    if (nuMod === undefined) {
+      nuMod = null;
+      try {
+        const bytes = nuWasmBytes();
+        if (typeof WebAssembly === 'object' && WebAssembly.validate(bytes)) nuMod = new WebAssembly.Module(bytes);
+      } catch (e) { nuMod = null; }
+    }
+    if (!nuMod) return null;
+    let o = 0;
+    const al = n => { const r = o; o += (n + 15) & ~15; return r; };
+    const W1 = al(NU_NF * H * 2), B1 = al(H * 4), W2 = al(2 * H * L2 * 2), B2 = al(L2 * 4), W3 = al(L2 * L3 * 2), B3 = al(L3 * 4), W4 = al(L3 * 2);
+    const X = al((2 * H + L2 + L3 + 16) * 2), FS = al(256 * 4), FA = al(256 * 4), ACC = al((NU_PLIES + 1) * 2 * H * 4);
+    try {
+      const mem = new WebAssembly.Memory({ initial: Math.ceil(o / 65536) + 1 });
+      const ex = new WebAssembly.Instance(nuMod, { e: { m: mem } }).exports, buf = mem.buffer;
+      new Int16Array(buf, W1, NU_NF * H).set(net.w1);
+      new Int32Array(buf, B1, H).set(net.b1);
+      const w2 = new Int16Array(buf, W2, 2 * H * L2);
+      for (let k = 0; k < 2 * H; k++) for (let j = 0; j < L2; j++) w2[j * 2 * H + k] = net.w2[k * L2 + j];
+      new Int32Array(buf, B2, L2).set(net.b2);
+      const w3 = new Int16Array(buf, W3, L2 * L3);
+      for (let k = 0; k < L2; k++) for (let j = 0; j < L3; j++) w3[j * L2 + k] = net.w3[k * L3 + j];
+      new Int32Array(buf, B3, L3).set(net.b3);
+      new Int16Array(buf, W4, L3).set(net.w4);
+      const a = ex.a, f = ex.f, b4 = net.b4;
+      return {
+        acc: new Int32Array(buf, ACC, (NU_PLIES + 1) * 2 * H), fs: new Int32Array(buf, FS, 256), fa: new Int32Array(buf, FA, 256),
+        rows: (dst, src, ns, na) => a(ACC + dst * 4, src < 0 ? B1 : ACC + src * 4, W1, FS, ns, FA, na, H),
+        forward: (us, them) => f(ACC + us * 4, ACC + them * 4, H, X, W2, B2, L2, W3, B3, L3, W4, b4),
+      };
+    } catch (e) { return null; }
+  }
+
   // 探索中の評価: 手数(ply)ごとに隠れ層（アキュムレータ）を持ち、指した手で変わったマス・手駒の分だけ足し引きする。
   // 帥が動いたときは、帥から見た位置の特徴だけを入れ替える（左右反転が変わったときと配置が終わったときだけ一から作り直す）
   class NNUE {
-    constructor(net) {
+    // opts.js: WebAssembly を使わない（確かめ用）
+    constructor(net, opts) {
       this.net = net;
       const H = net.H;
-      this.acc = new Int32Array((NU_PLIES + 1) * 2 * H);
+      this.wasm = opts && opts.js ? null : nuWasm(net);
+      if (this.wasm) { this.acc = this.wasm.acc; this.fs = this.wasm.fs; this.fa = this.wasm.fa; } else {
+        this.acc = new Int32Array((NU_PLIES + 1) * 2 * H);
+        this.fs = new Int32Array(256); this.fa = new Int32Array(256);
+      }
       this.psq = new Int32Array((NU_PLIES + 1) * 2);
-      this.f = new Int32Array(NU_MAXF);
-      this.fs = new Int32Array(256); this.fa = new Int32Array(256);
       this.fr = { T: null, kq: -1, eq: -1 }; this.fo = { T: null, kq: -1, eq: -1 };
       this.h1 = new Int32Array(net.L2); this.h2 = new Int32Array(net.L3);
     }
+    // acc[dst..] = acc[src..]（src < 0 なら b1）− fs の行 + fa の行
+    _rows(dst, src, ns, na) {
+      if (this.wasm) { this.wasm.rows(dst, src, ns, na); return; }
+      const { w1, b1, H } = this.net, acc = this.acc, fs = this.fs, fa = this.fa;
+      if (src < 0) for (let j = 0; j < H; j++) acc[dst + j] = b1[j];
+      else for (let j = 0; j < H; j++) acc[dst + j] = acc[src + j];
+      for (let k = 0; k < ns; k++) { const o = fs[k] * H; for (let j = 0; j < H; j++) acc[dst + j] -= w1[o + j]; }
+      for (let k = 0; k < na; k++) { const o = fa[k] * H; for (let j = 0; j < H; j++) acc[dst + j] += w1[o + j]; }
+    }
     refresh(pos, ply) { this.refreshOne(pos, ply, 0); this.refreshOne(pos, ply, 1); }
     refreshOne(pos, ply, p) {
-      const { w1, p1, b1, H } = this.net, acc = this.acc, f = this.f;
-      const base = (ply * 2 + p) * H;
-      for (let j = 0; j < H; j++) acc[base + j] = b1[j];
+      const p1 = this.net.p1, fa = this.fa;
+      const n = nuFeatures(pos, p, fa);
       let ps = 0;
-      const n = nuFeatures(pos, p, f);
-      for (let k = 0; k < n; k++) {
-        const o = f[k] * H;
-        for (let j = 0; j < H; j++) acc[base + j] += w1[o + j];
-        ps += p1[f[k]];
-      }
+      for (let k = 0; k < n; k++) ps += p1[fa[k]];
       this.psq[ply * 2 + p] = ps;
+      this._rows((ply * 2 + p) * this.net.H, -1, 0, n);
     }
     // pos.make の直後に呼ぶ（ply-1 → ply）
     update(pos, ply) {
       const U = pos.u, u = (pos.nu - 1) * 36;
       if (U[u + 6] !== pos.phase) { this.refresh(pos, ply); return; }
-      const { w1, p1, H } = this.net, acc = this.acc, psq = this.psq;
-      acc.copyWithin(ply * 2 * H, (ply - 1) * 2 * H, ply * 2 * H);
-      psq[ply * 2] = psq[ply * 2 - 2]; psq[ply * 2 + 1] = psq[ply * 2 - 1];
+      const { p1, H } = this.net, psq = this.psq;
       const from = U[u + 10], to = U[u + 15];
-      if (to < 0) return; // パス・済
+      if (to < 0) { // パス・済
+        for (let p = 0; p < 2; p++) { psq[ply * 2 + p] = psq[ply * 2 - 2 + p]; this._rows((ply * 2 + p) * H, (ply * 2 - 2 + p) * H, 0, 0); }
+        return;
+      }
       const stk = pos.stk, hgt = pos.hgt, c = U[u + 5], fs = this.fs, fa = this.fa;
       const kingMoved = U[u + 3] !== pos.king[0] || U[u + 4] !== pos.king[1];
       for (let p = 0; p < 2; p++) {
@@ -570,17 +685,19 @@ function GungiAI(G) {
           for (let j = nw; j < o; j++) fs[ns++] = hb + NU_HOFS[t] + j;
           for (let j = o; j < nw; j++) fa[na++] = hb + NU_HOFS[t] + j;
         }
-        const base = (ply * 2 + p) * H;
-        let ps = psq[ply * 2 + p];
-        for (let k = 0; k < ns; k++) { const o = fs[k] * H; for (let j = 0; j < H; j++) acc[base + j] -= w1[o + j]; ps -= p1[fs[k]]; }
-        for (let k = 0; k < na; k++) { const o = fa[k] * H; for (let j = 0; j < H; j++) acc[base + j] += w1[o + j]; ps += p1[fa[k]]; }
+        let ps = psq[ply * 2 - 2 + p];
+        for (let k = 0; k < ns; k++) ps -= p1[fs[k]];
+        for (let k = 0; k < na; k++) ps += p1[fa[k]];
         psq[ply * 2 + p] = ps;
+        this._rows((ply * 2 + p) * H, (ply * 2 - 2 + p) * H, ns, na);
       }
     }
     // ply のアキュムレータから、手番側から見た評価値
     evalAt(pos, ply) {
       const net = this.net, H = net.H, L2 = net.L2, L3 = net.L3, acc = this.acc, w2 = net.w2, h1 = this.h1, h2 = this.h2;
       const s = pos.stm, oS = (ply * 2 + s) * H, oO = (ply * 2 + (s ^ 1)) * H;
+      const lin = (this.psq[ply * 2 + s] - this.psq[ply * 2 + (s ^ 1)]) >> 1;
+      if (this.wasm) { const v = this.wasm.forward(oS, oO) + lin; return v > 30000 ? 30000 : v < -30000 ? -30000 : v; }
       for (let j = 0; j < L2; j++) h1[j] = net.b2[j];
       for (let k = 0; k < H; k++) {
         let v = acc[oS + k];
@@ -607,7 +724,7 @@ function GungiAI(G) {
       }
       let out = net.b4;
       for (let j = 0; j < L3; j++) { const v = h2[j] >> 6; if (v > 0) out += (v > 127 ? 127 : v) * net.w4[j]; }
-      const v = ((out + 32) >> 6) + ((this.psq[ply * 2 + s] - this.psq[ply * 2 + (s ^ 1)]) >> 1);
+      const v = ((out + 32) >> 6) + lin;
       return v > 30000 ? 30000 : v < -30000 ? -30000 : v;
     }
     // 探索の外から呼ぶとき（一から計算）
@@ -670,10 +787,12 @@ function GungiAI(G) {
     setWeights(weights) {
       weights = upgradeWeights(weights);
       this.weights = weights;
-      // weights.nn があれば評価はネットだけ（NNUE）。なければ線形の評価（＋古い補正のネット）
-      this.nnFull = !!weights.nn;
+      // weights.nn だけなら評価はネットだけ（NNUE）。weights.nn と weights.w の両方なら「線形の評価 ＋ ネットの補正」。
+      // weights.nn がなければ線形の評価（＋古い補正のネット）
+      this.nnFull = !!weights.nn && !weights.w;
+      this.nnAdd = !!weights.nn && !!weights.w;
       this.w = weights.w ? Float64Array.from(weights.w) : null;
-      this.nn = this.nnFull ? new NNUE(decodeNNUE(weights.nn)) : this.oldNet ? new NNEval(this.oldNet) : null;
+      this.nn = weights.nn ? new NNUE(decodeNNUE(weights.nn)) : this.oldNet ? new NNEval(this.oldNet) : null;
     }
 
     clearTT() { this.ttKey.fill(0); this.ttMove.fill(0); this.ttScore.fill(0); this.ttDF.fill(0); }
@@ -685,7 +804,8 @@ function GungiAI(G) {
       else {
         v = evaluate(pos, this.w, null, this.ws);
         if (pos.stm) v = -v;
-        if (this.nn) v += (ply === undefined ? this.nn.logit(pos) : this.nn.evalAt(pos, ply)) * SCALE;
+        if (this.nnAdd) v += ply === undefined ? this.nn.score(pos) : this.nn.evalAt(pos, ply);
+        else if (this.nn) v += (ply === undefined ? this.nn.logit(pos) : this.nn.evalAt(pos, ply)) * SCALE;
       }
       if (this.noise) v += ((Math.imul(pos.hlo ^ this.salt, 0x9E3779B1) >>> 8) % (2 * this.noise + 1)) - this.noise;
       return Math.round(v);

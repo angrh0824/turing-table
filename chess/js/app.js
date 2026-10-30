@@ -24,9 +24,11 @@
     easy: { label: 'やさしい', stars: 1, desc: 'すぐ指します。1手先だけを、気まぐれに見ます', time: 400, depth: 1, noiseP: 3 },
     normal: { label: 'ふつう', stars: 2, desc: '1手に約3000局面を読みます（ときどき迷います）', time: 1500, nodes: 3000, noiseP: 0.3 },
     strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習した評価で深く読みます', time: 2000 },
-    max: { label: '最強', stars: 4, desc: '1手8秒・全スレッド。全力で読みます', time: 8000, parallel: true },
+    max: { label: '最強', stars: 4, desc: '1手8秒・全スレッド。全力で読みます', time: 8000, parallel: true, hint: '1手 約8秒' },
+    // 超最強: 最強と同じ AI で、考える時間を大きく延ばしたもの（延ばすと強くなることを測ってから足した。README）
+    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、1手 約30秒・全スレッド。じっくり読みます', time: 30000, parallel: true, hint: '1手 約30秒' },
   };
-  const CPU_KEYS = ['easy', 'normal', 'strong', 'max'];
+  const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   // 弱い段の「気まぐれ」の大きさは、学習から測ったポーンの価値の何倍か（世代で評価の目盛りが変わっても同じくらいの弱さに）
   for (const k of CPU_KEYS) if (CPU[k].noiseP) CPU[k].noise = Math.round(CPU[k].noiseP * Math.max(30, VALUES[PAWN] || 100));
   const ANALYZE_MS = 6000, HINT_MS = 2500;
@@ -127,6 +129,8 @@
         w.postMessage(msg);
       });
     },
+    // 読みを今すぐ終わらせて、それまでの最善手を返させる（共有の停止フラグが使えるときだけ。使えなければ false）
+    stopNow() { if (this.busy && this.flag) { Atomics.store(new Int32Array(this.flag), 0, -this.id); return true; } return false; },
     cancel() {
       if (this.busy) {
         if (this.flag) Atomics.store(new Int32Array(this.flag), 0, -this.id);
@@ -590,6 +594,8 @@
       if (myTurn && isCPU(c) && S.thinking) {
         const ci = S.cpuInfo;
         st = `<span class="think"><i></i>考え中${ci ? `・深さ${ci.depth}` : ''}</span>`;
+        // 長く考える段（最強・超最強）は、待ちきれないときに「すぐ指して」で今までの最善手を指させる
+        if (CPU[S.seats[c]].time >= 8000) st += '<button class="btn small" data-act="movenow" title="今までに読んだ中で一番よい手を、すぐ指します">すぐ指して</button>';
       } else if (myTurn && isRemote(c)) {
         st = S.online && NET_ && NET_.status === 'on' && !S.online.oppPresent ? '<span class="think lost">接続切れ</span>' : '<span class="think"><i></i>相手の番</span>';
       } else if (S.result && live()) {
@@ -899,7 +905,7 @@
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦']], draft.mode);
-    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
+    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(5 - CPU[k].stars)}</span><b>${CPU[k].label}</b>${CPU[k].hint ? `<span class="tm">${CPU[k].hint}</span>` : ''}<small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['white', '白（先に指す）'], ['black', '黒'], ['random', 'ランダム']], draft.side);
     seg('ng-cpu-w', CPU_KEYS.map(k => [k, CPU[k].label]), draft.cpuW);
@@ -1104,6 +1110,7 @@
           ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time / 1000}秒</td><td>${CPU[k].desc}</td></tr>`).join('')}
         </tbody></table></div>
         ${levelRows ? `<p class="hint" style="margin:12px 0 6px">段階どうしの対戦（${esc(lv.note || '')}）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>勝率</th><th>Elo 差</th><th>局数</th></tr></thead><tbody>${levelRows}</tbody></table></div>` : ''}
+        <p class="hint" style="margin-top:10px"><b>考える時間を延ばすと強くなる</b>: 同じ AI（第99世代）で1手に読む局面の数を2倍（6万→12万）にすると、400局で 240勝86分74敗（Elo +153±32）。そこで、最強と同じ AI で1手 約30秒（最強の約3.75倍）読む「超最強」を足しました。</p>
         <p class="hint">人間のトップに勝てるかは、オンライン対戦の成績で見ていきます。</p>
       </div>`;
     docTabs($('view-ai'), 'ai');
@@ -1121,6 +1128,14 @@
     }));
     $('view-rules').addEventListener('click', e => { const chip = e.target.closest('#pchips button'); if (chip) renderPiece(Number(chip.dataset.t)); });
     document.addEventListener('click', e => {
+      // 「すぐ指して」: 停止フラグで読みを止めると、ワーカーがそれまでの最善手を返して指す。止められない環境では、届いている読み筋の最善手を指す
+      if (e.target.closest('[data-act="movenow"]') && S.thinking && live()) {
+        if (!AI.stopNow()) {
+          const ci = S.cpuInfo, m = ci && ci.ply === S.moves.length && ci.pv[0];
+          if (m && S.pos.isLegal(m)) { AI.cancel(); S.thinking = false; play(m); }
+        }
+        return;
+      }
       if (!e.target.closest('.settings-wrap')) { $('settings').hidden = true; $('btn-settings').setAttribute('aria-expanded', 'false'); }
       if (!e.target.closest('.more-wrap')) { $('menu-more').hidden = true; $('btn-more').setAttribute('aria-expanded', 'false'); }
       if (!e.target.closest('#promo') && !e.target.closest('.sq') && S.promo != null) { hidePromo(); renderMarks(); }

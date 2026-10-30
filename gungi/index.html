@@ -368,7 +368,8 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg button { border: 1px solid var(--line); background: var(--surface-2); padding: 7px 14px; border-radius: 9px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
+.cards button .tm { display: none; font-style: normal; color: var(--muted); font-size: 10px; }
 .cards button { border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 10px 12px; cursor: pointer; text-align: left; display: grid; gap: 2px; }
 .cards button b { font-size: 15px; }
 .cards button small { color: var(--muted); font-size: 11px; line-height: 1.5; }
@@ -382,10 +383,11 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .field { margin-bottom: 12px; gap: 6px; }
   .seg { gap: 4px; }
   .seg button { padding: 6px 10px; font-size: 13px; }
-  .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-  .cards button { padding: 7px 4px; text-align: center; border-radius: 10px; }
-  .cards button b { font-size: 13px; }
+  .cards { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .cards button { padding: 7px 2px; text-align: center; border-radius: 10px; }
+  .cards button b { font-size: 13px; white-space: nowrap; }
   .cards button small { display: none; }
+  .cards button .tm { display: block; }
   .cards button .stars { letter-spacing: 0; font-size: 10px; }
   .on-stats { gap: 16px; margin-bottom: 6px; }
   .on-stats .stat b { font-size: 24px; }

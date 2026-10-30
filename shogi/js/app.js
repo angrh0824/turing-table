@@ -23,8 +23,9 @@
     normal: { label: 'ふつう', stars: 2, desc: '数手先まで読みます', nodes: 6000, noise: 50 },
     strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習した評価で深く読みます', time: 2000 },
     max: { label: '最強', stars: 4, desc: '1手8秒。すべてのスレッドで全力で読みます', time: 8000, parallel: true },
+    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、1手 約30秒じっくり読みます（すべてのスレッド）', time: 30000, parallel: true },
   };
-  const CPU_KEYS = ['easy', 'normal', 'strong', 'max'];
+  const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   const ANALYZE_MS = 6000, HINT_MS = 2500;
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -838,7 +839,7 @@
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦']], draft.mode);
-    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
+    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(5 - CPU[k].stars)}</span><b>${CPU[k].label}</b>${CPU[k].time ? `<span class="tm">1手 約${CPU[k].time / 1000}秒</span>` : ''}<small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-handi', HANDICAP_KEYS.map(k => [k, HANDICAPS[k].name]), draft.handicap);
     const h = HANDICAPS[draft.handicap];
@@ -1004,7 +1005,7 @@
     }
     const rows = h.slice(-30).reverse().map(e => `<tr><td>第${e.gen}世代${e.accepted ? '' : '（候補）'}</td><td>${(e.totalGames || 0).toLocaleString()}</td><td>${e.w ?? ''}勝${e.l ?? ''}敗${e.d ?? ''}分</td><td>${e.elo >= 0 ? '+' : ''}${e.elo} ±${e.err}</td><td>${e.accepted ? '採用' : '不採用'}</td></tr>`).join('');
     const mrows = ms.slice(-12).reverse().map(m => `<tr><td>第${m.gen}世代 vs ${m.anchor}</td><td>${m.w}勝${m.l}敗${m.d}分</td><td>${(m.score * 100).toFixed(1)}%</td><td>${m.score >= 1 ? '全勝（差が大きすぎて測れない）' : `${m.elo >= 0 ? '+' : ''}${m.elo} ±${m.eloErr}`}</td></tr>`).join('');
-    const lvRows = LV && LV.pairs ? LV.pairs.map(p => `<tr><td>${CPU[p.a].label} vs ${CPU[p.b].label}</td><td>${p.w}勝${p.l}敗${p.d}分</td><td>${!p.l && !p.d ? '全勝' : `${p.elo >= 0 ? '+' : ''}${p.elo} ±${p.err}`}</td></tr>`).join('') : '';
+    const lvRows = LV && LV.pairs ? LV.pairs.filter(p => CPU[p.a] && CPU[p.b]).map(p => `<tr><td>${CPU[p.a].label} vs ${CPU[p.b].label}${p.note ? `<br><small style="color: var(--muted)">${esc(p.note)}</small>` : ''}</td><td>${p.w}勝${p.l}敗${p.d}分</td><td>${!p.l && !p.d ? '全勝' : `${p.elo >= 0 ? '+' : ''}${p.elo} ±${p.err}`}</td></tr>`).join('') : '';
     $('view-ai').innerHTML = `
       <div class="card" data-tab="強さ">
         <h3>この AI の強さ</h3>
@@ -1024,18 +1025,18 @@
         <h3>しくみ（すべて自作・人の知識なし）</h3>
         <ul>
           <li><b>何も知らない状態から</b>: 最初（第0世代）は評価が全部 0。駒の価値も、人の棋譜・定跡・ほかの将棋ソフトも使っていません。強さは自己対局の結果だけから学びます。</li>
-          <li><b>評価（小さなニューラルネット）</b>: 局面を「手番の側から見た特徴」と「相手から見た特徴」にし（駒×マス・持ち駒の枚数・自玉と敵玉から見た近くの駒の位置、約4800種類）、64個の隠れたユニット → 16 → 16 → 1 で勝率を出します。指すたびに変わった駒の分だけ足し引きするので速く、整数にして約${W && W.w1 ? Math.round(W.w1.length * 0.75 / 1024) : 600}KBでブラウザに入っています。</li>
+          <li><b>評価（小さなニューラルネット）</b>: 局面を「手番の側から見た特徴」と「相手から見た特徴」にし（駒×マス・持ち駒の枚数・自玉と敵玉から見た近くの駒の位置、約4800種類）、${W && W.H || 64}個の隠れたユニット → ${W && W.L2 || 16} → ${W && W.L3 || 16} → 1 で勝率を出します。指すたびに変わった駒の分だけ足し引きするので速く（使えるブラウザでは WebAssembly SIMD で計算）、整数にして約${W ? Math.round(((W.w1 || W.w1q || '').length + (W.w1s || '').length + (W.p1 || '').length) * 0.75 / 1024) : 600}KBでブラウザに入っています。</li>
           <li><b>探索</b>: αβ探索（反復深化・PVS・置換表・静止探索・Null Move・LMR・枝刈り）。千日手・連続王手の千日手・入玉宣言も読みの中で考えます。「最強」は複数の Web Worker が置換表を共有して同じ局面を読みます（Lazy SMP）。</li>
           <li><b>強化学習</b>: 今の最強版どうしで自己対局 → 出てきた局面の「結果」と「読みの値」を混ぜた勝率に NN を合わせる → 新旧で対戦して勝ち越したら採用、をくり返します。</li>
           <li><b>評価値</b>: 勝率 = 1 / (1 + e<sup>−評価値/600</sup>)。+600 で約73%。</li>
         </ul>
       </div>
       <div class="card" data-tab="CPU の強さ">
-        <h3>CPU の4段階</h3>
+        <h3>CPU の5段階</h3>
         <div class="tbl"><table class="lv"><thead><tr><th>強さ</th><th>読み</th><th>特徴</th></tr></thead><tbody>
           ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time ? `1手${CPU[k].time / 1000}秒${CPU[k].parallel ? `・${THREADS}スレッド` : ''}` : `${CPU[k].nodes.toLocaleString()}局面`}</td><td>${CPU[k].desc}</td></tr>`).join('')}
         </tbody></table></div>
-        ${lvRows ? `<p class="hint" style="margin:12px 0 4px">段階どうしの対戦（${esc(LV.note || '')}）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>Elo</th></tr></thead><tbody>${lvRows}</tbody></table></div>` : ''}
+        ${lvRows ? `<p class="hint" style="margin:12px 0 4px">段階どうしの対戦（${LV.note ? esc(LV.note) + '。' : ''}同じ序盤から先後入れ替え。「最強」「超最強」は本当は複数スレッドなので、実際はもっと差があります）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>Elo</th></tr></thead><tbody>${lvRows}</tbody></table></div>` : ''}
       </div>`;
     docTabs($('view-ai'), 'ai');
   }
