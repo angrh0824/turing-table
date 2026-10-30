@@ -164,7 +164,7 @@ body.L-land #player-top { grid-row: 1; } body.L-land .boardfoot { grid-row: 2; }
 .coords.cbot { bottom: calc(var(--u) * .15); }
 .grid { position: absolute; left: calc(var(--u) * .32); top: calc(var(--u) * .5); width: calc(var(--u) * 9); height: calc(var(--u) * 10); display: grid; grid-template-columns: repeat(9, 1fr); grid-template-rows: repeat(10, 1fr); }
 .sq { position: relative; border: 0; padding: 0; margin: 0; cursor: default; min-width: 0; min-height: 0; display: grid; place-items: center; background: transparent; }
-.sq.can { cursor: pointer; }
+.sq.can, .sq.arrowto { cursor: pointer; }
 .sq .tint { position: absolute; inset: 6%; border-radius: 50%; pointer-events: none; z-index: 0; }
 .sq.last .tint { inset: 0; background: radial-gradient(circle closest-side, rgba(214, 160, 40, .28) 0 80%, var(--hl-last) 83% 97%, rgba(214, 160, 40, 0) 100%); }
 .sq.lastfrom .tint { inset: 33%; background: var(--hl-last); box-shadow: 0 0 0 calc(var(--u) * .05) rgba(255, 240, 200, .5); }
@@ -436,8 +436,6 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .tabs button { padding: 5px 10px; font-size: 13px; }
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
-  .onbtn .lbl { display: none; }
-  .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl { display: inline; }
   .controls .btn { padding: 6px 10px; font-size: 13px; }
   .player { padding: 4px 10px; min-height: 42px; }
   .player .chip { width: 24px; height: 24px; }
@@ -465,10 +463,11 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .brand .mark { display: none; }
   .brand h1 { font-size: 17px; letter-spacing: 0; }
   .onbtn small { display: none; }
-  .tabs button { padding: 5px 7px; font-size: 12.5px; }
-  .top { gap: 6px; }
+  .onbtn { padding: 0 7px; gap: 4px; }
+  .tabs button { padding: 5px 5px; font-size: 12.5px; }
+  .top { gap: 5px; }
 }
-@media (max-width: 360px) { .brand h1 { font-size: 15px; } .tabs button { padding: 5px 6px; font-size: 12px; } }
+@media (max-width: 360px) { .brand h1 { font-size: 15px; } .tabs button { padding: 5px 4px; font-size: 12px; } }
 /* 背の低い画面（スマホ横） */
 body.L-land .top { padding-block: 6px 6px; }
 body.L-land .brand span { display: none; }

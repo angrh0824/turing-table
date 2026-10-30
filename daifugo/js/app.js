@@ -911,18 +911,21 @@
     draft = JSON.parse(JSON.stringify(cfg));
     drawNew();
     $('dlg-new').hidden = false;
-    $('ng-start').focus();
+    // いちばん上（遊び方）から見えるように。「始める」に移すときも画面は動かさない
+    $('dlg-new').querySelector('.dialog').scrollTop = 0;
+    try { $('ng-start').focus({ preventScroll: true }); } catch (e) { /* 古いブラウザ */ }
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = (CPU[draft.cpu] ? CPU[draft.cpu].desc : '') + (HAS_NET ? '' : '（学習したネットがまだないので、どの強さも「弱い札から出す」打ち方です）');
+    // 遊び方: 最後の「オンラインの卓」を選ぶと、このダイアログを閉じてオンラインのパネルを開く（いまの対局はそのまま）
+    seg('ng-mode', [['cpu', 'CPU と対局'], ['watch', 'CPU どうしを観戦'], ['online', 'オンラインの卓']], draft.watch ? 'watch' : 'cpu');
     seg('ng-games', [[3, '3回戦'], [5, '5回戦'], [10, '10回戦'], [0, '制限なし']], draft.games);
     seg('ng-jokers', [[0, 'なし'], [1, '1枚'], [2, '2枚']], draft.rules.jokers);
     const sw = list => list.map(r => `<label class="switch" title="${esc(r.desc)}"><input type="checkbox" data-rule="${r.key}"${draft.rules[r.key] ? ' checked' : ''}> ${r.label}</label>`).join('');
     $('ng-basic').innerHTML = sw(D.RULE_LIST.filter(r => r.group === 'basic' && r.key !== 'jokers'));
     $('ng-local').innerHTML = sw(D.RULE_LIST.filter(r => r.group === 'local'));
-    $('ng-watch').checked = !!draft.watch;
   }
 
   // ------------------------------------------------------------------ ルールと AI のページ
@@ -1136,7 +1139,9 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
-        if (id === 'ng-cpu') draft.cpu = v;
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; $('btn-online').click(); return; }
+        if (id === 'ng-mode') draft.watch = v === 'watch';
+        else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-games') draft.games = Number(v);
         else if (id === 'ng-jokers') draft.rules.jokers = Number(v);
         drawNew();
@@ -1144,7 +1149,7 @@
       }
       if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
     });
-    $('dlg-new').addEventListener('change', e => { if (e.target.id === 'ng-watch') { draft.watch = e.target.checked; return; } const k = e.target.dataset && e.target.dataset.rule; if (k) draft.rules[k] = e.target.checked; });
+    $('dlg-new').addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.rule; if (k) draft.rules[k] = e.target.checked; });
     $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startMatch(draft); });
     // 結果

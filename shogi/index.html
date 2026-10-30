@@ -451,9 +451,9 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .tabs button { padding: 5px 8px; font-size: 13px; }
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
-  /* 狭い画面: オンラインのボタンは人数だけ（つながっていないときは「対戦」） */
+  /* 狭い画面: オンラインのボタンは「対戦」と人数（「対戦」は必ず出す） */
   .onbtn .lbl, .onbtn small { display: none; }
-  .onbtn:not([data-st="on"]) .short { display: inline; }
+  .onbtn .short { display: inline; }
   .on-row { grid-template-columns: minmax(0, 1fr) auto; }
   .board-col { gap: 5px; }
   .player { padding: 3px 8px; gap: 0 6px; }
@@ -531,7 +531,7 @@ body.wide .hp { width: 42px; height: 46px; }
     <button role="tab" id="tab-rules" aria-selected="false" data-tab="rules">ルール</button>
     <button role="tab" id="tab-ai" aria-selected="false" data-tab="ai">AI</button>
   </nav>
-  <button class="onbtn" id="btn-online" data-st="off" title="オンライン対戦（いまオンラインの人数・対戦待ちの人数）"><span class="dot"></span><span class="lbl">オンライン</span><span class="short">対戦</span><span class="cnt"></span></button>
+  <button class="onbtn" id="btn-online" data-st="off" title="オンライン対戦（いまオンラインの人数・対戦待ちの人数）"><span class="dot"></span><span class="lbl">オンライン対戦</span><span class="short">対戦</span><span class="cnt"></span></button>
   <div class="settings-wrap">
     <button class="iconbtn" id="btn-settings" aria-label="表示の設定" aria-expanded="false">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>

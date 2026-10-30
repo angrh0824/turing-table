@@ -421,8 +421,6 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .tabs button { padding: 5px 9px; font-size: 12.5px; }
   .iconbtn { width: 32px; height: 32px; }
   .onbtn { height: 32px; padding: 0 8px; gap: 5px; font-size: 12px; }
-  .onbtn .lbl { display: none; }
-  .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl { display: inline; }
   .on-row { grid-template-columns: minmax(0, 1fr) auto; }
   .on-row .hint { grid-column: 1; }
   .board-col { gap: 5px; }
@@ -436,12 +434,15 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .navrow .ibtn { width: 32px; }
 }
 @media (max-width: 430px) {
-  .top { gap: 5px; }
-  .brand h1 { font-size: 15.5px; letter-spacing: -.01em; }
+  .top { gap: 4px; }
+  .brand { gap: 4px; }
+  .brand h1 { font-size: 14px; letter-spacing: -.03em; }
   .brand .home { font-size: 22px; padding-right: 0; }
   .tabs { padding: 2px; }
-  .tabs button { padding: 5px 7px; font-size: 12px; }
+  .tabs button { padding: 5px 6px; font-size: 12px; }
+  .onbtn { padding: 0 7px; gap: 4px; }
   .onbtn small { display: none; }
+  .iconbtn { width: 30px; height: 30px; }
 }
 .lay-land .top { padding-block: 4px 4px; }
 .lay-land .brand h1 { font-size: 19px; }

@@ -220,7 +220,9 @@
     const st = NET ? NET.status : 'off';
     b.dataset.st = st;
     const c = NET && st === 'on' ? NET.counts() : null, g = c && (c.byGame[GAME] || { wait: 0 });
-    b.querySelector('.cnt').innerHTML = TAB ? `卓<small> ${esc(tableCode)}</small>` : c ? `${c.online}<small>人・待ち${g.wait}</small>` : st === 'connecting' ? '…' : '';
+    // つながっていれば「対戦」（狭い画面でも消さない）、つながっていなければ「オンライン」
+    b.querySelector('.lbl').textContent = st === 'on' || st === 'connecting' ? '対戦' : 'オンライン';
+    b.querySelector('.cnt').innerHTML = TAB ? `卓<small> ${esc(tableCode)}</small>` : c ? `${c.online}人<small>・待ち${g.wait}</small>` : st === 'connecting' ? '…' : '';
   }
   function tables() {
     if (!NET || NET.status !== 'on') return [];

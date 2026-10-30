@@ -353,9 +353,8 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .brand span { display: none; }
   .tabs button { padding: 5px 9px; font-size: 13px; }
   .iconbtn { width: 33px; height: 33px; }
-  .onbtn { padding: 0 9px; gap: 4px; height: 33px; }
-  .onbtn .lbl { display: none; }
-  .top .onbtn .ico { display: block; }
+  /* オンラインの入口: 狭い画面でも「対戦」の文字を必ず出す（例「● 対戦 3人」） */
+  .onbtn { padding: 0 8px; gap: 4px; height: 33px; font-size: 12.5px; }
   .onbtn .cnt small { display: none; }
   .play { gap: 5px; }
   .table { gap: 5px; }
@@ -465,6 +464,15 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   table.lv th, table.lv td { padding: 4px 5px; }
   .ex .mc { width: 24px; }
 }
+/* とても狭い画面: 見出し・タブ・「● 対戦 3人」・設定が1行に収まるように詰める */
+@media (max-width: 400px) {
+  .top { gap: 5px; }
+  .brand h1 { font-size: 19px; letter-spacing: .04em; }
+  .brand .home { font-size: 22px; padding: 0 0 3px; }
+  .tabs { padding: 2px; }
+  .tabs button { padding: 4px 7px; font-size: 12.5px; }
+  .onbtn { padding: 0 7px; }
+}
 /* 低い横画面（スマホの横向き）: ダイアログを画面の高さに収める。新しい対局は2列に */
 @media (orientation: landscape) and (max-height: 500px) {
   .overlay { padding: 8px; }
@@ -487,8 +495,10 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .dialog .actions { margin-top: 2px; }
   .dialog .actions .btn { padding: 5px 12px; }
   #dlg-new .dialog { width: min(820px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); column-gap: 18px;
-    grid-template-areas: "h h" "cpu basic" "games basic" "jokers local" "act local"; align-content: start; }
+    grid-template-areas: "h mode" "cpu basic" "games basic" "jokers local" "act local"; align-content: start; }
   #dlg-new h2 { grid-area: h; }
+  #dlg-new .f-mode { grid-area: mode; flex-direction: row; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  #dlg-new .f-mode .lab { display: none; }
   #dlg-new .f-cpu { grid-area: cpu; } #dlg-new .f-games { grid-area: games; } #dlg-new .f-jokers { grid-area: jokers; }
   #dlg-new .f-basic { grid-area: basic; } #dlg-new .f-local { grid-area: local; } #dlg-new .actions { grid-area: act; align-self: end; justify-content: flex-start; }
   #dlg-new .rules { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
@@ -605,8 +615,9 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 <div class="overlay" id="dlg-new" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ng-title">
     <h2 id="ng-title">新しい対局</h2>
+    <div class="field f-mode"><span class="lab">遊び方</span><div class="seg" id="ng-mode"></div></div>
     <div class="field f-cpu"><span class="lab">CPU の強さ（3人とも）</span><div class="cards" id="ng-cpu"></div><span class="hint" id="ng-cpu-desc"></span></div>
-    <div class="field f-games"><span class="lab">回数</span><div class="seg" id="ng-games"></div><label class="switch"><input type="checkbox" id="ng-watch"> あなたの席も CPU にして観戦する</label></div>
+    <div class="field f-games"><span class="lab">回数</span><div class="seg" id="ng-games"></div></div>
     <div class="field f-jokers"><span class="lab">ジョーカー</span><div class="seg" id="ng-jokers"></div></div>
     <div class="field f-basic"><span class="lab">基本のルール</span><div class="rules" id="ng-basic"></div></div>
     <div class="field f-local"><span class="lab">ローカルルール</span><div class="rules" id="ng-local"></div><span class="hint">くわしくは「ルール」のタブに。</span></div>

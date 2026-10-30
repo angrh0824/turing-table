@@ -1100,6 +1100,8 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
+        // オンライン対戦: すぐこのダイアログを閉じてオンラインのパネルへ（今の対局はオンラインで始まるまでそのまま）
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; schedule(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-cpu-w') draft.cpuW = v;
@@ -1163,7 +1165,7 @@
   function openNew() { drawNew(); $('dlg-new').hidden = false; }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(v) === String(val)}">${l}</button>`).join(''); };
-    seg('ng-mode', [['cpu', 'CPU と対局'], ['pvp', 'ふたりで（1台）'], ['watch', 'CPU どうしを観戦']], draft.mode);
+    seg('ng-mode', [['cpu', 'CPU と対局'], ['pvp', 'ふたりで（1台）'], ['watch', 'CPU どうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-cpu-w', CPU_KEYS.map(k => [k, '白: ' + CPU[k].label]), draft.cpuW);
@@ -1659,6 +1661,8 @@
     const st = NET ? NET.status : 'off';
     b.dataset.st = st;
     const c = NET && st === 'on' ? NET.counts() : null, g = c && (c.byGame[GAME] || { wait: 0 });
+    // 「対戦」の文字は狭い画面でも必ず出す（数字だけだとオンライン対戦の入口と分からないため）。つながっていないときは「オンライン」
+    b.querySelector('.lbl').textContent = st === 'on' || st === 'connecting' ? '対戦' : 'オンライン';
     b.querySelector('.cnt').innerHTML = c ? `${c.online}人<small>・待ち${g.wait}</small>` : st === 'connecting' ? '…' : '';
   }
   function renderLobby() {

@@ -384,8 +384,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .tabs button { padding: 5px 10px; font-size: 13px; }
   .iconbtn { width: 34px; height: 34px; flex: none; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
-  .onbtn .lbl, .onbtn small { display: none; }
-  .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl { display: inline; }
+  .onbtn .lw, .onbtn small { display: none; } /* 狭い画面: 「● 対戦 3人」（「対戦」は必ず出す） */
   .brand { gap: 6px; }
   .on-row { grid-template-columns: minmax(0, 1fr) auto; }
   .on-row .hint { grid-column: 1; }

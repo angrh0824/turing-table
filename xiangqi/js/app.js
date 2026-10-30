@@ -288,10 +288,19 @@
   //   選んだ駒の行き先 → すぐ指す
   //   相手の駒・動かせない駒 → その駒の利きを見る（もう一度タップで消す）
   const canMoveFrom = sq => S.legal.some(m => C.mvFrom(m) === sq);
+  // 盤に矢印で出している最善手・ヒントの手（指せる手のときだけ）。その行き先をタップすれば、駒を選ばなくてもその手を指せる
+  function arrowMove() {
+    const info = S.info;
+    if (!live() || !info || info.kind === 'cpu' || info.ply !== S.moves.length || !info.pv || !info.pv.length) return 0;
+    if (info.kind !== 'hint' && !settings.arrow) return 0;
+    return S.legal.includes(info.pv[0]) ? info.pv[0] : 0;
+  }
   function onSquare(sq) {
     const pos = shownPos(), p = pos.b[sq];
     if (!humanTurn()) { setInspect(p && S.inspect !== sq ? sq : -1); return; }
     if (S.sel >= 0 && S.targets.has(sq)) { moveTo(sq); return; }
+    const am = arrowMove();
+    if (am && C.mvTo(am) === sq) { play(am); return; }
     if (p && (p >> 3) === pos.stm && canMoveFrom(sq)) {
       if (S.sel === sq) { clearSel(); return; }
       select(sq);
@@ -554,6 +563,10 @@
       board.appendChild(svg);
     }
     const info = S.info, pos = shownPos();
+    // 矢印の行き先は、タップするとその手を指せる（onSquare）。押せることがわかるようにカーソルを変える
+    document.querySelectorAll('#grid .sq.arrowto').forEach(x => x.classList.remove('arrowto'));
+    const am = humanTurn() ? arrowMove() : 0;
+    if (am) { const el = sqEl(C.mvTo(am)); if (el) el.classList.add('arrowto'); }
     const ok = info && info.kind !== 'cpu' && (info.kind === 'hint' || settings.arrow) && info.ply === shownPly() && info.pv && info.pv.length && !(live() && S.result);
     if (!ok) { svg.innerHTML = ''; return; }
     const m = info.pv[0];
@@ -903,7 +916,7 @@
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
-    seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦']], draft.mode);
+    seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['red', '赤（先に指す）'], ['black', '黒'], ['random', 'ランダム']], draft.side);
@@ -1278,6 +1291,8 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
+        // オンライン対戦: ダイアログを閉じて、オンラインのパネルを開く（上の丸いボタンと同じ）。今の対局は、オンラインの対局が始まるまでそのまま
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1463,6 +1478,8 @@
     b.dataset.st = st;
     const c = NET_ && st === 'on' ? NET_.counts() : null;
     const g = c && c.byGame && c.byGame[GAME];
+    // つながっていれば、狭い画面でも「対戦」の文字を必ず出す（数字だけだとオンライン対戦の入口だとわからない）
+    b.querySelector('.lbl').textContent = st === 'on' ? '対戦' : 'オンライン';
     b.querySelector('.cnt').innerHTML = c ? `${c.online}人<small>・待ち${g ? g.wait : 0}</small>` : st === 'connecting' ? '…' : '';
   }
   function renderLobby() {
