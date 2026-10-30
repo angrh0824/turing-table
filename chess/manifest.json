@@ -1,0 +1,13 @@
+{
+  "slug": "chess",
+  "name": "チェス",
+  "en": "Chess",
+  "tagline": "自己対局だけで強くなった AI と、大理石と真鍮の盤で指す",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "αβ探索＋自己対局で学んだ評価（小さなニューラルネット）",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true,
+  "publish": ["sw.js"]
+}

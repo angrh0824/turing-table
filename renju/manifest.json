@@ -1,0 +1,9 @@
+{
+  "slug": "renju",
+  "name": "連珠",
+  "en": "Renju",
+  "tagline": "禁手ありの五目並べ。自己対局だけで強くなった AI に挑む",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready"
+}

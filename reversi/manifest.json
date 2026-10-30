@@ -1,0 +1,12 @@
+{
+  "slug": "reversi",
+  "name": "リバーシ",
+  "en": "Reversi",
+  "tagline": "自己対局だけで強くなった AI と、藍の漆塗りの盤で打つ",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局で学んだパターン評価＋αβ探索・終盤の完全読み",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}

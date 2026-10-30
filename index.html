@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>チューリング・テーブル</title>
+<meta name="description" content="AI が作った AI に、人類は勝てるか。AI が一から作り、自己対局だけで強くした AI と対戦できるゲーム集。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* チューリング・テーブルの入り口: ゲームを選ぶ。全体のオンライン人数と、ゲームごとの対戦待ち・対局中をその場で表示。1画面に収める */
+:root {
+  --bg: #f3f1ec; --bg2: #e9e5dc; --surface: #fbfaf7; --ink: #15140f; --muted: #6b665a; --line: #d9d3c6;
+  --gold: #a07a24; --gold-2: #c9a24a; --good: #23845a; --glow: rgba(160, 122, 36, .18);
+  --font-display: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0d0b; --bg2: #16150f; --surface: #191813; --ink: #ece7da; --muted: #9a9384; --line: #2c2a22;
+    --gold: #d2ab55; --gold-2: #f0cf7e; --good: #5cc790; --glow: rgba(210, 171, 85, .16); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0d0b; --bg2: #16150f; --surface: #191813; --ink: #ece7da; --muted: #9a9384; --line: #2c2a22;
+  --gold: #d2ab55; --gold-2: #f0cf7e; --good: #5cc790; --glow: rgba(210, 171, 85, .16); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, var(--glow), transparent 60%),
+    repeating-linear-gradient(90deg, transparent 0 59px, color-mix(in srgb, var(--line) 45%, transparent) 59px 60px),
+    repeating-linear-gradient(0deg, transparent 0 59px, color-mix(in srgb, var(--line) 45%, transparent) 59px 60px),
+    var(--bg);
+  color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6;
+  display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden;
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
+}
+.wrap { width: 100%; max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; flex: 1; min-height: 0; padding: clamp(14px, 4vh, 44px) 0 12px; gap: clamp(10px, 2.4vh, 22px); }
+header { display: grid; gap: 4px; }
+.kicker { font-size: 11px; letter-spacing: .32em; color: var(--gold); font-weight: 700; text-transform: uppercase; }
+h1 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(30px, 6.4vw, 56px); line-height: 1.08; letter-spacing: .04em; }
+h1 small { display: block; font-family: var(--font-body); font-weight: 500; font-size: clamp(11px, 1.6vw, 14px); letter-spacing: .3em; color: var(--muted); margin-top: 6px; }
+.lead { margin: 4px 0 0; font-family: var(--font-display); font-size: clamp(15px, 2.6vw, 22px); font-weight: 600; }
+.lead em { font-style: normal; color: var(--gold); }
+.live { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.live b { color: var(--ink); font-size: 18px; font-variant-numeric: tabular-nums; margin-right: 2px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .5; display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.live[data-st="on"] .dot { background: var(--good); opacity: 1; box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 22%, transparent); }
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); grid-auto-rows: 1fr; gap: 12px; align-content: stretch; }
+.tile {
+  position: relative; display: grid; grid-template-rows: auto 1fr auto; gap: 4px; padding: 14px 16px; border-radius: 16px; min-height: 0; overflow: hidden;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 8%), var(--surface));
+  border: 1px solid var(--line); color: inherit; text-decoration: none; transition: transform .16s, border-color .16s, box-shadow .16s;
+}
+a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); border-color: var(--accent); box-shadow: 0 10px 28px -14px var(--accent); outline: none; }
+.tile .em { position: absolute; right: -6px; bottom: -18px; font-family: var(--font-display); font-weight: 800; font-size: clamp(64px, 11vh, 110px); line-height: 1; color: var(--accent); opacity: .16; pointer-events: none; }
+.tile .nm { font-family: var(--font-display); font-weight: 800; font-size: clamp(17px, 2.4vh, 22px); line-height: 1.2; }
+.tile .nm .n-s { display: none; }
+.tile .nm small { display: block; font-family: var(--font-body); font-weight: 500; font-size: 10px; letter-spacing: .18em; color: var(--muted); margin-top: 2px; }
+.tile .tg { font-size: 12px; color: var(--muted); line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.tile .ft { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.chip { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.wait { border-color: color-mix(in srgb, var(--good) 60%, transparent); color: var(--good); font-weight: 700; }
+.chip.soon { border-style: dashed; }
+.tile.soon { opacity: .62; }
+.tile.soon .pl { display: none; }
+.tile.soon .nm::after { content: "近日公開"; display: inline-block; margin-left: 8px; vertical-align: 3px; font: 700 10px var(--font-body); letter-spacing: .1em; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 7px; }
+footer { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+footer a { color: inherit; }
+/* スマホ縦: 3列のタイル、説明は省いて名前と人数だけ */
+@media (max-width: 560px) {
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .tile { padding: 10px; border-radius: 12px; grid-template-rows: auto 1fr auto; }
+  .tile .tg { display: none; }
+  .tile .nm { font-size: 14px; }
+  .tile .nm small, .tile .nm .n-l { display: none; }
+  .tile .nm .n-s { display: inline; }
+  h1 { font-size: min(28px, calc((100vw - 32px) / 12)); letter-spacing: .02em; white-space: nowrap; }
+  .live { gap: 10px; font-size: 12px; }
+  .live b { font-size: 16px; }
+  .tile.soon .nm::after { display: block; margin: 4px 0 0; width: max-content; }
+  .tile .ft .pl { display: none; }
+  .tile .em { font-size: 64px; bottom: -12px; }
+  .lead { font-size: 15px; }
+}
+@media (max-width: 360px) {
+  .tile { padding: 8px; }
+  .tile .nm { font-size: 13px; }
+  .live { gap: 8px; font-size: 11px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+  .tile { padding: 8px 10px; border-radius: 12px; }
+  .tile .em { font-size: 48px; bottom: -10px; }
+  .tile.soon .nm::after { display: block; margin: 4px 0 0; width: max-content; }
+  .tile .tg, .tile .nm small, .tile .nm .n-l { display: none; }
+  .tile .nm .n-s { display: inline; }
+  .tile .nm { font-size: 15px; }
+  h1 small, .kicker { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="kicker">Software singularity is here</span>
+    <h1>チューリング・テーブル<small>TURING TABLE</small></h1>
+    <p class="lead">AI が作った AI に、<em>人類は勝てるか。</em></p>
+  </header>
+  <div class="live" id="live" data-st="off"><span><span class="dot"></span><b id="n-on">—</b>人がオンライン</span><span><b id="n-wait">—</b>人が対戦待ち</span><span><b id="n-play">—</b>人が対局中</span></div>
+  <main class="grid" id="grid" aria-label="ゲーム"></main>
+  <footer>
+    <span>人間が作ったエンジンや棋譜は使わず、AI（Claude）がルール・画面・学習を作り、自己対局だけで強くした AI です。</span>
+    <span>オンライン対戦は公開の中継サーバー経由（名前と指し手はほかの人からも見える可能性があります）</span>
+  </footer>
+</div>
+<script src="common/online.js"></script>
+<script>
+(function () {
+  'use strict';
+  // 並び順・紋章の文字・色。名前と説明と状態は各ゲームの manifest.json から読む。status が ready のものだけ遊べる（無ければ「近日公開」）
+  const GAMES = [
+    { slug: 'gungi', em: '軍', accent: '#b8862b', name: '軍儀', en: 'Gungi' },
+    { slug: 'reversi', em: '石', accent: '#2f4f9a', name: 'リバーシ', en: 'Reversi' },
+    { slug: 'renju', em: '五', accent: '#8a5a2b', name: '連珠', en: 'Renju' },
+    { slug: 'koikoi', em: '花', accent: '#b0343c', name: '花札こいこい', short: 'こいこい', en: 'Koi-Koi' },
+    { slug: 'holdem', em: '♠', accent: '#1f7a55', name: 'ホールデム', en: "Texas Hold'em" },
+    { slug: 'shogi', em: '将', accent: '#9a6b2f', name: '将棋', en: 'Shogi' },
+    { slug: 'chess', em: '♞', accent: '#4b4f5c', name: 'チェス', en: 'Chess' },
+    { slug: 'mahjong', em: '麻', accent: '#1d6a5a', name: '麻雀', en: 'Mahjong' },
+    { slug: 'go', em: '碁', accent: '#3a3a3a', name: '囲碁', en: 'Go' },
+    { slug: 'backgammon', em: '賽', accent: '#8a4b2e', name: 'バックギャモン', short: 'ギャモン', en: 'Backgammon' },
+    { slug: 'daifugo', em: '富', accent: '#6b3fa0', name: '大富豪', en: 'Daifugo' },
+    { slug: 'xiangqi', em: '帥', accent: '#b0302a', name: 'シャンチー', en: 'Xiangqi' },
+    { slug: 'blocks', em: '陣', accent: '#2f7a9a', name: 'ブロック陣取り', short: '陣取り', en: 'Blocks' },
+  ];
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const playersText = p => (p === '2' ? '2人' : p ? `${String(p).replace('-', '〜')}人` : '');
+  let counts = null, loaded = false;
+
+  function render() {
+    if (!loaded) return;
+    $('grid').innerHTML = GAMES.map(g => {
+      const ready = g.status === 'ready';
+      const c = counts && counts.byGame[g.slug];
+      const live = c && (c.wait || c.play) ? `${c.wait ? `<span class="chip wait">待ち${c.wait}</span>` : ''}${c.play ? `<span class="chip">対局中${c.play}</span>` : ''}` : '';
+      const inner = `
+        <span class="em" aria-hidden="true">${esc(g.em)}</span>
+        <span class="nm"><span class="n-l">${esc(g.name)}</span><span class="n-s">${esc(g.short || g.name)}</span><small>${esc(g.en || '')}</small></span>
+        <span class="tg">${esc(g.tagline || '')}</span>
+        <span class="ft">${g.players ? `<span class="chip pl">${playersText(g.players)}</span>` : ''}${live}</span>`;
+      return ready
+        ? `<a class="tile" href="${g.slug}/" style="--accent:${g.accent}" aria-label="${esc(g.name)}で遊ぶ">${inner}</a>`
+        : `<div class="tile soon" style="--accent:${g.accent}" aria-label="${esc(g.name)}（近日公開）">${inner}</div>`;
+    }).join('');
+  }
+
+  // 各ゲームの manifest.json（公開されているものだけある）
+  Promise.all(GAMES.map(g => fetch(`${g.slug}/manifest.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)))
+    .then(ms => { ms.forEach((m, i) => { if (m) Object.assign(GAMES[i], { name: m.name || GAMES[i].name, tagline: m.tagline, players: m.players, status: m.status, en: m.en || GAMES[i].en }); }); loaded = true; render(); });
+
+  // 全体のオンライン人数（このページを見ている人も「オンライン」に数える）
+  if (window.SSIHOnline && SSIHOnline.available()) {
+    let name = '';
+    try { name = JSON.parse(localStorage.getItem('gungi-name')) || ''; } catch (e) { /* 名前なし */ }
+    const net = SSIHOnline.create({
+      game: 'hub',
+      onStatus: st => { $('live').dataset.st = st; update(); },
+      onPresence: () => update(),
+    });
+    function update() {
+      if (net.status !== 'on') return;
+      counts = net.counts();
+      $('n-on').textContent = counts.online; $('n-wait').textContent = counts.wait; $('n-play').textContent = counts.play;
+      render();
+    }
+    net.setName(name);
+    net.connect();
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "slug": "gungi",
+  "name": "軍儀",
+  "tagline": "HUNTER×HUNTER の盤上競技。駒を重ね、寝返らせる",
+  "players": "2",
+  "orientation": "portrait",
+  "online": true,
+  "ai": "自己対局で学んだ評価関数＋αβ探索（AlphaZero 型を実験中）",
+  "status": "ready"
+}

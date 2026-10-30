@@ -1,0 +1,2 @@
+/* CPU の4段階の強さの測定（train/levels.js が書き出す） */
+var REVERSI_LEVELS = {"time":"2026-10-24T00:03:51.689Z","scale":0.1,"games":100,"results":[{"a":"normal","b":"easy","win":87,"loss":13,"draw":0,"score":0.87,"elo":330,"eloErr":53},{"a":"strong","b":"normal","win":98,"loss":1,"draw":1,"score":0.985,"elo":727,"eloErr":167},{"a":"max","b":"strong","win":63,"loss":31,"draw":6,"score":0.66,"elo":115,"eloErr":36}]};

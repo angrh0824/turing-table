@@ -1,0 +1,13 @@
+{
+  "slug": "xiangqi",
+  "name": "シャンチー",
+  "en": "Xiangqi",
+  "tagline": "自己対局だけで強くなった AI と、木の盤と丸い駒で指す中国将棋（象棋）",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "αβ探索＋自己対局で学んだ評価（小さなニューラルネット）",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true,
+  "publish": ["sw.js"]
+}

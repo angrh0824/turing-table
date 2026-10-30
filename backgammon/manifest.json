@@ -1,0 +1,12 @@
+{
+  "slug": "backgammon",
+  "name": "バックギャモン",
+  "en": "Backgammon",
+  "tagline": "自己対局だけで育った AI と、革と木の盤でサイコロを振る",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局の TD(λ) で学んだニューラルネット（TD-Gammon の系統）＋サイコロ21通りの浅い読み",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}

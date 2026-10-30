@@ -1,0 +1,12 @@
+{
+  "slug": "shogi",
+  "name": "将棋",
+  "en": "Shogi",
+  "tagline": "自己対局だけで強くなった AI と、自作の駒と字で指す本将棋",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局で学んだ小さなニューラルネットの評価＋αβ探索",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}

@@ -1,0 +1,12 @@
+{
+  "slug": "mahjong",
+  "name": "麻雀",
+  "en": "Riichi Mahjong",
+  "tagline": "4人のリーチ麻雀。自己対局の強化学習だけで育った AI と、オンラインでは人間どうしでも同じ卓で",
+  "players": "4",
+  "orientation": "landscape",
+  "status": "ready",
+  "ai": "自己対局の強化学習（行動の値を TD(λ) で）で「この打牌・鳴き・立直で半荘の最後にどれだけの順位点になるか」を学んだネット",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}

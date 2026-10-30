@@ -1,0 +1,12 @@
+{
+  "slug": "daifugo",
+  "name": "大富豪",
+  "en": "Daifugo (Dai-hinmin)",
+  "tagline": "4人の大富豪（大貧民）。革命・8切り・しばり・都落ち・カード交換。自己対局だけで育った AI と、オンラインでは人間どうしも同じ卓で",
+  "players": "4",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局の強化学習（Deep Monte-Carlo）で「この手を選んだら最後に何位になるか」を学んだネット",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}

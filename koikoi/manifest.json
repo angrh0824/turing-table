@@ -1,0 +1,12 @@
+{
+  "slug": "koikoi",
+  "name": "花札こいこい",
+  "en": "Koi-Koi (Hanafuda)",
+  "tagline": "自己対局だけで育った AI と、和モダンの花札で読み合う",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局の強化学習（Deep Monte-Carlo）で「この手で対局に勝つ見込み」を学んだネット",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}

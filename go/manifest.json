@@ -1,0 +1,12 @@
+{
+  "slug": "go",
+  "name": "囲碁",
+  "en": "Go",
+  "tagline": "自己対局だけで育つ AlphaZero 型の AI と、榧の碁盤で打つ",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局だけで学んだネット（方策・価値・目数・地）＋木探索（AlphaZero 型）",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}
