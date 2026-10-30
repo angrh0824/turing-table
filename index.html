@@ -68,6 +68,14 @@ a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); border-color: 
 .tile.soon { opacity: .62; }
 .tile.soon .pl { display: none; }
 .tile.soon .nm::after { content: "近日公開"; display: inline-block; margin-left: 8px; vertical-align: 3px; font: 700 10px var(--font-body); letter-spacing: .1em; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 7px; }
+header { position: relative; }
+/* 全ゲームの音の元栓（common/mute.js） */
+.snd { position: absolute; top: -4px; right: 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 12px var(--font-body); cursor: pointer; }
+.snd:hover, .snd:focus-visible { border-color: var(--gold); outline: none; }
+.snd svg { width: 16px; height: 16px; flex: none; }
+.snd .off, .snd[aria-pressed="true"] .on { display: none; }
+.snd[aria-pressed="true"] .off { display: inline; }
+.snd[aria-pressed="true"] { color: var(--muted); }
 footer { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
 footer a { color: inherit; }
 /* スマホ縦: 3列のタイル、説明は省いて名前と人数だけ */
@@ -85,6 +93,8 @@ footer a { color: inherit; }
   .tile .ft .pl { display: none; }
   .tile .em { font-size: 64px; bottom: -12px; }
   .lead { font-size: 15px; }
+  .snd { padding: 5px 7px; }
+  .snd .t { display: none; }
 }
 @media (max-width: 360px) {
   .tile { padding: 8px; }
@@ -108,6 +118,7 @@ footer a { color: inherit; }
 <div class="wrap">
   <header>
     <span class="kicker">Software singularity is here</span>
+    <button class="snd" id="snd" type="button" aria-pressed="false" aria-label="すべてのゲームの音を消す" title="すべてのゲームの音を消す／戻す"><svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg><svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m16 9 6 6M22 9l-6 6"/></svg><span class="t">音 オン</span></button>
     <h1>チューリング・テーブル<small>TURING TABLE</small></h1>
     <p class="lead">AI が作った AI に、<em>人類は勝てるか。</em></p>
   </header>
@@ -118,6 +129,7 @@ footer a { color: inherit; }
     <span>オンライン対戦は公開の中継サーバー経由（名前と指し手はほかの人からも見える可能性があります）</span>
   </footer>
 </div>
+<script src="common/mute.js"></script>
 <script src="common/online.js"></script>
 <script>
 (function () {
@@ -136,6 +148,9 @@ footer a { color: inherit; }
     { slug: 'backgammon', em: '賽', accent: '#8a4b2e', name: 'バックギャモン', short: 'ギャモン', en: 'Backgammon' },
     { slug: 'daifugo', em: '富', accent: '#6b3fa0', name: '大富豪', en: 'Daifugo' },
     { slug: 'xiangqi', em: '帥', accent: '#b0302a', name: 'シャンチー', en: 'Xiangqi' },
+    { slug: 'yacht', em: '骰', accent: '#c0622a', name: 'ヨット', en: 'Yacht' },
+    { slug: 'amazons', em: '矢', accent: '#3d7a46', name: 'アマゾンズ', en: 'Amazons' },
+    { slug: 'gunjin', em: '兵', accent: '#5e6640', name: '軍人将棋', en: 'Gunjin Shogi' },
   ];
   const $ = id => document.getElementById(id);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -158,6 +173,16 @@ footer a { color: inherit; }
         : `<div class="tile soon" style="--accent:${g.accent}" aria-label="${esc(g.name)}（近日公開）">${inner}</div>`;
     }).join('');
   }
+
+  // 音の元栓（全ゲーム共通。common/mute.js が localStorage に覚え、ゲームのページで効く）
+  function showSnd() {
+    const m = !!(window.TTSound && TTSound.muted);
+    $('snd').setAttribute('aria-pressed', String(m));
+    $('snd').querySelector('.t').textContent = m ? '音 オフ' : '音 オン';
+  }
+  $('snd').addEventListener('click', () => { if (window.TTSound) { TTSound.set(!TTSound.muted); showSnd(); } });
+  window.addEventListener('storage', e => { if (e.key === 'tt-mute') showSnd(); });
+  showSnd();
 
   // 各ゲームの manifest.json（公開されているものだけある）
   Promise.all(GAMES.map(g => fetch(`${g.slug}/manifest.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)))
