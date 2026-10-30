@@ -439,8 +439,6 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .tabs button { padding: 5px 10px; font-size: 13px; }
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
-  .onbtn .lbl { display: none; }
-  .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl { display: inline; }
   .controls .btn { padding: 6px 10px; font-size: 13px; }
   .controls .wide { display: none; }
   .player { padding: 4px 10px; min-height: 42px; }
@@ -468,10 +466,14 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .brand .home { font-size: 22px; }
   .brand .mark { display: none; }
   .onbtn small { display: none; }
-  .tabs button { padding: 5px 9px; }
+  /* 丸いボタンに「対戦」を出す分、題名と見出しを少し詰める */
+  .brand h1 { font-size: 19px; letter-spacing: .03em; }
+  .tabs button { padding: 5px 7px; }
+  .onbtn { padding: 0 8px; gap: 4px; }
   .top { gap: 6px; }
 }
-@media (max-width: 360px) { .brand h1 { font-size: 18px; letter-spacing: .04em; } .tabs button { padding: 5px 7px; font-size: 12.5px; } }
+@media (max-width: 360px) { .brand h1 { font-size: 17px; letter-spacing: 0; } .tabs button { padding: 5px 5px; font-size: 12px; } .onbtn { padding: 0 7px; font-size: 11.5px; } .top { gap: 5px; } }
+@media (max-width: 340px) { .brand h1 { font-size: 15px; } .tabs button { padding: 5px 4px; } .iconbtn { width: 30px; height: 30px; } }
 /* 背の低い画面（スマホ横） */
 body.L-land .top { padding-block: 6px 6px; }
 body.L-land .brand span, body.L-land .brand .mark { display: none; }

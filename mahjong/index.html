@@ -9,8 +9,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <style>
-/* 卓が主役。横長の画面は「左: 対局者 | 卓 | 右: 情報・AI補助・操作」＋下に手牌。縦長は「卓 / 情報 / 手牌 / 操作」。ページはスクロールしない
- * 卓・河・手牌の大きさは app.js が画面に合わせて --S（卓の一辺）・--rw（河の牌の幅）・--hw（手牌の幅）・--ow（相手の手牌の幅）で決める */
+/* 卓が主役。自分の手牌も卓の上の手前側。横長の画面は卓が画面いっぱいで「左: 対局者 | 河と相手 | 右: 情報・AI補助・操作」＋手前に手牌。
+ * 縦長は「この局 / 情報 / AI補助 / 卓（河と相手＋手前に手牌）/ 操作」。ページはスクロールしない
+ * 卓・河・手牌の大きさは app.js が画面に合わせて --SW・--SH（河と相手の部分）・--rw（河の牌の幅）・--hw（手牌の幅）・--ow（相手の手牌の幅）・--rt（卓の縁の太さ）で決める */
 :root {
   --bg: #e9e6dc; --bg-2: #dfdbcf; --surface: #faf8f2; --surface-2: #f0ece2; --surface-3: #e5dfd2;
   --ink: #1c1f1b; --muted: #676a60; --line: #d3cdbd;
@@ -24,7 +25,7 @@
   --font-display: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
   --radius: 12px;
-  --S: 320px; --SW: 320px; --SH: 300px; --rw: 18px; --hw: 40px; --ow: 12px;
+  --SW: 320px; --SH: 300px; --rw: 18px; --hw: 40px; --ow: 12px; --rt: 6px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -70,15 +71,20 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2
 .onbtn[data-st="on"] .dot { background: #2fb36a; opacity: 1; box-shadow: 0 0 0 3px rgba(47, 179, 106, .25); }
 .onbtn[data-st="connecting"] .dot { background: var(--gold); opacity: 1; }
 .onbtn small { font-weight: 500; color: var(--muted); }
+/* 広い画面は「オンライン対戦」、狭い画面は「対戦」（つながっていないときは「オンライン」）。卓に着いたら「卓 コード」 */
+.onbtn .lbl + .short { margin-left: -6px; }
+.onbtn.seated .short { display: none; }
 main { flex: 1 1 auto; min-height: 0; position: relative; }
 
 /* ---------- 対局の画面（配置は app.js が land / port のクラスで切り替え） ---------- */
 .play { position: absolute; inset: 0; display: grid; }
-.play.land { grid-template-columns: minmax(0, 1fr) var(--SW) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "left table right" "hand hand hand"; gap: 0 10px; padding: 0 10px 6px; }
-.play.port { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--SH) auto auto minmax(0, 1fr) auto auto; grid-template-areas: "table" "info" "assist" "log" "hand" "ctrl"; gap: 4px; padding: 0 6px calc(6px + env(safe-area-inset-bottom, 0px)); }
-.stage { grid-area: table; position: relative; width: var(--SW); height: var(--SH); justify-self: center; align-self: center; }
-.leftp { grid-area: left; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; justify-content: center; }
-.rightp { grid-area: right; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; justify-content: center; }
+.play.land { grid-template-columns: minmax(0, 1fr) var(--SW) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "left table right" "hand hand hand"; gap: 0 10px; padding: 2px 8px 6px; }
+.play.port { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto auto auto auto; grid-template-areas: "log" "info" "assist" "table" "hand" "ctrl"; gap: 4px; padding: 0 2px calc(4px + env(safe-area-inset-bottom, 0px)); }
+.stage { grid-area: table; position: relative; z-index: 1; width: var(--SW); height: var(--SH); justify-self: center; align-self: center; }
+.play.port .stage { margin-top: calc(var(--rt) + 2px); }
+.play.land .stage { margin-top: calc(var(--rt) + 4px); }
+.leftp { grid-area: left; position: relative; z-index: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; justify-content: center; padding: calc(var(--rt) + 6px) 0 4px calc(var(--rt) + 6px); }
+.rightp { grid-area: right; position: relative; z-index: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; justify-content: center; padding: calc(var(--rt) + 6px) calc(var(--rt) + 6px) 4px 0; }
 .play.port .leftp { display: contents; }
 .play.port .players { display: none; }
 .play.port #log { grid-area: log; min-height: 0; }
@@ -86,16 +92,19 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .play.port #infobar { grid-area: info; }
 .play.port #assist { grid-area: assist; }
 .play.port .ctrl { grid-area: ctrl; align-self: start; }
-.handbar { grid-area: hand; position: relative; min-width: 0; }
+.play.port #log, .play.port #infobar, .play.port #assist, .play.port .ctrl { margin: 0 4px; }
+.handbar { grid-area: hand; position: relative; z-index: 1; min-width: 0; }
 
-/* 卓（革の縁＋羅紗） */
-.table {
-  position: absolute; inset: 0; border-radius: calc(var(--S) * .045); padding: calc(var(--S) * .012);
+/* 卓（革の縁＋羅紗）。横長は画面いっぱい、縦長は「河と相手」と「手牌」の段にまたがる */
+.play > .table {
+  position: relative; z-index: 0; min-width: 0; min-height: 0; border-radius: calc(var(--rt) * 3.2);
   background: linear-gradient(160deg, var(--rail-hi), var(--rail));
   box-shadow: 0 14px 34px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 230, 190, .2);
 }
+.play.land > .table { grid-area: 1 / 1 / -1 / -1; }
+.play.port > .table { grid-column: 1; grid-row: table-start / hand-end; }
 .felt {
-  position: absolute; inset: calc(var(--S) * .012); border-radius: calc(var(--S) * .036); overflow: hidden;
+  position: absolute; inset: var(--rt); border-radius: calc(var(--rt) * 2.3); overflow: hidden;
   background:
     radial-gradient(ellipse 70% 60% at 50% 45%, rgba(255, 255, 240, .09), transparent 70%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .2 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"),
@@ -168,8 +177,9 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .seatname .think i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------- 手牌 ---------- */
-.handbar { display: flex; align-items: flex-end; gap: 0; padding: calc(var(--hw) * .3) 0 4px; --w: var(--hw); min-height: calc(var(--hw) * 1.73 + 4px); }
+/* ---------- 手牌（卓の手前側） ---------- */
+.handbar { display: flex; align-items: flex-end; gap: 0; padding: calc(var(--hw) * .3) calc(var(--rt) + 2px) calc(var(--rt) + 7px); --w: var(--hw); min-height: calc(var(--hw) * 1.73 + var(--rt) + 7px); }
+.play.land .handbar { padding-left: calc(var(--rt) + 12px); padding-right: calc(var(--rt) + 12px); }
 .hand { display: flex; align-items: flex-end; flex: 1 1 auto; min-width: 0; justify-content: center; }
 .play.land .hand { justify-content: center; }
 .hand .ht { position: relative; border: 0; padding: 0; margin: 0 calc(var(--hw) * .02); background: none; cursor: pointer; flex: none; border-radius: calc(var(--hw) * .13); transition: transform .12s cubic-bezier(.2,.8,.2,1); touch-action: manipulation; }
@@ -186,9 +196,10 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .hand .ht.best::after { content: ""; position: absolute; left: 50%; top: calc(var(--hw) * -.29); width: max(6px, calc(var(--hw) * .16)); height: max(6px, calc(var(--hw) * .16)); border-radius: 50%; background: var(--good); transform: translateX(-50%); box-shadow: 0 0 0 2px var(--bg); }
 .hand .ht.sel .ev, .hand .ht.sel::after { display: none; }
 .mymelds { display: flex; align-items: flex-end; gap: calc(var(--hw) * .18); margin-left: calc(var(--hw) * .35); --w: calc(var(--hw) * .78); flex: none; }
+.mymelds:empty { display: none; }
 .mymelds .meld { display: flex; align-items: flex-end; }
 /* 鳴き・和了のボタン（出たときだけ） */
-.calls { position: absolute; right: 0; bottom: calc(100% + 4px); display: flex; gap: 6px; z-index: 30; flex-wrap: wrap; justify-content: flex-end; }
+.calls { position: absolute; right: calc(var(--rt) + 8px); bottom: calc(100% + 4px); display: flex; gap: 6px; z-index: 30; flex-wrap: wrap; justify-content: flex-end; }
 .callbtn { border: 0; border-radius: 999px; min-width: 70px; height: 42px; padding: 0 16px; font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: .08em; cursor: pointer; box-shadow: 0 2px 0 rgba(0,0,0,.3), 0 6px 16px rgba(0,0,0,.25); color: #fff; animation: pop .22s cubic-bezier(.3,1.5,.5,1) both; display: inline-flex; align-items: center; gap: 6px; }
 @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
 .callbtn.win { background: linear-gradient(180deg, #e2563a, #b2311b); }
@@ -206,7 +217,7 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .infobar { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 6px 4px 12px; font-size: 13px; }
 .infobar .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .play.land .infobar .txt { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
-.infobar.turn { background: var(--accent-soft); }
+.infobar.turn { background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface); }
 .infobar.view { background: var(--surface-2); }
 .infobar .txt .mini { display: inline-flex; gap: 1px; vertical-align: -3px; --w: 14px; }
 .infobar .txt .mini .tile { margin-bottom: 1px; }
@@ -391,7 +402,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 
 /* ---------- 狭い画面 ---------- */
 @media (max-width: 430px) {
-  .onbtn .lbl, .onbtn small { display: none !important; }
+  .onbtn small { display: none !important; }
   .top { gap: 6px; padding-left: 4px; }
   .brand h1 { font-size: 18px; letter-spacing: .06em; }
   .brand span { display: none; }
@@ -423,7 +434,6 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .tabs button { padding: 2px 10px; font-size: 12.5px; }
   .iconbtn { width: 28px; height: 28px; }
   .onbtn { height: 28px; font-size: 12px; padding: 0 9px; }
-  .onbtn .lbl { display: none; }
   .pl { padding: 3px 7px; }
   .pl .w { width: 24px; height: 24px; font-size: 14px; }
   .pl .sc { font-size: 13px; }
@@ -435,7 +445,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .dialog { padding: 12px 16px; }
   .dialog h2 { font-size: 18px; margin-bottom: 6px; }
   .field { margin-bottom: 7px; gap: 3px; }
-  #dlg-new .dialog { width: min(780px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 18px; align-content: start; }
+  #dlg-new .dialog { width: min(780px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: dense; gap: 0 18px; align-content: start; }
   #dlg-new h2, #dlg-new .f-cpu, #dlg-new .actions-row { grid-column: 1 / -1; }
   #dlg-new .hint, #dlg-new .cards4 button small { display: none; }
   #dlg-new .cards4 button { padding: 4px 8px; }
@@ -446,6 +456,13 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .result .deltas { margin-top: 6px; }
   .result .deltas div { padding: 3px 6px; }
   .result .dialog { width: min(760px, 100%); }
+}
+/* 狭い画面・背の低い横長: 上の丸いボタンは「● 対戦 3人」（数字だけにしない） */
+@media (max-width: 560px), (max-height: 480px) and (orientation: landscape) {
+  .onbtn .lbl { display: none; }
+  .onbtn .lbl + .short { margin-left: 0; }
+  .onbtn:is([data-st="off"], [data-st="error"], [data-st="unavailable"]) .lbl, .onbtn.seated .lbl { display: inline; }
+  .onbtn:is([data-st="off"], [data-st="error"], [data-st="unavailable"]) .short { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .river .tile.new, .callbtn, .callout { animation: none; }
@@ -462,7 +479,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
     <button role="tab" aria-selected="false" data-tab="rules">ルール</button>
     <button role="tab" aria-selected="false" data-tab="ai">AI</button>
   </nav>
-  <button class="onbtn" id="btn-online" data-st="off" title="オンラインの卓（いまオンラインの人数・空き席のある卓で待っている人数）"><span class="dot"></span><span class="lbl">オンライン</span><span class="cnt"></span></button>
+  <button class="onbtn" id="btn-online" data-st="off" title="オンラインの卓（いまオンラインの人数・空き席のある卓で待っている人数）"><span class="dot"></span><span class="lbl">オンライン</span><span class="short">対戦</span><span class="cnt"></span></button>
   <div class="settings-wrap">
     <button class="iconbtn" id="btn-settings" aria-label="設定" aria-expanded="false">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -483,12 +500,12 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 
 <main>
   <section id="view-play" class="play land">
+    <div class="table"><div class="felt"></div></div>
     <div class="leftp" id="leftp">
       <div class="players" id="players"></div>
       <div class="card log" id="log"><h3 id="log-title">この局</h3><ol id="log-list"></ol></div>
     </div>
     <div class="stage" id="stage">
-      <div class="table"><div class="felt"></div></div>
       <div id="tbl"></div>
     </div>
     <div class="rightp" id="rightp">
@@ -545,6 +562,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 <div class="overlay" id="dlg-new" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ng-title">
     <h2 id="ng-title">新しい対局</h2>
+    <div class="field f-mode"><span class="lab">遊び方</span><div class="seg" id="ng-mode"></div></div>
     <div class="field f-cpu"><span class="lab">CPU の強さ（3人とも）</span><div class="cards4" id="ng-cpu"></div><span class="hint" id="ng-cpu-desc"></span></div>
     <div class="field f-len"><span class="lab">長さ</span><div class="seg" id="ng-len"></div></div>
     <div class="field f-aka"><span class="lab">赤ドラ</span><div class="seg" id="ng-aka"></div></div>

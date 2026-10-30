@@ -79,6 +79,7 @@
     const g = c && c.byGame.mahjong;
     b.querySelector('.cnt').innerHTML = c ? `${c.online}人<small>・待ち${g ? g.wait : 0}</small>` : st === 'connecting' ? '…' : '';
     b.querySelector('.lbl').textContent = code ? `卓 ${code}` : 'オンライン';
+    b.classList.toggle('seated', !!code);
   }
   // いまある卓（在席情報から、ホストの在席を卓ごとに）
   function tables() {

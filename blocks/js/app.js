@@ -951,7 +951,8 @@
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
-    seg('ng-mode', [['classic', '4人（20×20）'], ['team', '2人・2色ずつ'], ['duo', '2人（14×14）']], draft.mode);
+    // 最後の「オンラインの卓」は遊び方ではなく入口: 押すとすぐオンラインのパネルを開く（いまの対局はそのまま）
+    seg('ng-mode', [['classic', '4人（20×20）'], ['team', '2人・2色ずつ'], ['duo', '2人（14×14）'], ['online', 'オンラインの卓']], draft.mode);
     $('ng-mode-hint').textContent = {
       classic: '4色が1人1色。自分の角から広げ、残りのマスが少ない人が勝ち（ふつうの遊び方）',
       team: '20×20 の盤で、1人が向かい合う2色（青＋赤 / 黄＋緑）を受け持つ。2色の合計で勝ち負け',
@@ -1181,6 +1182,12 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v2 = b.dataset.v;
+        if (id === 'ng-mode' && v2 === 'online') {
+          // オンラインの卓: 上の丸いボタンを押したのと同じ（卓に着くまで、いまの対局はそのまま）
+          $('dlg-new').hidden = true;
+          if (window.BKOnline) window.BKOnline.open();
+          return;
+        }
         if (id === 'ng-mode') draft.mode = v2;
         else if (id === 'ng-opp') draft.opp = v2;
         else if (id === 'ng-cpu') draft.cpu = v2;

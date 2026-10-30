@@ -309,24 +309,28 @@
     const g = GEO, down = g.C / 2 + g.gap + g.river + g.margin, up = g.C / 2 + g.gap + g.river + g.gap2 + g.hand + g.margin;
     const kW = 2 * up, kH = up + down;
     const r = S.round && (live() ? S.round : shownRound());
-    const nm = r ? r.melds[S.me].length : 0;
-    const handUnits = (14 - 3 * nm) * 1.04 + 0.36 + (nm ? 0.4 + nm * 0.78 * 3.6 : 0);
+    const ms = r ? r.melds[S.me] : [];
+    // 副露は手牌の 0.78 倍の牌で、横向きの牌（1.34 枚分）を含む。槓は1枚多い
+    const meldUnits = ms.reduce((a, m) => a + 0.78 * (m.type === 'ankan' ? 4 : m.type === 'minkan' ? 4.34 : 3.34) + 0.18, 0);
+    const handUnits = (14 - 3 * ms.length) * 1.04 + 0.36 + (ms.length ? 0.35 + meldUnits : 0);
+    // 手牌も卓の上（手前側）なので、卓の縁（rt）と手牌の段の余白を引いて決める
+    const rt = Math.round(Math.max(4, Math.min(9, Math.min(W, H) * 0.011)));
     let rw, hw;
     if (land) {
-      hw = Math.min(60, (W - 24) / handUnits, H * 0.13);
-      const handH = hw * (0.3 + 1.34 + 0.09) + 4 + 6;
-      rw = Math.min(34, (H - handH - 4) / kH, (W * 0.48) / kW);
+      hw = Math.min(60, (W - 16 - 2 * rt - 32) / handUnits, H * 0.13);
+      const handH = hw * (0.3 + 1.34 + 0.09) + rt + 7;
+      rw = Math.min(34, (H - 8 - handH - rt - 4) / kH, (W * 0.48) / kW);
     } else {
-      rw = Math.min(30, (W - 8) / kW, (H * 0.56) / kH);
-      hw = Math.min(40, (W - 10) / handUnits);
+      rw = Math.min(30, (W - 4 - 2 * rt - 4) / kW, (H * 0.56) / kH);
+      hw = Math.min(40, (W - 4 - 2 * rt - 4) / handUnits);
     }
     const root = document.documentElement.style;
+    root.setProperty('--rt', rt + 'px');
     root.setProperty('--rw', rw.toFixed(2) + 'px');
     root.setProperty('--hw', hw.toFixed(2) + 'px');
     root.setProperty('--ow', (rw * 0.74).toFixed(2) + 'px');
     root.setProperty('--SW', (kW * rw).toFixed(1) + 'px');
     root.setProperty('--SH', (kH * rw).toFixed(1) + 'px');
-    root.setProperty('--S', (kW * rw).toFixed(1) + 'px');
     S.geo = { rw, hw, ow: rw * 0.74, SW: kW * rw, SH: kH * rw, cx: kW * rw / 2, cy: up * rw, land };
     lastLayout = land ? 'land' : 'port';
   }
@@ -682,8 +686,6 @@
       html += `<button class="callbtn skip${hintA === null && S.hintShownPass ? ' hintmark' : ''}" data-react="-1">スキップ</button>`;
     }
     el.innerHTML = html;
-    // 横長のときは卓の右下に合わせる
-    el.style.right = S.geo && S.geo.land ? "10px" : "0";
   }
 
   // この局の流れ（横長の左）
@@ -856,6 +858,8 @@
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = NET ? CPU[draft.cpu].desc : `${CPU[draft.cpu].desc}（学習したネットがまだないので、いまはどの強さも牌効率で打ちます）`;
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
+    // 「オンラインの卓」を選ぶとすぐオンラインのパネルへ（上の丸いボタンと同じ）
+    seg('ng-mode', [['cpu', 'CPU 3人と'], ['online', 'オンラインの卓']], 'cpu');
     seg('ng-len', [['tonpu', '東風戦（4局）'], ['hanchan', '東南戦（8局）']], draft.length);
     seg('ng-aka', [['3', 'あり（赤5を各1枚）'], ['0', 'なし']], draft.aka);
     seg('ng-seat', [['random', 'ランダム'], ['0', '東（起家）'], ['1', '南'], ['2', '西'], ['3', '北']], draft.seat);
@@ -979,7 +983,7 @@
           <li><b>学ぶもの</b>: 「この局面でこの行動（打牌・立直・ポン・チー・カン・見送り）をしたら、半荘の最後にどれだけの順位点になるか」の見込み。ネットは全結合 ${AI.S_BITS}＋${AI.A_BITS} → 256 → 128 → 64 → 2</li>
           <li><b>局の終わりの価値</b>: 局のあとの点数の状況から「この半荘の最終の順位点の見込み」を出す小さなネット（これも自己対局の半荘の結果から学ぶ）で、オーラスの点差の勝負どころも学びます</li>
           <li><b>学び方</b>: 局が終わったら、自分の手を後ろからたどり、「局の終わりの値」と「次の手番での一番よい手の見込み」を混ぜたものを、その手の目標にします（TD(λ)）。ときどき わざと違う手（でたらめな手や、立直か黙聴か・鳴くか見送るかを逆にした手）を試して、選ばなかった手の値も学びます</li>
-          <li><b>強さの段</b>: やさしい = ネットの値にゆらぎ（温度 0.005: 値の差 ÷ 0.005 の exp に比例して選ぶ）、ふつう = 牌効率だけ（基準の AI）、つよい・最強 = ネットの一番の手。測った強さの順（「強さ」の表）</li>
+          <li><b>強さの段</b>: やさしい = ネットの値にゆらぎ（温度 0.005: 値の差 ÷ 0.005 の exp に比例して選ぶ）、ふつう = 牌効率だけ（基準の AI）、つよい・最強 = ネットの一番の手。測った強さの順（「強さ」の表）。考える時間を延ばした5段目「超最強」は置いていません: 見えない牌を何通りも決めて先を読む方法を 16 → 64 通りに増やしても、つよい と互角（平均順位 2.51・2.49）で強くならなかったため</li>
           <li>ネットは 8 ビットに縮めてこのページに入っています（js/weights.js）。計算はすべてブラウザの中です</li>
         </ul>
       </div></div>`;
@@ -1111,6 +1115,8 @@
       const b = e.target.closest('.seg button, .cards4 button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
+        // 今の対局は、オンラインで卓に着くまでそのまま
+        if (id === 'ng-mode') { if (v === 'online') { $('dlg-new').hidden = true; if (window.MJOnline) window.MJOnline.open(); } return; }
         if (id === 'ng-cpu') draft.cpu = v; else if (id === 'ng-len') draft.length = v; else if (id === 'ng-aka') draft.aka = +v; else if (id === 'ng-seat') draft.seat = v;
         drawNew();
         return;

@@ -235,8 +235,10 @@
     const st = NET ? NET.status : (ONLINE_OK ? 'off' : 'unavailable');
     b.dataset.st = st;
     const c = NET && st === 'on' ? NET.counts() : null, g = c && c.byGame[GAME];
-    b.querySelector('.cnt').innerHTML = c ? `${c.online}人<small>・待ち${g ? g.wait : 0}</small>` : st === 'connecting' ? '…' : '';
-    b.querySelector('.lbl').textContent = T ? `卓 ${T.code}` : 'オンライン';
+    // つながっていれば、狭い画面でも「対戦」の文字を必ず出す（数字だけだと入口に見えないため）。卓に着いていれば卓のコード
+    b.querySelector('.cnt').innerHTML = c ? (T ? `<small>卓 </small>${T.code}` : `${c.online}人<small>・待ち${g ? g.wait : 0}</small>`) : st === 'connecting' ? '…' : '';
+    b.querySelector('.lbl').textContent = c ? '対戦' : 'オンライン';
+    b.title = T ? `オンラインの卓 ${T.code}（押すと卓の様子）` : 'オンライン対戦（いまオンラインの人数・卓で待っている人数）';
   }
   function tables() {
     if (!NET || NET.status !== 'on') return [];

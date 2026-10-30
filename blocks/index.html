@@ -72,7 +72,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:fo
 .brand h1 { font-family: var(--font-display); font-weight: 900; font-size: 26px; letter-spacing: .06em; margin: 0; line-height: 1; white-space: nowrap; }
 .brand h1 .dots { display: inline-flex; gap: 3px; vertical-align: 3px; margin-right: 8px; }
 .brand h1 .dots i { width: 9px; height: 9px; border-radius: 2.5px; display: block; }
-.brand span { color: var(--muted); font-size: 11px; letter-spacing: .16em; white-space: nowrap; }
+.brand > span { color: var(--muted); font-size: 11px; letter-spacing: .16em; white-space: nowrap; }
 .brand .home { align-self: center; color: var(--muted); text-decoration: none; font-size: 26px; line-height: 1; padding: 0 2px 3px; border-radius: 6px; }
 .brand .home:hover, .brand .home:focus-visible { color: var(--ink); }
 .tabs { display: flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 999px; flex: none; }
@@ -382,12 +382,10 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .top { gap: 7px; padding-block: 8px 8px; }
   .brand h1 { font-size: 19px; letter-spacing: .02em; }
   .brand h1 .dots { display: none; }
-  .brand span { display: none; }
+  .brand > span { display: none; }
   .tabs button { padding: 5px 9px; font-size: 13px; }
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
-  .onbtn .lbl { display: none; }
-  .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl { display: inline; }
   .play { gap: 6px; }
   .players { gap: 4px; }
   .pl { padding: 4px 6px; gap: 0 5px; border-radius: 9px; }
@@ -405,7 +403,9 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 @media (max-width: 430px) {
   .top { gap: 5px; }
   .brand { gap: 4px; }
-  .brand h1 { font-size: 15px; letter-spacing: 0; }
+  /* 狭い画面: 名前を2行に（「対戦」の入口と並んでも欠けないように） */
+  .brand h1 { font-size: 13.5px; letter-spacing: 0; line-height: 1.1; }
+  .brand h1 .h1b { display: block; }
   .brand .home { font-size: 22px; padding: 0 1px 2px; }
   .tabs { padding: 2px; }
   .tabs button { padding: 4px 7px; font-size: 12px; }
@@ -424,7 +424,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 @media (orientation: landscape) and (max-height: 500px) {
   .top { padding-block: 5px 4px; }
   .brand h1 { font-size: 18px; }
-  .brand span { display: none; }
+  .brand > span { display: none; }
   .brand h1 .dots { display: none; }
   .tabs button { padding: 4px 10px; font-size: 12.5px; }
   .iconbtn, .onbtn { height: 30px; }
@@ -448,7 +448,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 </head>
 <body>
 <header class="top">
-  <div class="brand"><a class="home" href="../" title="チューリング・テーブル（ゲームの一覧）" aria-label="チューリング・テーブル（ゲームの一覧）へ">‹</a><h1><span class="dots" aria-hidden="true"><i style="background:var(--c0)"></i><i style="background:var(--c1)"></i><i style="background:var(--c2)"></i><i style="background:var(--c3)"></i></span>ブロック陣取り</h1><span>CORNER TERRITORY</span></div>
+  <div class="brand"><a class="home" href="../" title="チューリング・テーブル（ゲームの一覧）" aria-label="チューリング・テーブル（ゲームの一覧）へ">‹</a><h1><span class="dots" aria-hidden="true"><i style="background:var(--c0)"></i><i style="background:var(--c1)"></i><i style="background:var(--c2)"></i><i style="background:var(--c3)"></i></span>ブロック<span class="h1b">陣取り</span></h1><span>CORNER TERRITORY</span></div>
   <nav class="tabs" role="tablist" aria-label="ページ">
     <button role="tab" id="tab-play" aria-selected="true" data-tab="play">対局</button>
     <button role="tab" id="tab-rules" aria-selected="false" data-tab="rules">ルール</button>

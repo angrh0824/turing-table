@@ -904,7 +904,8 @@
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
-    seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦']], draft.mode);
+    // 最後の「オンライン対戦」は選ぶとすぐオンラインのパネルを開く（上の丸いボタンと同じ入口。CONVENTIONS 5章）
+    seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(5 - CPU[k].stars)}</span><b>${CPU[k].label}</b>${CPU[k].hint ? `<span class="tm">${CPU[k].hint}</span>` : ''}<small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['white', '白（先に指す）'], ['black', '黒'], ['random', 'ランダム']], draft.side);
@@ -1258,6 +1259,8 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
+        // 今の対局は、オンラインで対局が始まるまでそのまま
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1442,7 +1445,9 @@
     b.dataset.st = st;
     const c = NET_ && st === 'on' ? NET_.counts() : null;
     const g = c && c.byGame && c.byGame[GAME];
-    b.querySelector('.cnt').innerHTML = c ? `${c.online}人<small>・待ち${g ? g.wait : 0}</small>` : st === 'connecting' ? '…' : '';
+    // つながっている間は、狭い画面でも「対戦」の文字を出す（数字だけだと入口に見えない）
+    b.querySelector('.lbl').textContent = c ? '対戦' : 'オンライン';
+    b.querySelector('.cnt').innerHTML = c ?`${c.online}人<small>・待ち${g ? g.wait : 0}</small>` : st === 'connecting' ? '…' : '';
   }
   function renderLobby() {
     if ($('dlg-online').hidden || !ONLINE_OK) return;
