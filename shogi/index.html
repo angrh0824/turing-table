@@ -4,10 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>将棋 — チューリング・テーブル</title>
-<meta name="description" content="自己対局だけで強くなった AI と指す将棋。駒も字も自作">
+<meta name="description" content="自己対局だけで強くなった AI と指す将棋。駒は自作、字は明朝体">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<!-- 駒の字: Zen Old Mincho の太字を、駒の字（王玉飛角金銀桂香歩と杏圭全馬龍 = ShogiPieces.CHARS）だけ読み込む -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@900&text=%E7%8E%8B%E7%8E%89%E9%A3%9B%E8%A7%92%E9%87%91%E9%8A%80%E6%A1%82%E9%A6%99%E6%AD%A9%E3%81%A8%E6%9D%8F%E5%9C%AD%E5%85%A8%E9%A6%AC%E9%BE%8D&display=swap">
 <style>
 /* 将棋: 盤が主役。盤の上下に持ち駒（駒台）、盤のすぐ下に情報の行・形勢・棋譜テープ。PC は右に形勢・グラフ・棋譜。横長のスマホは盤の右に全部 */
 :root {
@@ -44,6 +46,7 @@
   --sel-ring: #1f5fe6;
   --shadow: 0 1px 2px rgba(40, 25, 5, .22), 0 8px 24px rgba(40, 25, 5, .12);
   --font-display: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+--font-koma: "Zen Old Mincho", "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", serif;
   --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
   --radius: 12px;
   --sq-ratio: 1.09; /* マスは少し縦長（実物の盤と同じ） */
@@ -131,6 +134,7 @@ main.docmode { overflow-y: auto; overscroll-behavior: contain; }
 /* 駒 */
 .koma { display: block; pointer-events: none; transition: transform .12s, translate .14s cubic-bezier(.2,.8,.2,1), scale .14s cubic-bezier(.2,.8,.2,1); }
 .koma svg { display: block; width: 100%; height: 100%; overflow: visible; transform: scale(var(--ks, 1)); filter: drop-shadow(0 1.5px 1px rgba(40, 20, 0, .35)); }
+.koma-ch { font-family: var(--font-koma); font-weight: 900; }
 
 /* 盤 */
 .board-row { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; align-items: stretch; }

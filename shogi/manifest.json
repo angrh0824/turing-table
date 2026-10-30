@@ -2,7 +2,7 @@
   "slug": "shogi",
   "name": "将棋",
   "en": "Shogi",
-  "tagline": "自己対局だけで強くなった AI と、自作の駒と字で指す本将棋",
+  "tagline": "自己対局だけで強くなった AI と、明朝体の駒で指す本将棋",
   "players": "2",
   "orientation": "both",
   "status": "ready",

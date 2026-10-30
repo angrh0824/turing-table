@@ -301,6 +301,8 @@
   function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
+    // 「新しい対局」を選んでいる間は、裏の対局を進めない（CPU は読まず・打たず、観戦も止める。閉じたら resumeAfterNew で続ける）
+    if (newOpen()) { AI.cancel(); renderPlayers(); return; }
     if (!live() || S.result) { analyze(); return; }
     if (S.phase === 'mark') {
       // 死に石を調べている途中（markReady が false）なら、その読みは止めない
@@ -320,7 +322,7 @@
     AI.start(job, res => onInfo(ply, res, 'cpu'), res => {
       onInfo(ply, res, 'cpu');
       S.thinking = false;
-      if (!live() || S.board.moves.length !== ply || S.result || S.phase !== 'play' || !res) return;
+      if (!live() || S.board.moves.length !== ply || S.result || S.phase !== 'play' || !res || newOpen()) return;
       let m = res.move;
       // 相手がパスして、こちらも打つ場所がない（パスがいちばん）ならパスで終局へ
       if (m !== PASS && !S.board.isLegal(m)) m = PASS;
@@ -1002,11 +1004,20 @@
 
   // ------------------------------------------------------------------ ダイアログ
   let draft = null;
+  function newOpen() { const d = $('dlg-new'); return !!d && !d.hidden; }
   function openNew() {
     draft = Object.assign({}, cfg);
     drawNew();
     $('dlg-new').hidden = false;
+    schedule(); // 開いている間は止める（CPU の読み・打つのを待つ時間・観戦）
     $('ng-start').focus();
+  }
+  // 「新しい対局」を閉じた（やめる・背景・Esc・オンライン対戦へ）: 止めたところから続ける
+  function closeNew() {
+    if (!newOpen()) return;
+    $('dlg-new').hidden = true;
+    if (live() && !S.result && S.phase === 'mark' && !S.markReady) proposeDead(); // 死に石を調べている途中で止めていたら、調べ直す
+    else schedule();
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
@@ -1334,7 +1345,7 @@
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
         // オンライン対戦: すぐこのダイアログを閉じてオンラインのパネルへ（上の丸いボタンと同じ）。今の対局は、オンラインで始まるまでそのまま
-        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
+        if (id === 'ng-mode' && v === 'online') { closeNew(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1345,16 +1356,16 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) closeNew();
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', closeNew);
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startGame(draft); });
     $('rs-again').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online) requestRematch(); else startGame(cfg); });
     $('rs-new').addEventListener('click', () => { $('dlg-result').hidden = true; openNew(); });
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewPly(0); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); ['dlg-new', 'dlg-result', 'dlg-sgf', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.pending >= 0) { S.pending = -1; renderBoardMarks(); renderSqInfo(); } return; }
+      if (e.key === 'Escape') { closeSheet(); closeNew(); ['dlg-result', 'dlg-sgf', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.pending >= 0) { S.pending = -1; renderBoardMarks(); renderSqInfo(); } return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }

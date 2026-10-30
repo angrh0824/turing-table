@@ -84,7 +84,8 @@
   };
   Pool.prototype.reset = function () {
     if (!this.wait.size) return;
-    this.ws.forEach(w => w.terminate()); this.ws = [];
+    // 自分で止めたワーカーのエラー（読み込みの途中で止めたときなど）は出さない
+    this.ws.forEach(w => { w.onmessage = null; w.onerror = e => { if (e && e.preventDefault) e.preventDefault(); }; w.terminate(); }); this.ws = [];
     this.wait.forEach(r => r({ type: 'cancel' })); this.wait.clear();
   };
   const CPUP = new Pool('cpu'), ANP = new Pool('analysis');
@@ -131,14 +132,16 @@
   async function rollAnim(final, opening) {
     const groups = opening ? [{ side: 'bottom' }, { side: 'top' }] : [{ side: S.st.turn === S.bottom ? 'bottom' : 'top' }];
     snd('roll');
+    const ep = S.epoch;
     if (animOn()) {
       const t0 = performance.now();
-      while (performance.now() - t0 < 520) {
+      while (performance.now() - t0 < 520 && ep === S.epoch) { // 新しい対局のダイアログなどで止められたら、すぐやめる
         S.rolling = groups.map(g => ({ side: g.side, vals: opening ? [1 + Math.floor(Math.random() * 6)] : [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)], rot: [Math.random() * 40 - 20, Math.random() * 40 - 20] }));
         renderBoard();
         await sleep(65);
       }
     }
+    if (ep !== S.epoch) return;
     S.rolling = null;
     snd('land');
     void final;
@@ -201,7 +204,11 @@
     if (S.view || S.busy) { render(); return; }
     if (!S.online && !$('dlg-new').hidden) { render(); return; } // 新しい対局の設定中は進めない（オンラインは止めない）
     const st = S.st;
-    if (st.phase === 'over') { onGameOver(); render(); return; }
+    if (st.phase === 'over') {
+      // 観戦はマッチが終わるまで自動で次の局へ（新しい対局のダイアログを開くと止まり、閉じるとここから続く）
+      if (S.mode === 'watch' && !matchDone()) { const ep = S.epoch; S.timer = later(() => { if (ep === S.epoch && S.st === st && live()) nextGame(); }, 2600); render(); return; }
+      onGameOver(); render(); return;
+    }
     if (S.online) { onlineSchedule(); return; }
     if (st.phase === 'open') { const ep = S.epoch; S.timer = later(() => { if (ep === S.epoch) doRoll(true); }, S.games[S.gi].actions.length ? 700 : 450); render(); return; }
     const actor = actorOf(st);
@@ -215,13 +222,14 @@
   }
 
   async function doRoll(opening) {
-    if (S.busy || S.view) return;
-    const ep = S.epoch;
+    if (S.busy || S.view || S.st.phase !== (opening ? 'open' : 'turn')) return;
+    const ep = S.epoch, st0 = S.st;
     S.busy = true;
     const d = [rollDie(), rollDie()];
     await rollAnim(d, opening);
+    if (ep !== S.epoch) return; // 止められた（新しい対局のダイアログなど）。busy は再開する側が戻す
     S.busy = false;
-    if (ep !== S.epoch) return;
+    if (S.st !== st0) return;
     push(opening ? { a: 'open', d } : { a: 'roll', d });
     if (opening && d[0] === d[1]) S.msg = `${d[0]} と ${d[1]} の同じ目なので振り直し`;
     else if (opening) S.msg = `${SIDE[0]} ${d[0]}・${SIDE[1]} ${d[1]} → ${seatName(S.st.turn)}（${SIDE[S.st.turn]}）が先手`;
@@ -389,6 +397,10 @@
   // ------------------------------------------------------------------ CPU
   async function cpuAct() {
     const ep = S.epoch, st = S.st, actor = actorOf(st), lv = CPU[S.seats[actor]];
+    // 同じ局面で2回動き出さない（考えている途中に schedule がもう一度呼ばれても、片方だけが指す）
+    if (S.cpuFor && S.cpuFor.st === st && S.cpuFor.ep === ep) return;
+    S.cpuFor = { st, ep };
+    const stale = () => ep !== S.epoch || S.st !== st;
     S.thinking = true; render();
     const t0 = Date.now();
     const wait = async ms => { const d = ms - (Date.now() - t0); if (d > 0) await sleep(d); };
@@ -396,12 +408,12 @@
       let dbl = false;
       if (BG.canDouble(st) && !BG.mustRoll(st)) {
         const r = await CPUP.run({ type: 'cube', me: arr(st.b[st.turn]), opp: arr(st.b[st.turn ^ 1]), ply: lv.cubePly, ctx: ctxOf(st) });
-        if (ep !== S.epoch || r.type !== 'cube') return;
+        if (stale() || r.type !== 'cube') return;
         dbl = !!r.dec.double;
         if (lv === CPU.easy) dbl = r.dec.double ? Math.random() < 0.7 : r.p[0] > 0.62 && Math.random() < 0.25;
       }
       await wait(dbl ? 600 : 250);
-      if (ep !== S.epoch) return;
+      if (stale()) return;
       S.thinking = false;
       if (dbl) { push({ a: 'double' }); snd('cube'); S.msg = ''; render(); schedule(); }
       else await doRoll(false);
@@ -411,22 +423,22 @@
       if (legal.length === 1) { await wait(legal[0].hops.length ? 450 : 1100); pick = { hops: legal[0].hops, p: null }; }
       else {
         pick = await cpuChooseMove(st, lv, ep);
-        if (ep !== S.epoch || !pick) return;
+        if (stale() || !pick) return;
         await wait(500);
       }
-      if (ep !== S.epoch) return;
+      if (stale()) return;
       S.thinking = false;
       const gi = S.gi, n = S.games[S.gi].actions.length;
       await animateHops(st.turn, pick.hops);
-      if (ep !== S.epoch) return;
+      if (stale()) return;
       push({ a: 'move', h: pick.hops.map(h => [h[0], h[1]]) });
       if (pick.p) S.evals[`${gi}:${n + 1}`] = st.turn === 0 ? pick.p[0] : 1 - pick.p[0];
       save(); render(); schedule();
     } else if (st.phase === 'doubled') {
       const r = await CPUP.run({ type: 'cube', me: arr(st.b[st.turn]), opp: arr(st.b[st.turn ^ 1]), ply: lv.cubePly, ctx: ctxOf(st) });
-      if (ep !== S.epoch || r.type !== 'cube') return;
+      if (stale() || r.type !== 'cube') return;
       await wait(800);
-      if (ep !== S.epoch) return;
+      if (stale()) return;
       S.thinking = false;
       let take = r.dec.take;
       if (lv === CPU.easy) take = r.p[0] < 0.8 ? Math.random() < 0.85 : Math.random() < 0.3;
@@ -504,8 +516,6 @@
     S.resultShown = true;
     const you = youSide(), won = st.winner === you;
     if (S.mode !== 'watch' && won) snd('win');
-    // 観戦はマッチが終わるまで自動で次の局へ
-    if (S.mode === 'watch' && !matchDone()) { const ep = S.epoch; setTimeout(() => { if (S.st === st && live() && ep === S.epoch) nextGame(); }, 2600); return; }
     setTimeout(() => { if (S.st === st && live()) showResult(); }, 700);
   }
   function kindText(st) { return st.reason === 'pass' ? 'パス' : st.reason === 'resign' ? `投了（${['', 'シングル', 'ギャモン', 'バックギャモン'][st.kind]}）` : st.kind === 3 ? 'バックギャモン' : st.kind === 2 ? 'ギャモン' : 'シングル'; }
@@ -1101,7 +1111,7 @@
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
         // オンライン対戦: すぐこのダイアログを閉じてオンラインのパネルへ（今の対局はオンラインで始まるまでそのまま）
-        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; schedule(); openOnline(); return; }
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; resumeAfterDialog(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-cpu-w') draft.cpuW = v;
@@ -1110,16 +1120,16 @@
         else if (id === 'ng-cube') draft.cube = v;
         drawNew(); return;
       }
-      if (e.target === $('dlg-new')) { $('dlg-new').hidden = true; schedule(); }
+      if (e.target === $('dlg-new')) { $('dlg-new').hidden = true; resumeAfterDialog(); }
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; schedule(); });
+    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; resumeAfterDialog(); });
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; newMatch(Object.assign({}, draft)); });
     $('rs-again').addEventListener('click', () => { $('dlg-result').hidden = true; if (matchDone()) again(); else nextGame(); });
     $('rs-new').addEventListener('click', () => { $('dlg-result').hidden = true; openNew(); });
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; const es = entries().filter(e => e.gi === S.gi); if (es.length) viewAt(S.gi, es[0].n); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { const wasNew = !$('dlg-new').hidden; closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-online', 'dlg-resign'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel != null) { clearSel(); render(); } if (wasNew) schedule(); return; }
+      if (e.key === 'Escape') { const wasNew = !$('dlg-new').hidden; closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-online', 'dlg-resign'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel != null) { clearSel(); render(); } if (wasNew) resumeAfterDialog(); return; }
       if (e.target.closest('input, textarea, .dialog') || $('view-play').hidden) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
@@ -1162,7 +1172,22 @@
   }
 
   // ------------------------------------------------------------------ 新しい対局のダイアログ
-  function openNew() { drawNew(); $('dlg-new').hidden = false; }
+  function openNew() { pauseForDialog(); drawNew(); $('dlg-new').hidden = false; }
+  // 「新しい対局」を選んでいる間は、裏の対局を進めない（CPU は振らず・動かさず、観戦も止める）。オンラインは相手がいるので止めない
+  function pauseForDialog() {
+    if (S.online) return;
+    S.epoch++; CPUP.reset(); clearTimeout(S.timer); S.thinking = false;
+  }
+  // 閉じたら（やめる・背景・Esc・オンライン対戦を選んだとき）止めたところから続ける
+  function resumeAfterDialog() {
+    if (S.online) { schedule(); return; }
+    S.busy = false; S.anim = null; S.rolling = null;
+    if (board) board.clearFx();
+    // 人が途中まで動かしていた手はそのまま残す
+    if (live() && S.pm && S.st.phase === 'move' && isHuman(S.st.turn) && !S.pm.forced) { render(); analyzeNow(); return; }
+    S.pm = null; clearSel();
+    schedule();
+  }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(v) === String(val)}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPU と対局'], ['pvp', 'ふたりで（1台）'], ['watch', 'CPU どうしを観戦'], ['online', 'オンライン対戦']], draft.mode);

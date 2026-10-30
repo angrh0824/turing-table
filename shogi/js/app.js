@@ -233,6 +233,8 @@
   function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
+    // 「新しい対局」を選んでいる間は進めない（CPU は読まず指さない・観戦も止める）。閉じたら続きから
+    if (S.paused) { AI.cancel(); renderPlayers(); return; }
     if (!live() || S.result) { analyze(); return; }
     const c = S.pos.stm;
     if (isRemote(c)) { AI.cancel(); renderEval(); return; }
@@ -835,7 +837,9 @@
 
   // ------------------------------------------------------------------ ダイアログ
   let draft = null;
-  function openNew() { draft = Object.assign({}, cfg); drawNew(); $('dlg-new').hidden = false; $('ng-start').focus(); }
+  function openNew() { draft = Object.assign({}, cfg); drawNew(); $('dlg-new').hidden = false; $('ng-start').focus(); S.paused = true; schedule(); }
+  // 「やめる」などで閉じる: 止めていた対局を続ける
+  function closeNew() { $('dlg-new').hidden = true; if (S.paused) { S.paused = false; schedule(); } }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
@@ -1193,7 +1197,7 @@
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
         // オンライン対戦: 今の対局はそのままで、上の丸いボタンと同じパネルを開く
-        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
+        if (id === 'ng-mode' && v === 'online') { closeNew(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1203,16 +1207,16 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) closeNew();
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
-    $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startGame(draft); });
+    $('ng-cancel').addEventListener('click', closeNew);
+    $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; S.paused = false; startGame(draft); });
     $('rs-again').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online) requestRematch(); else startGame(cfg); });
     $('rs-new').addEventListener('click', () => { $('dlg-result').hidden = true; openNew(); });
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewPly(0); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel || S.inspect >= 0) clearSel(); return; }
+      if (e.key === 'Escape') { closeSheet(); hideChooser(); if (!$('dlg-new').hidden) closeNew(); ['dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel || S.inspect >= 0) clearSel(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }
@@ -1446,6 +1450,7 @@
       if (S.online && NET) NET.rejoin({ mid: S.online.gid, myColor: S.online.myColor, opp: { id: '', name: S.online.opp.name, ai: S.online.opp.ai } });
     } catch (e) { startGame(cfg); }
   } else {
+    S.paused = true; // 初めて開いたとき: 選び終えるまで CPU に指させない
     startGame(cfg);
     openNew();
   }

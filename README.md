@@ -12,7 +12,7 @@ AI は人間が作ったエンジン・棋譜・定石集を使わず、ルー�
 - **連珠**（2人）: 禁手ありの五目並べ。自己対局だけで強くなった AI に挑む → https://angrh0824.github.io/turing-table/renju/
 - **花札こいこい**（2人）: 自己対局だけで育った AI と、和モダンの花札で読み合う → https://angrh0824.github.io/turing-table/koikoi/
 - **ホールデム**（2〜6人）: 2〜6人のノーリミット・テキサスホールデム。自己対局の CFR で学んだ AI と、オンラインでは何人でも同じ卓で → https://angrh0824.github.io/turing-table/holdem/
-- **将棋**（2人）: 自己対局だけで強くなった AI と、自作の駒と字で指す本将棋 → https://angrh0824.github.io/turing-table/shogi/
+- **将棋**（2人）: 自己対局だけで強くなった AI と、明朝体の駒で指す本将棋 → https://angrh0824.github.io/turing-table/shogi/
 - **チェス**（2人）: 自己対局だけで強くなった AI と、大理石と真鍮の盤で指す → https://angrh0824.github.io/turing-table/chess/
 - **麻雀**（4人）: 4人のリーチ麻雀。自己対局の強化学習だけで育った AI と、オンラインでは人間どうしでも同じ卓で → https://angrh0824.github.io/turing-table/mahjong/
 - **囲碁**（2人）: 自己対局だけで育つ AlphaZero 型の AI と、榧の碁盤で打つ → https://angrh0824.github.io/turing-table/go/
