@@ -586,10 +586,14 @@
     return true;
   }
 
+  // 「新しい対局」を開いている間は裏の対局を進めない（CPU は打たない。閉じたら schedule() で続ける）
+  const choosing = () => !$('dlg-new').hidden;
+
   // 次にだれが何をするか
   function schedule() {
     const r = R();
     if (!r || S.busy || S.view != null) return;
+    if (choosing()) { S.thinking = false; renderBars(); return; }
     renderInfo();
     if (r.phase === 'end') return;
     const p = r.turn;
@@ -617,6 +621,7 @@
     if (wait > 0) await sleep(wait);
     if (token !== S.token || key !== decisionKey()) return;
     S.thinking = false;
+    if (choosing()) { renderBars(); return; } // 閉じたときの schedule() で打ち直す
     act(a);
   }
 
@@ -1014,17 +1019,19 @@
       });
     }
     // 新しい対局
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; schedule(); });
     $('ng-start').addEventListener('click', () => {
       $('dlg-new').hidden = true;
       if (S.online && !S.match.over) resign(true);
       newMatch(Object.assign({}, ngCfg));
     });
     $('dlg-new').addEventListener('click', e => {
-      if (e.target === $('dlg-new')) { $('dlg-new').hidden = true; return; }
+      if (e.target === $('dlg-new')) { $('dlg-new').hidden = true; schedule(); return; }
       const b = e.target.closest('button[data-v]');
       if (!b) return;
       const grp = b.parentElement.id;
+      // オンライン対戦: 上の丸いボタンと同じパネルを開く（今の対局はオンラインで始まるまでそのまま）
+      if (grp === 'ng-mode' && b.dataset.v === 'online') { $('dlg-new').hidden = true; schedule(); openOnline(); return; }
       if (grp === 'ng-mode') ngCfg.mode = b.dataset.v;
       else if (grp === 'ng-cpu') ngCfg.cpu = b.dataset.v;
       else if (grp === 'ng-months') ngCfg.months = +b.dataset.v;
@@ -1039,7 +1046,12 @@
     // キーボード: 1〜8 で手札、Esc で選択を消す
     document.addEventListener('keydown', e => {
       if (e.target.closest && e.target.closest('input, textarea')) return;
-      if (e.key === 'Escape') { S.inspect = -1; closeSheet(); ['dlg-new', 'dlg-result', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0) { S.sel = -1; render(); } return; }
+      if (e.key === 'Escape') {
+        const wasChoosing = choosing();
+        S.inspect = -1; closeSheet(); ['dlg-new', 'dlg-result', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0) { S.sel = -1; render(); }
+        if (wasChoosing) schedule();
+        return;
+      }
       const r = R();
       if (!humanTurn() || !$('dlg-new').hidden || !$('dlg-result').hidden) return;
       if (/^[1-8]$/.test(e.key) && r.phase === 'play') { const hs = S.frame.hands[S.me].slice().sort((a, b) => a - b); const c = hs[+e.key - 1]; if (c != null) onHandTap(c); }
@@ -1106,7 +1118,7 @@
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
-    seg('ng-mode', [['cpu', 'CPUと対局'], ['watch', 'CPUどうしを観戦']], ngCfg.mode);
+    seg('ng-mode', [['cpu', 'CPUと対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], ngCfg.mode);
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${ngCfg.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[ngCfg.cpu].desc;
     seg('ng-months', [[12, '12か月'], [6, '6か月'], [3, '3か月']], ngCfg.months);

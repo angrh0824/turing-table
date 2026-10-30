@@ -753,13 +753,19 @@
     for (const p of [s.sbSeat, s.bbSeat]) { const e2 = s.log.find(x => x.p === p && (x.t === 'sb' || x.t === 'bb')); if (e2) D.tags[map[p]] = { cls: '', text: `${e2.t.toUpperCase()} ${fmt(e2.amt)}` }; }
     for (let i = 0; i < T.seats.length; i++) if (!map.includes(i)) delete D.tags[i];
   }
+  // 「新しいゲーム」を開いている間は卓を進めない（閉じたら続ける。オンラインの卓はほかの人がいるので止めない）
+  async function holdWhileChoosing() {
+    while (!$('dlg-new').hidden && !T.online) await sleep(200);
+  }
   async function playHand() {
+    await holdWhileChoosing();
     startHand();
     const s = S.s;
     H.autoStep(s, S.deck); // 手札を配る（hole → bet）
     S.rec.holes = s.hole.map(h => h && h.slice());
     await animDeal();
     for (;;) {
+      await holdWhileChoosing();
       if (s.phase === 'bet') {
         const p = s.toAct, i = S.map[p], seat = T.seats[i];
         if (seat.kind === 'me') await humanTurn(p);
@@ -821,6 +827,7 @@
     let think = 450 + rng() * 650 + (Lg.toCall > s.bb * 4 ? 350 : 0) + (dec.a.t === 'r' ? 250 : 0);
     if (fastForward || T.watching || (settings.fast && myFolded())) think *= 0.25;
     await sleep(Math.max(0, think - (performance.now() - t0)));
+    await holdWhileChoosing();
     await applyAction(p, dec.a);
   }
   // 人（あなた）の打ち方の癖。最強の CPU が読みに使う（少しずつ古い分を忘れる）
@@ -1117,7 +1124,7 @@
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${ng.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu').dataset.key = 'cpu';
     $('ng-cpu-desc').textContent = CPU[ng.cpu].desc + (TABLE ? '' : '（学習した表を読み込めていないので、いまは単純な打ち方です）');
-    seg('ng-mode', Object.entries(MODES).map(([k, v]) => [k, v.label]), ng.mode, 'mode');
+    seg('ng-mode', Object.entries(MODES).map(([k, v]) => [k, v.label]).concat([['online', 'オンラインの卓']]), ng.mode, 'mode');
     $('ng-mode-hint').textContent = MODES[ng.mode].hint;
     seg('ng-stack', [30, 50, 100, 200].map(n => [n, n + 'BB']), ng.stack, 'stack');
     seg('ng-speed', Object.entries(SPEEDS).map(([k, v]) => [k, v.label + (v.hands ? `（${v.hands}ハンドごと）` : '')]), ng.speed, 'speed');
@@ -1300,7 +1307,11 @@
     // 新しいゲーム
     $('dlg-new').addEventListener('click', e => {
       const b = e.target.closest('button[data-v]');
-      if (b) { const key = b.parentElement.dataset.key; ng[key] = key === 'players' || key === 'stack' ? +b.dataset.v : b.dataset.v; drawNew(); }
+      if (!b) return;
+      const key = b.parentElement.dataset.key;
+      // オンラインの卓: 上の丸いボタンと同じパネルを開く（今の卓はオンラインで座るまでそのまま）
+      if (key === 'mode' && b.dataset.v === 'online') { $('dlg-new').hidden = true; openOnline(); return; }
+      ng[key] = key === 'players' || key === 'stack' ? +b.dataset.v : b.dataset.v; drawNew();
     });
     $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; newGame(Object.assign({}, ng)); });

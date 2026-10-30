@@ -234,9 +234,13 @@
     schedule();
   }
 
+  // 「新しい対局」を開いている間は裏の対局を進めない（CPU は読まず指さない。閉じたら schedule() で続ける）
+  const choosing = () => !$('dlg-new').hidden;
+
   function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
+    if (choosing()) { AI.cancel(); return; }
     if (!live() || S.result) { analyze(); return; }
     const c = S.pos.stm;
     if (S.pos.phase === SETUP && (isCPU(c) || S.autoSetup[c])) {
@@ -259,7 +263,7 @@
       info => {
         onInfo(ply, c, info, 'cpu');
         S.thinking = false;
-        if (live() && S.moves.length === ply && !S.result) S.timer = setTimeout(() => play(info.move), 120);
+        if (live() && S.moves.length === ply && !S.result && !choosing()) S.timer = setTimeout(() => play(info.move), 120);
       });
   }
 
@@ -1005,11 +1009,13 @@
     draft = Object.assign({}, cfg);
     drawNew();
     $('dlg-new').hidden = false;
+    schedule(); // 裏の対局を止める
+    renderPlayers();
     $('ng-start').focus();
   }
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
-    seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦']], draft.mode);
+    seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
     $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(5 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small><i class="tm">1手 約${CPU[k].time / 1000}秒</i></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['black', '先手（先に指す）'], ['white', '後手'], ['random', 'ランダム']], draft.side);
@@ -1436,6 +1442,8 @@
       const b = e.target.closest('.seg button, .cards button');
       if (b) {
         const id = b.parentElement.id, v = b.dataset.v;
+        // オンライン対戦: 上の丸いボタンと同じパネルを開く（今の対局はオンラインで始まるまでそのまま）
+        if (id === 'ng-mode' && v === 'online') { $('dlg-new').hidden = true; schedule(); openOnline(); return; }
         if (id === 'ng-mode') draft.mode = v;
         else if (id === 'ng-cpu') draft.cpu = v;
         else if (id === 'ng-side') draft.side = v;
@@ -1446,9 +1454,9 @@
         drawNew();
         return;
       }
-      if (e.target === $('dlg-new')) $('dlg-new').hidden = true;
+      if (e.target === $('dlg-new')) { $('dlg-new').hidden = true; schedule(); }
     });
-    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; });
+    $('ng-cancel').addEventListener('click', () => { $('dlg-new').hidden = true; schedule(); });
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startGame(draft); });
     // 終局
     $('rs-again').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online) requestRematch(); else startGame(cfg); });
@@ -1456,7 +1464,12 @@
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewPly(0); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel || S.inspect >= 0) clearSel(); return; }
+      if (e.key === 'Escape') {
+        const wasChoosing = choosing();
+        closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel || S.inspect >= 0) clearSel();
+        if (wasChoosing) schedule();
+        return;
+      }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }

@@ -122,6 +122,8 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .eval-off .evalbar { display: none; }
 .board-wrap { position: relative; border-radius: 6px; box-shadow: var(--shadow); }
 #board { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: pointer; border-radius: 6px; }
+/* 描き直す層（印・四三・石）はタップを受けない。読みの途中で描き直されるとタップが消える（最善手の点に打てなかった）ので、盤のタップは動かない下の層で受ける */
+#g-dim, #g-threat, #g-stones, #g-marks { pointer-events: none; }
 #board .ln { stroke: var(--wood-line); stroke-width: 1.15; opacity: .82; }
 #board .edge { stroke: var(--wood-line); stroke-width: 2.4; fill: none; opacity: .9; }
 #board .star { fill: var(--wood-line); opacity: .9; }
@@ -320,6 +322,7 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .onbtn[data-st="on"] .dot { background: #2fb36a; opacity: 1; box-shadow: 0 0 0 3px rgba(47, 179, 106, .25); }
 .onbtn[data-st="connecting"] .dot { background: var(--gold); opacity: 1; }
 .onbtn small { font-weight: 500; color: var(--muted); }
+.onbtn .short { display: none; }
 .on-stats { display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
 .on-stats .stat b { display: block; font-family: var(--font-display); font-size: 34px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .on-stats .stat span { color: var(--muted); font-size: 12px; }
@@ -383,6 +386,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
   .onbtn .lbl { display: none; }
   .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl { display: inline; }
+  .onbtn .short { display: inline; }
+  .onbtn[data-st="off"] .short, .onbtn[data-st="error"] .short { display: none; }
   .on-row { grid-template-columns: minmax(0, 1fr) auto; }
   .play { gap: 14px; }
   .board-col, .under { gap: 6px; }
@@ -425,7 +430,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
     <button role="tab" aria-selected="false" data-tab="rules">ルール</button>
     <button role="tab" aria-selected="false" data-tab="ai">AI</button>
   </nav>
-  <button class="onbtn" id="btn-online" data-st="off" title="オンライン対戦（いまオンラインの人数・対戦待ちの人数）"><span class="dot"></span><span class="lbl">オンライン</span><span class="cnt"></span></button>
+  <button class="onbtn" id="btn-online" data-st="off" title="オンライン対戦（いまオンラインの人数・対戦待ちの人数）"><span class="dot"></span><span class="lbl">オンライン</span><span class="short">対戦</span><span class="cnt"></span></button>
   <div class="settings-wrap">
     <button class="iconbtn" id="btn-settings" aria-label="表示の設定" aria-expanded="false">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>

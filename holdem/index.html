@@ -459,6 +459,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 @media (max-width: 430px) {
   .onbtn .lbl, .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl, .onbtn[data-st="unavailable"] .lbl { display: none !important; }
   .onbtn small { display: none; }
+  .onbtn[data-st="off"] .cnt::before, .onbtn[data-st="error"] .cnt::before, .onbtn[data-st="unavailable"] .cnt::before { content: "対戦"; }
   .top { gap: 6px !important; padding-left: 4px !important; }
   .brand { flex: none; }
   .brand h1 { font-size: 18px !important; letter-spacing: 0 !important; }
@@ -473,6 +474,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .onbtn { height: 32px; padding: 0 9px; gap: 5px; font-size: 12px; }
   .onbtn .lbl { display: none; }
   .onbtn[data-st="off"] .lbl, .onbtn[data-st="error"] .lbl, .onbtn[data-st="unavailable"] .lbl { display: inline; }
+  .onbtn[data-st="on"] .cnt::before, .onbtn[data-st="connecting"] .cnt::before { content: "対戦 "; }
   .iconbtn { width: 32px; height: 32px; }
   .act { min-height: 50px; font-size: 14px; }
   .presets button { font-size: 11.5px; min-height: 30px; }
@@ -498,6 +500,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .iconbtn { width: 30px; height: 30px; }
   .onbtn { height: 30px; font-size: 12px; padding: 0 9px; }
   .onbtn .lbl { display: none; }
+  .onbtn[data-st="on"] .cnt::before, .onbtn[data-st="connecting"] .cnt::before { content: "対戦 "; }
   .play { padding-bottom: 6px; }
   .panel { gap: 5px; }
   .status { min-height: 34px; font-size: 12px; padding: 2px 4px 2px 10px; }

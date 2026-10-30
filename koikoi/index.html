@@ -448,6 +448,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
   .onbtn .lbl { display: none; }
   .onbtn[data-st="off"] .cnt::before, .onbtn[data-st="error"] .cnt::before, .onbtn[data-st="unavailable"] .cnt::before { content: "対戦"; }
+  .onbtn[data-st="on"] .cnt::before, .onbtn[data-st="connecting"] .cnt::before { content: "対戦 "; }
   .controls { gap: 6px; flex-wrap: nowrap; }
   .controls .btn { padding: 6px 10px; font-size: 13px; }
   .controls .wide { display: none; }
