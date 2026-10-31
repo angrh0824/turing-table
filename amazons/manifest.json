@@ -1,0 +1,12 @@
+{
+  "slug": "amazons",
+  "name": "アマゾンズ",
+  "en": "Amazons",
+  "tagline": "動いて、矢を放ち、盤を区切る。自己対局だけで育った AI と陣地を奪い合う",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局だけで学んだ陣地の評価（どちらが先に届くか）＋幅を絞った αβ 探索",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}
