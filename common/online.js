@@ -117,7 +117,7 @@
         call('onPresence', list()); checkOpp();
       } else if (sub === `i/${me.id}`) { if (msg) onInbox(msg); }
       else if (game && sub === `g/${game.mid}`) { if (msg && msg.from !== me.id) call('onRemote', msg); }
-      else if (game && sub === `g/${game.mid}/s`) { if (msg && msg.from !== me.id) call('onRemote', Object.assign({ t: 'state' }, msg)); }
+      else if (game && sub === `g/${game.mid}/s`) { if (msg && msg.from !== me.id) call('onRemote', Object.assign({}, msg, { t: 'state', ts: typeof msg.t === 'number' ? msg.t : 0 })); } // 保存の時刻（t）で 'state' を上書きしない。時刻は ts に
       else if (roomSubs.has(topic)) roomSubs.get(topic).forEach(cb => { try { cb(msg, topic); } catch (e) { console.error(e); } });
     }
 
