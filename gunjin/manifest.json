@@ -1,0 +1,12 @@
+{
+  "slug": "gunjin",
+  "name": "軍人将棋",
+  "en": "Gunjin Shogi",
+  "tagline": "駒の正体を隠したまま戦う、審判つきの昔の盤上遊戯。相手の駒を推理する AI と",
+  "players": "2",
+  "orientation": "portrait",
+  "status": "ready",
+  "ai": "見えるものだけから相手の駒を推理（MCMC）し、自己対局で学んだ評価のネットで選ぶ AI",
+  "levels": ["やさしい", "ふつう", "つよい", "最強"],
+  "online": true
+}
