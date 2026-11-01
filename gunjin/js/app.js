@@ -850,6 +850,13 @@
         <p class="hint">明かされた2枚の種類は端末の中には届きます（画面には出しません）。公開の中継サーバーを使うため、名前と指し手はほかの人からも見える可能性があります。</p></div>`;
     });
   }
+  // 世代ごとの表は、基準と戦わせた世代を間引いて 24行ほどにする（最新は必ず残す）
+  function gensShown(gs) {
+    const r = gs.filter(g => g.rule);
+    if (r.length <= 24) return r;
+    const step = Math.ceil(r.length / 24);
+    return r.filter((g, i) => i % step === 0 || i === r.length - 1);
+  }
   function renderAIPage() {
     const st = STR;
     docTabs('view-ai', 'doc-ai', [['how', 'しくみ'], ['str', '強さの記録'], ['lv', 'CPUの強さ']], k => {
@@ -862,7 +869,7 @@
       if (k === 'str') {
         if (!st) return '<div class="card"><h3>強さの記録</h3><p>測定中です。</p></div>';
         return `<div class="card"><h3>強さの記録</h3><div class="stat-row">${(st.headline || []).map(h => `<div class="stat"><b>${esc(h.v)}</b><span>${esc(h.l)}</span></div>`).join('')}</div><p class="hint">${esc(st.note || '')}</p></div>
-          <div class="card"><h3>世代ごと</h3><div class="tbl"><table class="lv"><thead><tr><th>世代</th><th>累計 Elo</th><th>前の世代に</th><th>対ルール</th><th>対ランダム</th></tr></thead><tbody>${(st.gens || []).map(g => `<tr><td>${g.gen}</td><td>${g.elo >= 0 ? '+' : ''}${g.elo} ±${g.err}</td><td>${esc(g.prev || '')}</td><td>${esc(g.rule || '')}</td><td>${esc(g.rand || '')}</td></tr>`).join('')}</tbody></table></div></div>`;
+          <div class="card"><h3>世代ごと</h3><div class="tbl"><table class="lv"><thead><tr><th>世代</th><th>累計 Elo</th><th>前の世代に</th><th>対ルール</th><th>対ランダム</th></tr></thead><tbody>${gensShown(st.gens || []).map(g => `<tr><td>${g.gen}</td><td>${g.elo >= 0 ? '+' : ''}${g.elo} ±${g.err}</td><td>${esc(g.prev || '')}</td><td>${esc(g.rule || '')}</td><td>${esc(g.rand || '')}</td></tr>`).join('')}</tbody></table></div></div>`;
       }
       return `<div class="card"><h3>CPUの強さ</h3><p>4段階とも同じ AI（同じ評価のネット）で、推理する組み合わせの数と、わざと揺らす大きさだけを変えています。</p><div class="tbl"><table class="lv"><thead><tr><th>強さ</th><th>推理する組み合わせ</th><th>揺らぎ</th><th>配置</th>${st && st.levels ? '<th>測った差</th>' : ''}</tr></thead><tbody>${CPU_KEYS.map(k2 => { const L = AI.LEVELS[k2]; const m = st && st.levels && st.levels[k2]; return `<tr><td>${CPU[k2].label}</td><td>${L.K}通り</td><td>${L.tau ? '大' .repeat(L.tau > 0.1 ? 1 : 0) + (L.tau > 0.1 ? 'きい' : '少し') : 'なし'}</td><td>${L.sigma > 2 ? 'ばらばら' : L.sigma > 1 ? 'やや学んだ形' : '学んだ形'}</td>${st && st.levels ? `<td>${m ? esc(m) : ''}</td>` : ''}</tr>`; }).join('')}</tbody></table></div><p class="hint">${STR && STR.ultra ? esc(STR.ultra.text) + '。' + (STR.ultra.ok ? 'はっきり強くなると測れたので「超最強」を置いています。' : 'はっきりとは強くならなかったので「超最強」は置いていません。') : '「超最強」（推理の数を増やした段）は、強くなると測れたときだけ置きます。'}</p></div>`;
     });

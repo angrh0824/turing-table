@@ -21,7 +21,7 @@
     normal: { label: 'ふつう', stars: 2, desc: '3手先まで読みます', time: 700, depth: 3, noise: 15 },
     strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習済みの評価で深く読みます', time: 2000 },
     max: { label: '最強', stars: 4, desc: '1手8秒。全力で読みます', time: 8000 },
-    // 超最強: 最強と同じ AI で、考える時間だけ延ばす（読む時間を2倍にすると Elo +37、4倍で +76 と測れている。README）
+    // 超最強: 最強と同じ AI で、考える時間だけ延ばす（線形の第83世代で読む時間2倍が Elo +37、4倍が +76。NN 第23世代で3.75倍が +67。README）
     ultra: { label: '超最強', stars: 5, desc: '1手 約30秒。最強と同じAIで、じっくり読みます', time: 30000 },
   };
   const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
@@ -1177,7 +1177,7 @@
     const gen = W.gen || 0, total = W.totalGames || 0;
     const acc = h.filter(e => e.accepted);
     let cum = 0;
-    const series = h.map(e => { if (e.accepted) cum += Math.max(0, e.elo); return { gen: e.gen, elo: cum, accepted: e.accepted, games: e.totalGames }; });
+    const series = h.map(e => { if (e.accepted) cum += Math.max(0, e.elo || 0); return { gen: e.gen, elo: cum, accepted: e.accepted, games: e.totalGames }; });
     const vs = W.vsInitial;
     const bw = 600, bh = 170, pad = 28;
     let chart = '';
@@ -1200,12 +1200,14 @@
     const ms = allMs.filter(m => (m.anchor || '初期版') === anchorName).slice(-40);
     let mchart = '';
     if (ms.length) {
-      const top = Math.max(100, ...ms.map(m => m.elo + (m.eloErr || 0))), gMin = ms[0].gen, gMax = ms[ms.length - 1].gen;
-      const X = g => pad + (gMax === gMin ? 0.5 : (g - gMin) / (gMax - gMin)) * (bw - pad - 16), Y = e => bh - 20 - Math.max(0, e) / top * (bh - 34);
+      // NN の世代は線形より弱いところから始まるので、負の Elo も描く
+      const top = Math.max(100, ...ms.map(m => m.elo + (m.eloErr || 0))), bot = Math.min(0, ...ms.map(m => m.elo - (m.eloErr || 0))), gMin = ms[0].gen, gMax = ms[ms.length - 1].gen;
+      const sg = e => `${e >= 0 ? '+' : ''}${e}`;
+      const X = g => pad + (gMax === gMin ? 0.5 : (g - gMin) / (gMax - gMin)) * (bw - pad - 16), Y = e => bh - 20 - (e - bot) / (top - bot) * (bh - 34);
       mchart = `<svg viewBox="0 0 ${bw} ${bh}" style="width:100%;height:auto;display:block" role="img" aria-label="初期版との直接対戦で測った強さの推移">
-        ${[0, 0.5, 1].map(f => Math.round(top * f)).map(t => `<line x1="${pad}" x2="${bw - 8}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--line)"/><text x="${pad - 4}" y="${Y(t) + 3}" text-anchor="end" fill="var(--muted)" font-size="10">+${t}</text>`).join('')}
+        ${(bot < 0 ? [bot, 0, top] : [0, 0.5, 1].map(f => top * f)).map(Math.round).map(t => `<line x1="${pad}" x2="${bw - 8}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--line)"/><text x="${pad - 4}" y="${Y(t) + 3}" text-anchor="end" fill="var(--muted)" font-size="10">${sg(t)}</text>`).join('')}
         ${ms.length > 1 ? `<polyline points="${ms.map(m => `${X(m.gen).toFixed(1)},${Y(m.elo).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--gold)" stroke-width="2"/>` : ''}
-        ${ms.map(m => `<line x1="${X(m.gen)}" x2="${X(m.gen)}" y1="${Y(m.elo - (m.eloErr || 0))}" y2="${Y(m.elo + (m.eloErr || 0))}" stroke="var(--gold)" stroke-width="1.5"/><circle cx="${X(m.gen)}" cy="${Y(m.elo)}" r="4" fill="var(--gold)"><title>第${m.gen}世代: 初期版に${(m.score * 100).toFixed(1)}%（Elo +${m.elo}±${m.eloErr}、${m.games}局）</title></circle><text x="${X(m.gen)}" y="${Y(m.elo) - 9}" text-anchor="middle" fill="var(--ink)" font-size="10">+${m.elo}</text>`).join('')}
+        ${ms.map(m => `<line x1="${X(m.gen)}" x2="${X(m.gen)}" y1="${Y(m.elo - (m.eloErr || 0))}" y2="${Y(m.elo + (m.eloErr || 0))}" stroke="var(--gold)" stroke-width="1.5"/><circle cx="${X(m.gen)}" cy="${Y(m.elo)}" r="4" fill="var(--gold)"><title>第${m.gen}世代: ${m.anchor || '初期版'}に${(m.score * 100).toFixed(1)}%（Elo ${sg(m.elo)}±${m.eloErr}、${m.games}局）</title></circle><text x="${X(m.gen)}" y="${Y(m.elo) - 9}" text-anchor="middle" fill="var(--ink)" font-size="10">${sg(m.elo)}</text>`).join('')}
         <text x="${pad}" y="${bh - 4}" fill="var(--muted)" font-size="10">第${gMin}世代</text>${gMax !== gMin ? `<text x="${bw - 8}" y="${bh - 4}" text-anchor="end" fill="var(--muted)" font-size="10">第${gMax}世代</text>` : ''}
       </svg>`;
     }
@@ -1245,6 +1247,7 @@
         <table class="lv wide-only" style="margin-top:8px"><thead><tr><th>CPUの強さ</th><th>1手の考える時間</th><th>特徴</th></tr></thead><tbody>
           ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time / 1000}秒</td><td>${CPU[k].desc}</td></tr>`).join('')}
         </tbody></table>
+        <p class="hint">超最強は最強と同じAIで、考える時間を約3.75倍にしたものです。同じ時間の比（1手0.2秒 vs 0.75秒）で200局対戦させると、長く読む側の94勝56敗50分（勝率59.5%・Elo +67±22）でした。</p>
       </div>
       ${bookHTML()}
       <div class="card" data-tab="最初の型">
