@@ -7,7 +7,6 @@
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const SIDE = ['先手', '後手'], MARK = ['▲', '△'];
   const SHORT = ['大将', '中将', '少将', '大佐', '中佐', '少佐', '大尉', '中尉', '少尉', '飛行', 'タンク', '騎兵', '工兵', 'スパイ', '地雷', '軍旗'];
-  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const W8 = window.GUNJIN_WEIGHTS || null;
   const NETW = W8 ? AI.Net.fromJSON(W8) : null; // 配置のおすすめ（学んだ好み）に使う
 
@@ -30,6 +29,9 @@
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', side: 'black', cpuB: 'strong', cpuW: 'strong' }, store.get('cfg', {}));
   const settings = Object.assign({ showEval: true, guess: true, arrow: true, sound: true, anim: true, marks: true }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.arrow;
+  // 動き: 全ゲーム共通の部品と設定（common/motion.js。オフ・動きを減らす設定・裏のタブでは一瞬で終わる）
+  const MO = window.TTMotion || null;
+  if (MO) { try { settings.anim = localStorage.getItem('tt-motion') !== '0'; } catch (e) { /* そのまま */ } }
 
   // ------------------------------------------------------------------ 状態
   const S = {
@@ -221,10 +223,11 @@
     if (S.hintPly !== S.log.length) S.hint = -1;
     saveGame();
     const newEv = S.log.length > lastEventSeen && live() ? S.log[S.log.length - 1] : null;
-    const from = newEv ? nodeRect(newEv.f) : null;
+    const fx = newEv && S.log.length === lastEventSeen + 1 ? fxBefore(newEv) : null; // 2手以上まとめて進んだときは動かさない
     lastEventSeen = S.log.length;
     render();
-    if (newEv) presentEvent(newEv, from);
+    if (newEv) presentEvent(newEv, fx);
+    if (!$('dlg-caps').hidden) openCaps();
     if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, newEv && newEv.r ? 1300 : 500); }
     schedule();
   }
@@ -279,6 +282,7 @@
   // ------------------------------------------------------------------ 入力
   function onSquare(n) {
     hideMenus();
+    if (MO) MO.finish(); // 動いている途中でも、次の操作はすぐ受け付ける
     if (S.curtain) return;
     if (S.phase === 'setup') { onSetupSquare(n); return; }
     if (!live()) return;
@@ -287,12 +291,15 @@
     const id = pos.sq[n];
     if (id >= 0 && humanTurn() && C.owner(id) === stm()) {
       if (S.sel === n) { clearSel(); return; }
-      const ms = legalNow().filter(m => (m >> 6) === n);
-      S.sel = n; S.inspect = -1; S.targets = new Map(ms.map(m => [m & 63, m]));
-      renderBoard(); renderSqInfo(); return;
+      selectFrom(n); return;
     }
     if (id >= 0) { S.sel = -1; S.targets = new Map(); S.inspect = S.inspect === n ? -1 : n; renderBoard(); renderSqInfo(); return; }
     clearSel();
+  }
+  function selectFrom(n) {
+    const ms = legalNow().filter(m => (m >> 6) === n);
+    S.sel = n; S.inspect = -1; S.targets = new Map(ms.map(m => [m & 63, m]));
+    renderBoard(); renderSqInfo();
   }
   function clearSel() { S.sel = -1; S.targets = new Map(); S.inspect = -1; renderBoard(); renderSqInfo(); }
   // 配置: 2つの駒をタップして入れ替え
@@ -318,8 +325,14 @@
       setupMsg = bad === GUNKI ? '軍旗は突入口と一番奥の列には置けません' : '地雷は突入口には置けません';
       S.swapSel = -1; renderBoard(); renderSqInfo(); return;
     }
+    // 入れ替えた2枚を、それぞれ元の場所から滑らせる（つかんで置いたほうは離した所から）
+    const at = dropAt && dropAt.n === a ? dropAt.rect : null;
+    dropAt = null;
+    if (MO) MO.finish();
+    const pa = pcAt(a), pb = pcAt(b), ra = pa && pa.getBoundingClientRect(), rb = pb && pb.getBoundingClientRect();
     const t = S.draft[ka]; S.draft[ka] = S.draft[kb]; S.draft[kb] = t;
     setupMsg = ''; S.swapSel = -1; sfx('move'); saveGame(); renderBoard(); renderSqInfo();
+    if (MO && ra && rb) { MO.fly(pcAt(b), at || ra); MO.fly(pcAt(a), rb); }
   }
   function applyPreset(p) {
     if (S.phase !== 'setup' || (S.mode === 'online' && S.online.rec[S.online.me].cm)) return;
@@ -425,6 +438,18 @@
     if (S.curtain) $('curtain').innerHTML = `<div><b>${esc(S.curtain)}</b>準備ができたらタップしてください</div>`;
   }
   function nodeRect(n) { const b = nodeEl.get(n); return b ? b.getBoundingClientRect() : null; }
+  function pcAt(n) { const b = nodeEl.get(n); return b ? b.querySelector('.pc') : null; }
+  // 戦いで盤から消えた駒（upto 手目まで）。種類は見てよい側だけ、相手の隠れた駒は -1: [{ c, type, ply, r, att（攻めた側か） }]
+  function lostPieces(upto) {
+    const p = C.replay(visSetups(), S.log, 0), out = [];
+    for (let i = 0; i < upto; i++) {
+      const e = S.log[i], a = p.sq[e.f], d = p.sq[e.t];
+      const gone = e.r === 1 ? [d] : e.r === 2 ? [a] : e.r === 3 ? [a, d] : [];
+      for (const id of gone) if (id >= 0) out.push({ c: C.owner(id), type: p.type[id], ply: i + 1, r: e.r, att: id === a });
+      p.apply(e.f, e.t, e.r);
+    }
+    return out;
+  }
 
   function renderPlayers() {
     const pos = C.replay([trueSetup(0) && viewer() !== -2 && (viewer() === 0 || viewer() === -1) ? trueSetup(0) : null, trueSetup(1) && viewer() !== -2 && (viewer() === 1 || viewer() === -1) ? trueSetup(1) : null], S.log, live() ? S.log.length : S.view);
@@ -433,14 +458,14 @@
       const turn = S.phase === 'play' && !S.result && stm() === c && live();
       el.classList.toggle('turn', turn);
       const alive = pos.alive(c);
-      // 失った駒: 自分の駒（見てよいもの）だけ種類を出す
-      let lost = '';
-      const st = pos.type[c * NP] >= 0 || (pos.type.slice(c * NP, c * NP + NP).some(x => x >= 0));
-      if (st) { const L = []; for (let k = 0; k < NP; k++) { const id = c * NP + k; if (pos.at[id] < 0 && pos.type[id] >= 0) L.push(pos.type[id]); } L.sort((a, b) => a - b); lost = L.map(t => `<span class="mini ${c ? 'w' : 'b'} x" title="${NAMES[t]}">${SHORT[t].slice(0, 2)}</span>`).join(''); }
+      // 失った駒: 見てよい駒は種類、相手の隠れた駒は裏（数だけ）。入りきらないときも上の位の駒が見えるよう右端に。タップで大きな一覧
+      const L = lost.filter(x => x.c === c).sort((a, b) => (b.type < 0) - (a.type < 0) || b.type - a.type);
+      const lostHTML = L.map(x => x.type >= 0 ? `<span class="mini ${c ? 'w' : 'b'} x" title="${NAMES[x.type]}">${SHORT[x.type].slice(0, 2)}</span>` : `<span class="mini ${c ? 'w' : 'b'} q" title="正体は分かりません"></span>`).join('');
       const think = S.thinking && stm() === c ? '<span class="think"><i></i>考え中</span>' : '';
       const on = S.mode === 'online' && c !== S.online.me ? aiTagHTML(S.online.opp.ai, S.online.opp.hints) + (S.online.oppPresent === false && !S.result ? '<span class="aitag on" title="相手の接続が切れています">切断中</span>' : '') : S.mode === 'online' ? aiTagHTML(aiFlags(), S.online.myHints) : '';
-      el.innerHTML = `<span class="mk ${c ? 'w' : 'b'}">${MARK[c]}</span><span class="name">${name}</span>${on}${think}<span class="st"><span class="lost">${lost}</span><span>残り <b>${alive}</b></span></span>`;
+      el.innerHTML = `<span class="mk ${c ? 'w' : 'b'}">${MARK[c]}</span><span class="name">${name}</span>${on}${think}<button type="button" class="st" data-act="caps" aria-label="${SIDE[c]}が失った駒 ${L.length}枚・残り ${alive}枚（押すと一覧）"><span class="lost">${lostHTML}</span><span>残り <b>${alive}</b></span></button>`;
     };
+    const lost = lostPieces(live() ? S.log.length : S.view);
     card($('player-top'), bottomColor() ^ 1);
     card($('player-bottom'), bottomColor());
   }
@@ -621,19 +646,49 @@
     svg.innerHTML = `<g transform="translate(${ax} ${ay}) rotate(${ang * 180 / Math.PI})"><rect class="ar" x="0" y="${-w / 2}" width="${Math.max(0, len - w * 2)}" height="${w}" rx="${w / 2}"/><path class="ar" d="M${len} 0 L${len - w * 2.6} ${-w * 1.7} L${len - w * 2.6} ${w * 1.7}Z"/></g>`;
   }
 
-  // 戦いの判定（はんこ）と駒の動き
-  function presentEvent(e, fromRect) {
-    if (e.r) sfx('battle'); else sfx('move');
-    const to = nodeRect(e.t), wrap = $('board-wrap').getBoundingClientRect();
-    if (settings.anim && !reduceMotion && fromRect && (e.r === 0 || e.r === 1)) {
-      const b = nodeEl.get(e.t), pc = b && b.querySelector('.pc');
-      if (pc) {
-        const r = pc.getBoundingClientRect();
-        const dx = (fromRect.left + fromRect.width / 2) - (r.left + r.width / 2), dy = (fromRect.top + fromRect.height / 2) - (r.top + r.height / 2);
-        b.classList.add('moving');
-        pc.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' }).onfinish = () => b.classList.remove('moving');
-      }
+  // ------------------------------------------------------------------ 動き（common/motion.js の TTMotion）
+  // 描き直す前に、動く駒と戦いで消える駒の場所を覚えておき、描き直したあとで、動いた駒は元の場所から滑らせ、
+  // 負けた駒は盤の上に置いた写しを縮めて消す（CPU・オンラインの手も同じ速さ）。局面はすぐ進める（AI の読みとオンラインの同期は動きを待たない）。
+  // 写しは画面に出ている駒をそのまま写す（相手の駒は裏のまま）ので、隠れた正体は出ない
+  let dropAt = null; // つかんで置いた手は、離した所から吸い付かせる: { n: つかんだマス, rect }
+  // 写しを host の中に置く（既定は盤の上。守って負けた駒は行き先のマスの一番下に入れて、着いた攻め手の下になるように）
+  function fxCopy(pc, rect, host) {
+    const h = host || $('board-wrap'), hr = h.getBoundingClientRect(), g = pc.cloneNode(true);
+    g.classList.add('fx');
+    Object.assign(g.style, { position: 'absolute', left: `${rect.left - hr.left}px`, top: `${rect.top - hr.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, margin: '0', zIndex: host ? '' : '40' });
+    h.insertBefore(g, h.firstChild);
+    return g;
+  }
+  function fxBefore(e) {
+    const at = dropAt && dropAt.n === e.f ? dropAt.rect : null;
+    dropAt = null;
+    if (!MO || !MO.on) return null;
+    MO.finish();
+    document.querySelectorAll('#board-wrap .fx').forEach(x => x.remove());
+    const a = pcAt(e.f), d = e.r ? pcAt(e.t) : null;
+    if (!a) return null;
+    return { from: at || a.getBoundingClientRect(), a, aRect: a.getBoundingClientRect(), d, dRect: d ? d.getBoundingClientRect() : null };
+  }
+  function animEvent(e, fx) {
+    let go, ag = null, dg = null;
+    if (e.r <= 1) { const pc = pcAt(e.t); go = pc ? MO.fly(pc, fx.from) : Promise.resolve(); }
+    else {
+      // 攻めた駒が負けた・相打ち: 写しを行き先まで滑らせてから消す
+      const ar = fx.aRect, cx = fx.dRect.left + fx.dRect.width / 2, cy = fx.dRect.top + fx.dRect.height / 2;
+      ag = fxCopy(fx.a, { left: cx - ar.width / 2, top: cy - ar.height / 2, width: ar.width, height: ar.height });
+      go = MO.fly(ag, fx.from);
     }
+    if ((e.r === 1 || e.r === 3) && fx.d) dg = fxCopy(fx.d, fx.dRect, nodeEl.get(e.t)); // 守って負けた駒は、攻め手が着いてから消す
+    go.then(() => {
+      if (e.r === 2) MO.pop(pcAt(e.t), 'land');
+      return Promise.all([dg && MO.vanish(dg), ag && MO.vanish(ag)]);
+    }).then(() => { if (dg) dg.remove(); if (ag) ag.remove(); });
+  }
+  // 戦いの判定（はんこ）と駒の動き
+  function presentEvent(e, fx) {
+    if (e.r) sfx('battle'); else sfx('move');
+    if (fx) animEvent(e, fx);
+    const to = nodeRect(e.t), wrap = $('board-wrap').getBoundingClientRect();
     if (!e.r || !to) return;
     const v = viewer(), mover = (S.log.length - 1) % 2;
     let txt, cls;
@@ -666,43 +721,74 @@
     if (document.documentElement.style.getPropertyValue('--board-w') !== w + 'px') { document.documentElement.style.setProperty('--board-w', w + 'px'); renderArrows(); }
   }
 
-  // ------------------------------------------------------------------ 配置のドラッグ
-  let drag = null;
+  // ------------------------------------------------------------------ つかんで置く・長押しで大きく見る（common/motion.js）
+  // 配置では2枚の入れ替え、対局では指す。少し動かすとつかみ、行き先が光る。行き先で離すとそこへ、ほかで離すと元へ戻る。
+  // 動かさずに離せばふつうのタップ（タップ → タップ はそのまま）。盤は2本指で拡大できる（touch-action を none にしない）
   function bindDrag() {
-    const g = $('grid');
-    g.addEventListener('pointerdown', e => {
-      const b = e.target.closest('.sq');
-      if (!b || S.phase !== 'setup' || S.drafting < 0 || S.curtain || (S.mode === 'online' && S.online.rec[S.online.me].cm)) return;
-      const n = +b.dataset.n;
-      if (C.KOF[S.drafting][n] < 0) return;
-      drag = { n, x: e.clientX, y: e.clientY, on: false, ghost: null, id: e.pointerId };
+    if (!MO) return;
+    let from = -1;
+    const settingUp = () => S.phase === 'setup' && S.drafting >= 0 && !!S.draft && !S.curtain && !(S.mode === 'online' && S.online.rec[S.online.me].cm);
+    const sqAt = (x, y) => { const h = document.elementFromPoint(x, y), b = h && h.closest && h.closest('#grid .sq'); return b ? +b.dataset.n : -1; };
+    MO.drag($('grid'), {
+      pick(target) {
+        const b = target.closest && target.closest('.sq'), pc = b && b.querySelector('.pc');
+        if (!pc) return null;
+        const n = +b.dataset.n;
+        if (S.phase === 'setup') { if (!settingUp() || C.KOF[S.drafting][n] < 0) return null; from = n; return pc; }
+        if (!humanTurn()) return null;
+        const id = dispPos().sq[n];
+        if (id < 0 || C.owner(id) !== stm() || !legalNow().some(m => (m >> 6) === n)) return null;
+        from = n;
+        return pc;
+      },
+      start() {
+        hideMenus();
+        if (S.phase === 'setup') { S.swapSel = from; S.inspect = -1; renderBoard(); renderSqInfo(); }
+        else if (S.sel !== from) selectFrom(from);
+      },
+      target(x, y) {
+        const n = sqAt(x, y);
+        if (n < 0 || n === from) return null;
+        if (S.phase === 'setup') return C.KOF[S.drafting][n] >= 0 ? nodeEl.get(n) : null;
+        return S.targets.has(n) ? nodeEl.get(n) : null;
+      },
+      drop(el, to, at) {
+        const n = +to.dataset.n;
+        if (S.phase === 'setup') {
+          if (!settingUp()) return false;
+          if (!canSwap(from, n)) { doSwap(from, n); return false; } // 置けない理由を出して元へ戻す
+          dropAt = { n: from, rect: at }; doSwap(from, n); return true;
+        }
+        const m = humanTurn() && S.targets.get(n);
+        if (!m) return false;
+        dropAt = { n: from, rect: at };
+        S.sel = -1; S.targets = new Map(); play(m);
+        return true;
+      },
+      cancel() { if (S.phase === 'setup') { S.swapSel = -1; renderBoard(); renderSqInfo(); } else clearSel(); },
     });
-    window.addEventListener('pointermove', e => {
-      if (!drag || e.pointerId !== drag.id) return;
-      if (!drag.on && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) {
-        drag.on = true;
-        const pc = nodeEl.get(drag.n).querySelector('.pc');
-        if (pc) { const r = pc.getBoundingClientRect(); const gh = pc.cloneNode(true); gh.classList.add('drag-ghost'); gh.style.width = r.width + 'px'; gh.style.height = r.height + 'px'; document.body.appendChild(gh); drag.ghost = gh; }
-        S.swapSel = drag.n; renderBoard();
-      }
-      if (drag.on && drag.ghost) { drag.ghost.style.left = e.clientX + 'px'; drag.ghost.style.top = e.clientY + 'px'; }
-    });
-    const end = e => {
-      if (!drag || e.pointerId !== drag.id) return;
-      const d = drag; drag = null;
-      if (d.ghost) d.ghost.remove();
-      if (!d.on) return;
-      d.cancelClick = true; suppressClick = Date.now();
-      const el = document.elementFromPoint(e.clientX, e.clientY), b = el && el.closest && el.closest('.sq');
-      const n = b ? +b.dataset.n : -1;
-      if (n >= 0 && n !== d.n && C.KOF[S.drafting][n] >= 0) doSwap(d.n, n);
-      else { S.swapSel = -1; renderBoard(); renderSqInfo(); }
-    };
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', e => { if (drag && drag.ghost) drag.ghost.remove(); drag = null; });
   }
-  let suppressClick = 0;
-
+  // 長押しで大きく見る: 盤の駒（相手の駒は裏のまま）・札の失った駒・一覧の駒
+  function bindPeek() {
+    if (!MO || !MO.peek) return;
+    MO.peek($('grid'), { pick: t => { const b = t.closest && t.closest('.sq'); return b ? b.querySelector('.pc') : null; } });
+    for (const id of ['player-top', 'player-bottom']) MO.peek($(id), { pick: t => (t.closest && t.closest('.lost .mini')) || null });
+    MO.peek($('caps-body'), { pick: t => { const c = t.closest && t.closest('.lostcell'); return c ? c.querySelector('.pc') : null; } });
+  }
+  // 戦いで失った駒の一覧（2人分を大きく）。相手の隠れた駒は裏のまま（審判は勝ち負けしか伝えないので、終局まで正体は分からない）
+  function openCaps() {
+    const upto = live() ? S.log.length : S.view, lost = lostPieces(upto), pos = dispPos(), bot = bottomColor();
+    const how = x => (x.r === 3 ? '相打ち' : x.att ? '攻めて負け' : '守って負け');
+    $('caps-body').innerHTML = [bot ^ 1, bot].map(c => {
+      const L = lost.filter(x => x.c === c);
+      const cells = L.map(x => `<div class="lostcell"><span class="pc side-${c ? 'w' : 'b'}">${pieceSVG(x.type, c, false)}</span><small>${x.type >= 0 ? NAMES[x.type] : '？'}<br>${x.ply}手目・${how(x)}</small></div>`).join('');
+      const hidden = L.some(x => x.type < 0);
+      return `<div class="caprow"><div class="lab"><span class="mk ${c ? 'w' : 'b'}">${MARK[c]}</span>${SIDE[c]}（${seatName(c)}）が失った駒 <b>${L.length}</b>枚・残り <b>${pos.alive(c)}</b>枚</div>` +
+        `<div class="lostbig">${cells || '<span class="hint">まだありません</span>'}</div>` +
+        (hidden ? '<p class="hint">裏の駒の正体は終局まで分かりません（審判は勝ち・負け・相打ちだけを伝えます）。</p>' : '') + '</div>';
+    }).join('') + '<p class="hint" style="margin:4px 0 0">駒を長押しすると大きく見られます。</p>';
+    $('dlg-caps').hidden = false;
+  }
   // ------------------------------------------------------------------ 操作
   function viewPly(p) {
     p = Math.max(0, Math.min(S.log.length, p));
@@ -878,8 +964,11 @@
   // ------------------------------------------------------------------ イベント
   function hideMenus() { const m = $('menu-more'); if (m) m.hidden = true; }
   function bind() {
-    $('grid').addEventListener('click', e => { if (Date.now() - suppressClick < 300) return; const b = e.target.closest('.sq'); if (b) onSquare(+b.dataset.n); });
-    bindDrag();
+    $('grid').addEventListener('click', e => { const b = e.target.closest('.sq'); if (b) onSquare(+b.dataset.n); });
+    bindDrag(); bindPeek();
+    for (const id of ['player-top', 'player-bottom']) $(id).addEventListener('click', e => { if (e.target.closest('[data-act="caps"]')) { hideMenus(); openCaps(); } });
+    $('caps-close').addEventListener('click', () => { $('dlg-caps').hidden = true; });
+    $('dlg-caps').addEventListener('click', e => { if (e.target === $('dlg-caps')) $('dlg-caps').hidden = true; });
     $('curtain').addEventListener('click', () => { S.curtain = null; if (S.mode === 'pvp') { S.pvpViewer = stm(); S.flip = (S.phase === 'setup' ? S.drafting : stm()) === WHITE; } render(); schedule(); });
     $('controls').addEventListener('click', e => {
       const b = e.target.closest('[data-act]');
@@ -965,7 +1054,7 @@
     window.addEventListener('resize', () => { fitBoardSoon(); renderArrows(); if ($('side').classList.contains('open')) placeSheet(); });
     document.addEventListener('keydown', e => {
       if (e.target.closest('input, textarea')) return;
-      if (e.key === 'Escape') { if (!$('dlg-new').hidden) closeNew(); else { $('dlg-result').hidden = true; $('dlg-online').hidden = true; closeSheet(); clearSel(); } }
+      if (e.key === 'Escape') { if (!$('dlg-new').hidden) closeNew(); else { $('dlg-result').hidden = true; $('dlg-online').hidden = true; $('dlg-caps').hidden = true; closeSheet(); clearSel(); } }
       else if (e.key === 'ArrowLeft' && $('dlg-new').hidden) viewPly((live() ? S.log.length : S.view) - 1);
       else if (e.key === 'ArrowRight' && $('dlg-new').hidden) viewPly((live() ? S.log.length : S.view) + 1);
     });
@@ -980,6 +1069,7 @@
     settings[k] = v; store.set('settings', settings);
     const box = { showEval: 'set-eval', guess: 'set-guess', arrow: 'set-arrow', sound: 'set-sound', anim: 'set-anim', marks: 'set-marks' }[k];
     if (box) $(box).checked = v;
+    if (k === 'anim' && MO) MO.set(v); // 全ゲーム共通に覚える
     if (quiet) return;
     if ((k === 'showEval' || k === 'arrow') && NET) NET.setAI(aiFlags());
     render(); analyze();
