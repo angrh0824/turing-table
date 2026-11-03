@@ -256,7 +256,8 @@
       copyLook(el, g);
       g.removeAttribute('id');
     }
-    Object.assign(g.style, { transform: 'none', translate: 'none', rotate: 'none', scale: 'none', transition: 'none', animation: 'none', opacity: '1', width: r.width + 'px', height: r.height + 'px', left: r.left + 'px', top: r.top + 'px' });
+    // 絶対配置の札から写した right・bottom が残ると、left・top と合わさって写しがずれるので外す
+    Object.assign(g.style, { transform: 'none', translate: 'none', rotate: 'none', scale: 'none', transition: 'none', animation: 'none', opacity: '1', width: r.width + 'px', height: r.height + 'px', left: r.left + 'px', top: r.top + 'px', right: 'auto', bottom: 'auto' });
     return g;
   }
   // つかんで離したあと・長押しのあとの click は、タップとして扱わない

@@ -8,6 +8,9 @@
   const $ = id => document.getElementById(id);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 動き（全ゲーム共通の common/motion.js）。設定の「アニメーション」・動きを減らす設定・裏のタブでは、どの動きも一瞬で終わる
+  const TM = window.TTMotion || null;
+  const motionOn = () => (TM ? TM.on : !reduceMotion);
   C.install();
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -175,6 +178,7 @@
       if (!mv || !legal.some(x => D.moveKey(x) === D.moveKey(mv))) mv = A.chooseWeakest(g);
       let pace = settings.fast ? 220 : mv.k === PASS ? 520 : g.pend ? 380 : 820;
       if (g.out[S.me]) pace = Math.round(pace * 0.5);   // 自分があがったあとは早送り
+      if (S.holdUntil) pace = Math.max(pace, S.holdUntil - t0 + 150);   // 流れた場を見せている間は出さない
       S.timer = setTimeout(() => { if (S.g === g && S.moves.length === snap && live() && !paused()) submit(mv); }, Math.max(0, pace - (Date.now() - t0)));
     });
   }
@@ -188,6 +192,8 @@
   // 交換で決まりどおりに札が移る（オンライン: ホストの手順から）
   function applyXfer(from, to, cards) {
     const g = S.g;
+    if (TM) TM.finish();
+    const before = handRects(), fromR = seatRect(from);
     g.xfer(from, to, cards);
     S.moves.push({ k: XFER, from, to, cards });
     S.snaps.push(g.clone());
@@ -197,15 +203,20 @@
     else if (to === S.me && g.prev) toast(`${TITLE[g.prev[from]]}（${shortName(from)}）から ${D.moveText({ k: PICK, cards })} を受け取りました`);
     SND.play('give');
     renderAll();
+    flyGive(from, to, cards, fromR, before);
   }
-  // 手を進める（演出つき）
+  // 手を進める: 局面をすぐ進めて描き直し、札はもとの場所から飛ばす（動きを待たずに次へ。動いている途中でも次の操作を受け付ける）
   function applyMove(mv, opt = {}) {
+    if (TM) TM.finish();
+    endHold(true);
     const g = S.g, p = g.actor;
     clearTimeout(S.timer);
     S.thinking = -1;
     const trickBefore = g.trick.slice();
-    const fly = settings.anim && !reduceMotion && opt.anim !== false ? flyFrom(p, mv) : null;
     const pendBefore = g.pend ? Object.assign({}, g.pend) : null;
+    // 飛ぶ元: 自分の札は手札の場所（つかんで離したときは離した場所）、ほかの人は名前の札の裏
+    const before = handRects(), fromR = seatRect(p), dropAt = S.dropAt;
+    S.dropAt = null;
     g.apply(mv);
     S.moves.push(mv);
     S.snaps.push(g.clone());
@@ -214,18 +225,36 @@
     const ev = g.events.slice();
     const cleared = ev.some(e => e.t === 'clear');
     if (mv.k === GROUP || mv.k === SEQ) S.pile = cleared ? trickBefore.concat([{ p, mv }]) : null;
-    S.busy = true;
-    const done = () => {
-      renderAll();
-      playEvents(p, mv, ev, pendBefore);
-      saveGame();
-      const wait = cleared ? (settings.fast ? 450 : 900) : ev.some(e => e.t === 'rev' || e.t === 'miyako') ? 700 : 60;
-      setTimeout(() => {
-        if (cleared) clearPileAnim(() => { S.pile = null; S.busy = false; renderAll(); schedule(); });
-        else { S.busy = false; schedule(); }
-      }, wait);
-    };
-    if (fly) fly.then(done); else done();
+    renderAll();
+    if (opt.anim !== false) {
+      if (mv.k === GROUP || mv.k === SEQ) flyPlay(p, mv, before, fromR, dropAt);
+      else if (mv.k === PICK && pendBefore) {
+        const src = dropAt ? new Map([...before, ...dropAt]) : before;
+        if (pendBefore.kind === 'discard10') flyTemp(mv.cards[0], p === S.me ? (src.get(mv.cards[0]) || fromR) : fromR, $('btn-seen').getBoundingClientRect(), true);
+        else flyGive(p, pendBefore.to, mv.cards, fromR, src);
+      }
+      reflowHand(before);
+    }
+    playEvents(p, mv, ev, pendBefore);
+    saveGame();
+    // 流れたときは、最後の札を少し見せてから場の札をまとめて消す（そのあいだ CPU は待つ。人はすぐ出せる）
+    if (cleared) hold(settings.fast ? 450 : 800, () => clearPile());
+    else if (ev.some(e => e.t === 'rev' || e.t === 'miyako')) hold(500);
+    schedule();
+  }
+  // 少し間を置く（流れた場の札を見せる・革命の演出）。CPU はそのあいだ出さない。新しい手が来たらすぐ終える
+  function hold(ms, then) {
+    endHold(true);
+    S.holdUntil = Date.now() + ms;
+    S.holdThen = then || null;
+    S.holdT = setTimeout(() => endHold(false), ms);
+  }
+  function endHold(quick) {
+    clearTimeout(S.holdT);
+    S.holdUntil = 0;
+    const f = S.holdThen;
+    S.holdThen = null;
+    if (f) f(quick);
   }
 
   function finishRound() {
@@ -263,36 +292,70 @@
     return playsNow().filter(m => selKey(m.cards) === k);
   }
   function pickMode() { return isHumanTurn() && !!S.g.pend; }
-  function onCard(c) {
-    hideChooser();
-    if (!isHumanTurn()) { if (live() && S.g && S.g.phase !== 'done') { S.sel.has(c) ? S.sel.delete(c) : S.sel.add(c); renderHand(); renderInfo(); } return; }
+  // 札 c をタップしたときの選び方（描き直しはしない）。false = 出せない札（揺らす）
+  function toggleSel(c) {
+    if (!isHumanTurn()) { if (live() && S.g && S.g.phase !== 'done') S.sel.has(c) ? S.sel.delete(c) : S.sel.add(c); return true; }
     if (pickMode()) {
       const need = S.g.pend.left;
       if (S.sel.has(c)) S.sel.delete(c);
       else { if (S.sel.size >= need) { const first = S.sel.values().next().value; S.sel.delete(first); } S.sel.add(c); }
-      renderHand(); renderControls(); renderInfo();
-      return;
+      return true;
     }
     const plays = playsNow();
-    if (S.sel.has(c)) { S.sel.delete(c); }
-    else {
-      const next = [...S.sel, c];
-      if (plays.some(m => subsetOf(next, m))) S.sel.add(c);
-      else if (plays.some(m => subsetOf([c], m))) S.sel = new Set([c]);   // ほかの組み合わせ: えらび直し
-      else { nudge(c); return; }
-      // 場に合わせて、ひと通りしかないなら残りもえらぶ（場がペアで、その数がちょうど2枚 など）
-      if (S.g.field && S.sel.size === 1) {
-        const cand = plays.filter(m => subsetOf([...S.sel], m));
-        const keys = new Set(cand.map(m => selKey(m.cards)));
-        if (keys.size === 1 && cand[0].cards.length > 1) S.sel = new Set(cand[0].cards.map(x => (x >= JOKER ? (S.g.hands[S.me].find(h => h >= JOKER && !S.sel.has(h)) || x) : x)));
-      }
+    if (S.sel.has(c)) { S.sel.delete(c); return true; }
+    const next = [...S.sel, c];
+    if (plays.some(m => subsetOf(next, m))) S.sel.add(c);
+    else if (plays.some(m => subsetOf([c], m))) S.sel = new Set([c]);   // ほかの組み合わせ: えらび直し
+    else return false;
+    // 場に合わせて、ひと通りしかないなら残りもえらぶ（場がペアで、その数がちょうど2枚 など）
+    if (S.g.field && S.sel.size === 1) {
+      const cand = plays.filter(m => subsetOf([...S.sel], m));
+      const keys = new Set(cand.map(m => selKey(m.cards)));
+      if (keys.size === 1 && cand[0].cards.length > 1) S.sel = new Set(cand[0].cards.map(x => (x >= JOKER ? (S.g.hands[S.me].find(h => h >= JOKER && !S.sel.has(h)) || x) : x)));
     }
+    return true;
+  }
+  function onCard(c) {
+    hideChooser();
+    S.dropAt = null;
+    if (TM) TM.finish();
+    if (!toggleSel(c)) { nudge(c); return; }
     renderHand(); renderControls(); renderInfo();
+  }
+  // つかんで場へ出す（common/motion.js の drag）。えらんでいる札はまとめて動く。タップ →「出す」もそのまま使える
+  function dragGhost(el) {
+    const c = Number(el.dataset.c);
+    S.dragging = true;
+    if (!S.sel.has(c) && !toggleSel(c)) S.sel = new Set([c]);   // 選び方はここで変える（描き直しは離したあと）
+    const cards = handOrder([...S.sel]);
+    const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 56;
+    const g = document.createElement('div');
+    g.className = 'ghost-fan';
+    g.innerHTML = cards.map(x => `<div class="gc" data-c="${x}">${cardHTML(x)}</div>`).join('');
+    g.style.width = (cw + (cards.length - 1) * cw * 0.45) + 'px';
+    g.style.height = (cw * 1.4) + 'px';
+    return g;
+  }
+  function dragDrop() {
+    S.dragging = false;
+    const done = ok => { renderHand(); renderControls(); renderInfo(); return ok; };
+    if (!isHumanTurn()) return done(false);
+    // 離した場所（札ごと）。出した札はここから場へ飛ぶ
+    const at = new Map();
+    document.querySelectorAll('.ghost-fan .gc').forEach(el => at.set(Number(el.dataset.c), el.getBoundingClientRect()));
+    if (pickMode()) {
+      if (S.sel.size !== S.g.pend.left) { toast(`札を${S.g.pend.left}枚えらんでから`); return done(false); }
+      S.dropAt = at; onPlay(); return true;
+    }
+    const ms = exactMoves();
+    if (!ms.length) { toast('その組み合わせは場に出せません'); return done(false); }
+    S.dropAt = at;
+    if (ms.length === 1) submit(ms[0]); else { done(true); showChooser(ms); }
+    return true;
   }
   function nudge(c) {
     const el = document.querySelector(`.hc[data-c="${c}"]`);
-    if (!el || reduceMotion) return;
-    el.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'translateX(0)' }], { duration: 220 });
+    if (el && TM) TM.pop(el, 'shake');   // いまは出せない札: 小さく揺らす
   }
   function onPlay() {
     if (!isHumanTurn()) return;
@@ -331,7 +394,7 @@
     const box = document.createElement('div');
     box.className = 'choose'; box.id = 'chooser';
     box.innerHTML = `<div class="ttl">ジョーカーの使い方をえらんでください</div>` + ms.map((m, i) => `<button class="act" data-i="${i}">${esc(D.moveText(m))}</button>`).join('') + '<button class="quiet" data-i="-1">やめる</button>';
-    box.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; e.stopPropagation(); hideChooser(); const i = Number(b.dataset.i); if (i >= 0) submit(ms[i]); });
+    box.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; e.stopPropagation(); hideChooser(); const i = Number(b.dataset.i); if (i >= 0) submit(ms[i]); else S.dropAt = null; });
     document.body.appendChild(box);
     const r = $('btn-play').getBoundingClientRect();
     box.style.position = 'fixed';
@@ -391,52 +454,72 @@
 
   // ------------------------------------------------------------------ 演出
   function cardHTML(c, cls = '') { return C.svg(c, cls); }
+  // 中身が同じなら描き直さない（飛んでいる札・長く押している札をそのまま残す）
+  function setHTML(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
   function miniCards(cards) { return cards.map(c => `<span class="mc">${cardHTML(c)}</span>`).join(''); }
   function chips(cards) { return cards.map(c => C.chip(c)).join(''); }
-  function flyFrom(p, mv) {
-    if (!mv.cards.length) return null;
-    const pile = $('pile').getBoundingClientRect();
-    let srcs = [];
-    if (p === S.me) srcs = mv.cards.map(c => { const el = document.querySelector(`.hc[data-c="${c}"]`); return el ? el.getBoundingClientRect() : null; });
-    const opp = p === S.me ? null : document.querySelector(`#opp-${pos(p)} .backs`) || $(`opp-${pos(p)}`);
-    const or = opp ? opp.getBoundingClientRect() : null;
-    const fw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fw')) || 54;
-    const isPick = mv.k === PICK;
-    const pend = S.g.pend;
-    let tr = { x: pile.left + pile.width / 2, y: pile.top + pile.height / 2 };
-    if (isPick && pend && pend.to >= 0) {
-      const t = pend.to === S.me ? $('hand') : document.querySelector(`#opp-${pos(pend.to)} .backs`) || $(`opp-${pos(pend.to)}`);
-      if (t) { const r = t.getBoundingClientRect(); tr = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
-    }
-    const showFace = !isPick || p === S.me || (pend && pend.to === S.me) || (pend && pend.kind === 'discard10');
-    const n = mv.cards.length, w = fw;
-    const anims = mv.cards.map((c, i) => {
-      const el = document.createElement('div');
-      el.className = 'fly';
-      el.style.width = w + 'px';
-      el.innerHTML = cardHTML(showFace ? c : -1);
-      document.body.appendChild(el);
-      const s = srcs[i] || or || pile;
-      const sx = s.left + s.width / 2 - w / 2, sy = s.top + s.height / 2 - w * 0.7;
-      const dx = tr.x - w / 2 + (i - (n - 1) / 2) * w * 0.58, dy = tr.y - w * 0.7;
-      const scale0 = srcs[i] ? srcs[i].width / w : 0.5;
-      const a = el.animate([
-        { transform: `translate(${sx}px, ${sy}px) scale(${scale0})`, opacity: srcs[i] ? 1 : 0.6 },
-        { transform: `translate(${dx}px, ${dy}px) scale(1)`, opacity: 1 },
-      ], { duration: settings.fast ? 170 : 300, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
-      return a.finished.then(() => el.remove(), () => el.remove());
-    });
-    return Promise.all(anims);
+  // 動く前の場所: 自分の手札（札ごと）・席（相手は名前の札の裏の束、自分は手札の列）
+  function handRects() {
+    const m = new Map();
+    document.querySelectorAll('#hand .hc').forEach(el => m.set(Number(el.dataset.c), el.getBoundingClientRect()));
+    return m;
   }
-  function clearPileAnim(cb) {
+  function seatRect(s) {
+    const el = s === S.me ? $('hand') : document.querySelector(`#opp-${pos(s)} .backs`) || $(`opp-${pos(s)}`);
+    return el ? el.getBoundingClientRect() : $('felt').getBoundingClientRect();
+  }
+  const cardW = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fw')) || 54;
+  // 出した札が場へ飛ぶ（場に描いた札を、もとの場所から滑らせて置く）
+  function flyPlay(p, mv, before, fromR, dropAt) {
+    if (!motionOn()) return;
     const sets = document.querySelectorAll('#pile .play-set');
-    if (!sets.length || !settings.anim || reduceMotion) { cb(); return; }
-    SND.play('clear');
-    let n = sets.length;
-    sets.forEach((el, i) => {
-      el.animate([{ transform: el.style.transform || 'none', opacity: 1 }, { transform: `${el.style.transform || ''} translateX(120%) rotate(12deg)`, opacity: 0 }], { duration: settings.fast ? 200 : 380, delay: i * 30, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' })
-        .finished.then(() => { if (--n === 0) cb(); }, () => { if (--n === 0) cb(); });
+    const top = sets[sets.length - 1];
+    if (!top) return;
+    const els = [...top.querySelectorAll('.fc')];
+    els.forEach((el, i) => {
+      const c = mv.cards[i];
+      const drop = p === S.me && dropAt && dropAt.get(c);
+      const from = drop || (p === S.me && before.get(c)) || fromR;
+      TM.fly(el, from, { arc: !drop && p !== S.me, delay: i * 25 });
     });
+    setTimeout(() => { if (top.isConnected) TM.pop(top, 'land'); }, 240);
+  }
+  // 画面のどこにも描かない札（相手へ渡す・捨てる）は、写しを作って飛ばしてから消す
+  function flyTemp(c, from, to, face) {
+    if (!motionOn() || !from || !to) return Promise.resolve();
+    const w = cardW() * 0.8;
+    const el = document.createElement('div');
+    el.className = 'fly';
+    el.style.cssText = `width:${w}px;left:${to.left + to.width / 2 - w / 2}px;top:${to.top + to.height / 2 - w * 0.7}px`;
+    el.innerHTML = cardHTML(face ? c : -1);
+    document.body.appendChild(el);
+    return TM.fly(el, from, { arc: true }).then(() => TM.vanish(el, { ms: 120 })).then(() => el.remove());
+  }
+  // 交換・7渡しの札が相手へ飛ぶ（自分が受け取るなら、手札に入った札をその人の場所から飛ばす）
+  function flyGive(from, to, cards, fromR, before) {
+    if (!motionOn() || to < 0) return;
+    const showFace = from === S.me || to === S.me;
+    cards.forEach((c, i) => {
+      if (to === S.me) {
+        const el = c >= 0 && document.querySelector(`#hand .hc[data-c="${c}"]`);
+        if (el) TM.fly(el, fromR, { arc: true, delay: i * 60 });
+      } else setTimeout(() => flyTemp(c, from === S.me ? (before.get(c) || fromR) : fromR, seatRect(to), showFace && c >= 0), i * 60);
+    });
+  }
+  // 手札が詰まる（出した札・渡した札のあとを、残った札が滑って埋める）
+  function reflowHand(before) {
+    if (!motionOn() || !before.size) return;
+    document.querySelectorAll('#hand .hc').forEach(el => { const r = before.get(Number(el.dataset.c)); if (r) TM.fly(el, r, { ms: 200, scale: false }); });
+  }
+  // 場が流れた: 場の札をまとめて消してから空の場を描く
+  function clearPile(quick) {
+    if (quick) { S.pile = null; return; }   // 次の手が来た: 消す動きは省いて、描き直しに任せる
+    const sets = [...document.querySelectorAll('#pile .play-set')];
+    SND.play('clear');
+    const token = S.pile;
+    const done = () => { if (S.pile !== token) return; S.pile = null; renderField(); };
+    if (!motionOn() || !sets.length) { done(); return; }
+    Promise.all(sets.map(el => TM.vanish(el, { ms: 220 }))).then(done);
   }
   function stamp(text, small) {
     const el = $('stamp');
@@ -455,69 +538,63 @@
     const st = (t, small) => { if (!stamped || !small) { stamp(t, small); stamped = !small || stamped; } };
     if (mv.k === GROUP || mv.k === SEQ) SND.play('card');
     if (mv.k === PICK) SND.play('give');
+    // 短く光る・揺れる（common/motion.js の pop）
+    const glow = el => { if (TM && el) TM.pop(el, 'glow'); };
+    const panel = s => (s === S.me ? $('me') : $(`opp-${pos(s)}`));
     for (const e of ev) {
       if (e.t === 'pass') { SND.play('pass'); bubble(e.p, 'パス'); }
-      else if (e.t === 'rev') { st(e.on ? '革命' : '革命返し'); SND.play('rev'); flash(); }
-      else if (e.t === 'jback') { st('11バック', true); SND.play('skip'); }
-      else if (e.t === 'eight') { st('8切り'); SND.play('eight'); }
-      else if (e.t === 'sp3') { st('スペ3返し'); SND.play('eight'); }
-      else if (e.t === 'lockSuit') { st('しばり', true); SND.play('lock'); }
-      else if (e.t === 'lockNum') { st('階段しばり', true); SND.play('lock'); }
+      else if (e.t === 'rev') { st(e.on ? '革命' : '革命返し'); SND.play('rev'); flash(); glow($('felt')); if (TM) TM.pop($('pile'), 'shake'); }
+      else if (e.t === 'jback') { st('11バック', true); SND.play('skip'); glow($('chips')); }
+      else if (e.t === 'eight') { st('8切り'); SND.play('eight'); glow($('felt')); }
+      else if (e.t === 'sp3') { st('スペ3返し'); SND.play('eight'); glow($('felt')); }
+      else if (e.t === 'lockSuit') { st('しばり', true); SND.play('lock'); if (TM) TM.pop($('chips'), 'land'); }
+      else if (e.t === 'lockNum') { st('階段しばり', true); SND.play('lock'); if (TM) TM.pop($('chips'), 'land'); }
       else if (e.t === 'skip') { st(`${e.n}人とばし`, true); SND.play('skip'); }
       else if (e.t === 'skipped') bubble(e.p, 'とばし');
       else if (e.t === 'seven') { st('7渡し', true); }
       else if (e.t === 'ten') { st('10捨て', true); }
-      else if (e.t === 'finish') { bubble(e.p, `あがり！${TITLE[e.rank]}`); SND.play('finish', 0.15); if (e.p === S.me) st(TITLE[e.rank]); }
-      else if (e.t === 'foul') { bubble(e.p, '反則あがり'); st('反則あがり', true); SND.play('lose'); }
-      else if (e.t === 'miyako') { bubble(e.p, '都落ち'); st('都落ち'); SND.play('miyako', 0.2); }
+      else if (e.t === 'finish') { bubble(e.p, `あがり！${TITLE[e.rank]}`); SND.play('finish', 0.15); if (e.p === S.me) st(TITLE[e.rank]); glow(panel(e.p)); }
+      else if (e.t === 'foul') { bubble(e.p, '反則あがり'); st('反則あがり', true); SND.play('lose'); if (TM) TM.pop(panel(e.p), 'shake'); }
+      else if (e.t === 'miyako') { bubble(e.p, '都落ち'); st('都落ち'); SND.play('miyako', 0.2); if (TM) TM.pop(panel(e.p), 'shake'); }
     }
     void pend;
   }
   function flash() {
-    if (reduceMotion || !settings.anim) return;
+    if (!motionOn()) return;
     const f = document.createElement('div');
     f.className = 'flash';
     document.body.appendChild(f);
     setTimeout(() => f.remove(), 800);
   }
+  // 配る: 場の真ん中から、自分の手札へは1枚ずつ表で、相手へは裏で飛ぶ（全部で1秒ほど。待たずにすぐ始める）
   function animateDeal() {
-    S.busy = true;
     renderAll();
-    const finish = () => { S.busy = false; renderAll(); afterDeal(); };
-    if (!settings.anim || reduceMotion) { finish(); return; }
-    const pile = $('felt').getBoundingClientRect();
-    const fw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fw')) || 54;
-    const targets = [0, 1, 2, 3].map(s => {
-      const el = s === S.me ? $('hand') : document.querySelector(`#opp-${pos(s)} .backs`) || $(`opp-${pos(s)}`);
-      return el ? el.getBoundingClientRect() : pile;
-    });
-    const total = S.hands0.reduce((a, h) => a + h.length, 0);
-    const start = S.prev ? (S.prev.indexOf(3) + 1) & 3 : 0;
-    const gap = settings.fast ? 10 : 22;
-    let pending = total;
-    // 手札はいったん隠し、配り終わってから見せる
-    $('hand').style.visibility = 'hidden';
-    for (let i = 0; i < total; i++) {
-      const s = (start + i) & 3, t = targets[s];
-      const el = document.createElement('div');
-      el.className = 'fly'; el.style.width = fw * 0.8 + 'px';
-      el.innerHTML = cardHTML(-1);
-      document.body.appendChild(el);
-      const sx = pile.left + pile.width / 2 - fw * 0.4, sy = pile.top + pile.height / 2 - fw * 0.56;
-      const dx = t.left + t.width / 2 - fw * 0.4 + (Math.random() - 0.5) * 12, dy = t.top + t.height / 2 - fw * 0.56;
-      setTimeout(() => SND.play('deal'), i * gap);
-      el.animate([{ transform: `translate(${sx}px, ${sy}px) rotate(0deg)`, opacity: 0 }, { transform: `translate(${sx}px, ${sy}px)`, opacity: 1, offset: 0.1 }, { transform: `translate(${dx}px, ${dy}px) rotate(${(Math.random() - 0.5) * 30}deg)`, opacity: 0.9 }],
-        { duration: settings.fast ? 200 : 340, delay: i * gap, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' })
-        .finished.then(() => { el.remove(); if (--pending === 0) { $('hand').style.visibility = ''; finish(); } }, () => { el.remove(); if (--pending === 0) { $('hand').style.visibility = ''; finish(); } });
+    if (motionOn()) {
+      const felt = $('felt').getBoundingClientRect();
+      const mid = { left: felt.left + felt.width / 2 - 10, top: felt.top + felt.height / 2 - 14, width: 20, height: 28 };
+      const gap = settings.fast ? 8 : 14;
+      const mine = [...document.querySelectorAll('#hand .hc')];
+      // 配る順（start の人から1枚ずつ）に合わせて、自分の札と相手の札を交互に
+      const start = S.prev ? (S.prev.indexOf(3) + 1) & 3 : 0;
+      const total = S.hands0.reduce((a, h) => a + h.length, 0);
+      let k = 0;
+      for (let i = 0; i < total; i++) {
+        const s = (start + i) & 3, delay = i * gap;
+        if (s === S.me) { const el = mine[k++]; if (el) TM.fly(el, mid, { delay, ms: 260 }); }
+        else if (i % 2 === 0) setTimeout(() => flyTemp(-1, mid, seatRect(s), false), delay);   // 相手の分は半分だけ描く（軽く）
+        if (i % 3 === 0) setTimeout(() => SND.play('deal'), delay);
+      }
     }
+    afterDeal();
   }
   function afterDeal() {
     const g = S.g;
-    // 交換で受け取った・渡した札を知らせる
+    // 交換で受け取った・渡した札を知らせて、その札を飛ばす
     const x = S.recs.filter(r => r.kind === 'xfer');
     const mine = x.find(r => r.p === S.me), got = x.find(r => r.to === S.me);
     if (mine) toast(`${TITLE[g.prev[mine.to]]}（${shortName(mine.to)}）に強い札を渡しました: ${D.moveText({ k: PICK, cards: mine.cards })}`);
     else if (got) toast(`${TITLE[g.prev[got.p]]}（${shortName(got.p)}）から ${D.moveText({ k: PICK, cards: got.cards })} を受け取りました`);
+    if (x.length && motionOn()) setTimeout(() => x.forEach(r => flyGive(r.p, r.to, r.cards, seatRect(r.p), new Map())), 1100);
     schedule();
   }
   let toastMsg = null;
@@ -619,16 +696,16 @@
     const pile = $('pile');
     if (!trick.length) {
       const lead = g.phase === 'done' ? '' : g.phase === 'give' ? 'カード交換' : g.actor >= 0 ? `${seatName(g.actor)}${g.actor === S.me ? 'から' : 'から出します'}` : '';
-      pile.innerHTML = `<div class="empty">${S.online && S.online.waiting ? '始まるのを待っています' : g.phase === 'done' ? 'この回はおしまい' : g.phase === 'give' ? 'カードの交換中' : '場は空'}</div>`;
+      setHTML(pile, `<div class="empty">${S.online && S.online.waiting ? '始まるのを待っています' : g.phase === 'done' ? 'この回はおしまい' : g.phase === 'give' ? 'カードの交換中' : '場は空'}</div>`);
       $('leadtag').textContent = lead && g.phase === 'play' ? `親: ${seatName(g.actor).replace(/<[^>]+>/g, '')}` : '';
     } else {
       const shown = trick.slice(-3);
       const fw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fw')) || 54;
-      pile.innerHTML = shown.map((t, i) => {
+      setHTML(pile, shown.map((t, i) => {
         const k = shown.length - 1 - i;
         const dx = -k * fw * 0.36, dy = -k * fw * 0.3, rot = (t.p * 7 % 9) - 4;
-        return `<div class="play-set${k ? ' old' : ''}" style="transform:translate(${dx}px, ${dy}px) rotate(${k ? rot : 0}deg);z-index:${i + 1}">${t.mv.cards.map(c => `<div class="fc">${cardHTML(c)}</div>`).join('')}${k ? '' : `<span class="who">${seatName(t.p)}</span>`}</div>`;
-      }).join('');
+        return `<div class="play-set${k ? ' old' : ''}" style="transform:translate(${dx}px, ${dy}px) rotate(${k ? rot : 0}deg);z-index:${i + 1}">${t.mv.cards.map(c => `<div class="fc" data-c="${c}">${cardHTML(c)}</div>`).join('')}${k ? '' : `<span class="who">${seatName(t.p)}</span>`}</div>`;
+      }).join(''));
       $('leadtag').textContent = '';
     }
     $('roundtag').textContent = S.round ? `${S.games ? `第${S.round}回戦（${S.games}回）` : `第${S.round}回戦`}${S.online ? '・オンライン' : ''}` : S.online ? 'オンライン・始まる前' : '';
@@ -640,7 +717,7 @@
   }
   function renderHand() {
     const g = shownG(), el = $('hand');
-    if (!g) return;
+    if (!g || S.dragging) return;   // つかんでいる間は描き直さない（離したあとに描く）
     const cards = handOrder(g.hands[S.me]);
     const W = el.clientWidth || 340;
     const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw')) || 56;
@@ -657,7 +734,14 @@
       else if (an.res[0].mv.k !== PASS) an.res[0].mv.cards.forEach(c => rec.add(c));
     }
     const got = new Set(S.got);
-    el.innerHTML = n ? cards.map((c, i) => {
+    if (!n) { setHTML(el, `<div class="emptyh">${g.out[S.me] ? `あがり（${TITLE[g.rank[S.me]]}）` : '手札なし'}</div>`); return; }
+    // 札ごとの要素は使い回す（描き直しで、配る・詰まる動きの途中の札を消さない）
+    const old = new Map();
+    el.querySelectorAll(':scope > .hc').forEach(b => old.set(Number(b.dataset.c), b));
+    if (old.size !== el.children.length) { el.innerHTML = ''; old.clear(); }
+    el._html = null;
+    let at = el.firstChild;
+    cards.forEach((c, i) => {
       let cls = 'hc';
       if (S.sel.has(c)) cls += ' sel';
       if (plays && !S.sel.has(c)) {
@@ -666,8 +750,19 @@
       }
       if (got.has(c) && live()) cls += ' got';
       if (rec.has(c)) cls += ' rec';
-      return `<button class="${cls}" data-c="${c}" style="left:${(left0 + i * step).toFixed(1)}px;z-index:${i + 1}" aria-pressed="${S.sel.has(c)}" aria-label="${C.label(c)}${rec.has(c) ? '（おすすめ）' : ''}">${cardHTML(c)}${rec.has(c) ? '<i class="rd"></i>' : ''}</button>`;
-    }).join('') : `<div class="emptyh">${g.out[S.me] ? `あがり（${TITLE[g.rank[S.me]]}）` : '手札なし'}</div>`;
+      let b = old.get(c);
+      if (b) old.delete(c);
+      else { b = document.createElement('button'); b.dataset.c = c; }
+      if (b.className !== cls) b.className = cls;
+      b.style.left = (left0 + i * step).toFixed(1) + 'px';
+      b.style.zIndex = i + 1;
+      b.setAttribute('aria-pressed', S.sel.has(c));
+      b.setAttribute('aria-label', C.label(c) + (rec.has(c) ? '（おすすめ）' : ''));
+      const inner = cardHTML(c) + (rec.has(c) ? '<i class="rd"></i>' : '');
+      if (b._html !== inner) { b.innerHTML = inner; b._html = inner; }
+      if (b !== at) el.insertBefore(b, at); else at = at.nextSibling;
+    });
+    old.forEach(b => b.remove());
   }
 
   // 情報の行
@@ -847,9 +942,7 @@
   }
 
   // 出た札（みんなに見える札だけ: 出した札・10捨ての札）。自分の手札は青
-  function renderSeen() {
-    const el = $('seen'), g = shownG();
-    if (!el || !g) return;
+  function seenGridHTML(g) {
     const out = new Set(g.grave.filter(c => c >= 0)), mine = new Set(g.hands[S.me].filter(c => c >= 0));
     const cls = ['', 'r', 'd', 'c'];
     let html = '<span class="h"></span>' + D.RANKS.map(r => `<span class="h">${r}</span>`).join('');
@@ -858,9 +951,36 @@
       for (let r = 0; r < 13; r++) { const c = su * 13 + r; html += `<span class="${cls[su]}${out.has(c) ? ' out' : mine.has(c) ? ' mine' : ''}">${D.RANKS[r]}</span>`; }
     }
     const jkOut = g.grave.filter(c => c >= 52).length, jkMine = g.hands[S.me].filter(c => c >= 52).length;
-    el.innerHTML = `<div class="seengrid">${html}</div><p class="hint" style="margin:6px 0 0">ジョーカー ${S.rules.jokers}枚のうち 出た ${jkOut}・あなた ${jkMine}。線を引いた札はもう出た札、青はあなたの手札。</p>`;
+    return `<div class="seengrid">${html}</div><p class="hint" style="margin:6px 0 0">ジョーカー ${S.rules.jokers}枚のうち 出た ${jkOut}・あなた ${jkMine}。線を引いた札はもう出た札、青はあなたの手札。</p>`;
+  }
+  function renderSeen() {
+    const el = $('seen'), g = shownG();
+    if (!el || !g) return;
+    el.innerHTML = seenGridHTML(g);
     const left = 52 + S.rules.jokers - g.grave.length - g.hands[S.me].length;
     $('seen-info').textContent = `ほかの人の手に ${Math.max(0, left)}枚`;
+    const b = $('btn-seen');
+    if (b) b.innerHTML = `<span class="fanmini"><span></span><span></span><span></span></span>出た札 ${g.grave.filter(c => c >= 0).length}`;
+  }
+  // 出た札の一覧（大きく）: だれが何を出したか（出した順・1つの手ずつ）、交換で自分が渡した・もらった札、まだ出ていない札の表
+  function openSeen(focusSeat) {
+    const g = shownG();
+    if (!g) return;
+    const upto = live() ? S.snaps.length - 1 : S.view;
+    const recs = S.recs.filter(r => r.snap <= upto);
+    const big = cards => `<span class="snplay">${cards.map(c => `<span class="sc" data-c="${c}">${cardHTML(c)}</span>`).join('')}</span>`;
+    const order = [0, 1, 2, 3].map(k => (S.me + k) & 3);
+    const rows = order.map(s => {
+      const plays = recs.filter(r => r.p === s && r.kind === 'play').map(r => big(r.cards));
+      const discards = recs.filter(r => r.p === s && r.kind === 'discard10').map(r => `<span class="snplay tag">捨て ${big(r.cards)}</span>`);
+      const swaps = s === S.me ? recs.filter(r => (r.p === S.me || r.to === S.me) && (r.kind === 'xfer' || r.kind === 'give' || r.kind === 'give7') && r.cards.every(c => c >= 0))
+        .map(r => `<span class="snplay tag">${r.p === S.me ? `${shortName(r.to)}へ` : `${shortName(r.p)}から`} ${big(r.cards)}</span>`) : [];
+      const n = g.hands[s].length;
+      return `<div class="snrow"${s === focusSeat ? ' style="background:var(--accent-soft)"' : ''}><span class="who"><span>${seatName(s)}</span><small>${g.out[s] && g.rank[s] >= 0 ? TITLE[g.rank[s]] : `残り ${n}枚`}</small></span>
+        <div class="snplays">${plays.concat(discards, swaps).join('') || '<span class="snnone">まだ出していません</span>'}</div></div>`;
+    }).join('');
+    $('sn-body').innerHTML = `<p class="hint" style="margin:0 0 4px">この回にみんなが出した札（出した順）。札を長く押すと大きく見えます。</p>${rows}<div style="margin-top:10px">${seenGridHTML(g)}</div>`;
+    $('dlg-seen').hidden = false;
   }
 
   // ------------------------------------------------------------------ 振り返り
@@ -1066,7 +1186,7 @@
 
   function setSetting(k, v) {
     settings[k] = v; store.set('settings', settings);
-    const box = { showProb: 'set-prob', showBest: 'set-best', sound: 'set-sound', anim: 'set-anim', fast: 'set-fast', autopass: 'set-autopass', four: 'set-four' }[k];
+    const box = { showProb: 'set-prob', showBest: 'set-best', sound: 'set-sound', fast: 'set-fast', autopass: 'set-autopass', four: 'set-four' }[k];
     if (box && $(box)) $(box).checked = v;
     SND.on = settings.sound;
     if ((k === 'showProb' || k === 'showBest') && S.online && S.online.setAI) S.online.setAI(aiOn() ? 1 : 0);
@@ -1084,6 +1204,26 @@
       if (b.dataset.tab === 'play') renderAll();
     }));
     $('hand').addEventListener('click', e => { const b = e.target.closest('.hc'); if (b) { SND.unlock(); onCard(Number(b.dataset.c)); } });
+    // つかんで場へ出す・長く押して大きく見る（common/motion.js）。ピンチで拡大できるよう touch-action は none にしない
+    if (TM) {
+      TM.drag($('hand'), {
+        pick: t => { const b = t.closest && t.closest('.hc'); return b && isHumanTurn() && live() ? b : null; },
+        ghost: dragGhost,
+        target: (x, y) => { const r = $('felt').getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? $('felt') : null; },
+        drop: () => dragDrop(),
+        cancel: () => { S.dragging = false; renderHand(); renderControls(); renderInfo(); },
+      });
+      // 見せるのは札の絵だけの写し（手札の札は位置の指定ごと写すと横にずれるため）
+      const show = el => { const r = el.getBoundingClientRect(), d = document.createElement('div'); d.style.cssText = `width:${r.width}px;height:${r.height}px`; d.innerHTML = cardHTML(Number(el.dataset.c)); d.firstElementChild.style.cssText = 'width:100%;height:100%;display:block'; return d; };
+      TM.peek($('hand'), { pick: t => t.closest && t.closest('.hc'), show });
+      TM.peek($('pile'), { pick: t => t.closest && t.closest('.fc'), show });
+      TM.peek($('sn-body'), { pick: t => t.closest && t.closest('.sc'), show });
+    }
+    // 出た札の一覧（場の右上のボタン・相手の名前の札をタップ）
+    $('btn-seen').addEventListener('click', e => { e.stopPropagation(); openSeen(); });
+    for (let ps = 1; ps < 4; ps++) $(`opp-${ps}`).addEventListener('click', () => openSeen((S.me + ps) & 3));
+    $('sn-close').addEventListener('click', () => { $('dlg-seen').hidden = true; });
+    $('dlg-seen').addEventListener('click', e => { if (e.target === $('dlg-seen')) $('dlg-seen').hidden = true; });
     $('btn-play').addEventListener('click', () => { SND.unlock(); onPlay(); });
     $('btn-pass').addEventListener('click', () => { SND.unlock(); onPass(); });
     $('btn-hint').addEventListener('click', hint);
@@ -1136,7 +1276,12 @@
       if (!e.target.closest('#chooser') && !e.target.closest('#btn-play')) hideChooser();
     });
     $('btn-settings').addEventListener('click', e => { e.stopPropagation(); const p = $('settings'); p.hidden = !p.hidden; $('btn-settings').setAttribute('aria-expanded', String(!p.hidden)); });
-    [['set-prob', 'showProb'], ['set-best', 'showBest'], ['set-sound', 'sound'], ['set-anim', 'anim'], ['set-fast', 'fast'], ['set-autopass', 'autopass'], ['set-four', 'four']].forEach(([id, k]) => {
+    // アニメーションは全ゲーム共通の設定（common/motion.js が覚える）
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    const still = () => document.documentElement.classList.toggle('still', !motionOn());
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); still(); });
+    still();
+    [['set-prob', 'showProb'], ['set-best', 'showBest'], ['set-sound', 'sound'], ['set-fast', 'fast'], ['set-autopass', 'autopass'], ['set-four', 'four']].forEach(([id, k]) => {
       const el = $(id); el.checked = !!settings[k];
       el.addEventListener('change', () => setSetting(k, el.checked));
     });
@@ -1164,7 +1309,7 @@
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewSnap(0); reviewAnalysis(); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { const wasNew = !$('dlg-new').hidden; closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel.size) { S.sel.clear(); renderAll(); } if (wasNew) resume(); return; }
+      if (e.key === 'Escape') { const wasNew = !$('dlg-new').hidden; closeSheet(); hideChooser(); ['dlg-new', 'dlg-result', 'dlg-online', 'dlg-seen'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel.size) { S.sel.clear(); renderAll(); } if (wasNew) resume(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewSnap((live() ? S.snaps.length - 1 : S.view) - 1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); viewSnap((live() ? S.snaps.length - 1 : S.view) + 1); }

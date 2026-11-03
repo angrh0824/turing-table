@@ -149,6 +149,30 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .chip .sicon { width: 11px; height: 11px; }
 .chip.lock { background: rgba(255,255,255,.9); color: #1d1d1d; }
 .roundtag { position: absolute; right: 10px; bottom: 8px; font: 700 11px var(--font-body); color: var(--felt-muted); letter-spacing: .08em; z-index: 3; }
+/* 出た札の一覧を開くボタン（場の右上。いつでも見える） */
+.seenbtn { position: absolute; right: 8px; top: 8px; z-index: 4; display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255,255,255,.28); background: rgba(0,0,0,.34); color: var(--felt-ink); border-radius: 999px; padding: 3px 9px 3px 5px; font: 700 11.5px var(--font-body); cursor: pointer; }
+.seenbtn:hover { background: rgba(0,0,0,.5); }
+.seenbtn .fanmini { position: relative; width: 22px; height: 18px; }
+.seenbtn .fanmini span { position: absolute; top: 0; width: 13px; height: 18px; border-radius: 2px; background: var(--card-face); box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+.seenbtn .fanmini span:nth-child(1) { left: 0; transform: rotate(-12deg); } .seenbtn .fanmini span:nth-child(2) { left: 4px; } .seenbtn .fanmini span:nth-child(3) { left: 8px; transform: rotate(12deg); }
+.chips { right: 96px; }
+/* つかんだ札を場に重ねたとき */
+.felt.tt-over { outline: 3px dashed rgba(255, 224, 138, .95) !important; outline-offset: -6px; }
+.ghost-fan { position: fixed; display: flex; pointer-events: none; }
+.ghost-fan .gc { width: var(--cw); flex: none; filter: drop-shadow(0 4px 8px rgba(0,0,0,.35)); }
+.ghost-fan .gc + .gc { margin-left: calc(var(--cw) * -0.55); }
+/* 出た札の一覧 */
+.snrow { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.snrow .who { font-weight: 700; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.snrow .who small { color: var(--muted); font-weight: 500; font-size: 11px; }
+.snplays { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.snplay { display: inline-flex; }
+.snplay .sc { width: 34px; flex: none; filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
+.snplay .sc + .sc { margin-left: -18px; }
+.snplay.tag { align-items: center; font-size: 11px; color: var(--muted); }
+.snnone { color: var(--muted); font-size: 12px; }
+#dlg-seen .actions { position: sticky; bottom: -1px; background: var(--surface); padding: 8px 0 2px; margin-top: 0; border-top: 1px solid var(--line); }   /* 長い一覧でも「閉じる」はいつも見える */
+@media (max-width: 560px) { .snrow { grid-template-columns: 5.5em minmax(0, 1fr); } .snplay .sc { width: 30px; } .snplay .sc + .sc { margin-left: -16px; } }
 .leadtag { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--felt-muted); z-index: 3; }
 .pile { position: absolute; inset: 0; display: grid; place-items: center; }
 .pile .play-set { position: absolute; display: flex; gap: 0; transition: transform .25s, opacity .25s; }
@@ -510,12 +534,16 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .on-stats { margin-bottom: 4px; gap: 16px; }
   .on-stats .stat b { font-size: 22px; }
 }
+@keyframes stamp-r { 0%, 85% { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg); } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .hand .hc, .probbar i, .felt, .pile .play-set, .opp, .me { transition: none; }
   .pl-st.think i { animation: none; }
   .stamp.show { animation: stamp-r 1.4s linear forwards; }
-  @keyframes stamp-r { 0%, 85% { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg); } 100% { opacity: 0; } }
 }
+/* 設定の「アニメーション」をオフにしたとき（html.still）も同じ */
+.still .hand .hc, .still .probbar i, .still .felt, .still .pile .play-set, .still .opp, .still .me { transition: none; }
+.still .pl-st.think i, .still .bubble { animation: none; }
+.still .stamp.show { animation: stamp-r 1.4s linear forwards; }
 </style>
 </head>
 <body>
@@ -537,7 +565,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
       <label class="switch"><input type="checkbox" id="set-best" checked> おすすめの出し方</label>
       <span class="hint">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 音</label>
-      <label class="switch"><input type="checkbox" id="set-anim" checked> 札の動き</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
       <label class="switch"><input type="checkbox" id="set-fast"> CPU を速く</label>
       <label class="switch"><input type="checkbox" id="set-autopass" checked> 出せる札がなければ自動でパス</label>
       <label class="switch"><input type="checkbox" id="set-four"> 4色のマーク（♦青・♣緑）</label>
@@ -558,6 +586,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
         <div class="stamp" id="stamp"></div>
         <div class="leadtag" id="leadtag"></div>
         <div class="roundtag" id="roundtag"></div>
+        <button class="seenbtn" id="btn-seen" type="button" aria-label="出た札の一覧を開く" title="出た札（だれが何を出したか）"></button>
       </div>
     </div>
     <div class="foot">
@@ -643,6 +672,15 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   </div>
 </div>
 
+<!-- 出た札（だれが何を出したか・まだ出ていない札） -->
+<div class="overlay" id="dlg-seen" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sn-title" style="width:min(720px,100%)">
+    <h2 id="sn-title">出た札</h2>
+    <div id="sn-body"></div>
+    <div class="actions"><button class="btn primary" id="sn-close">閉じる</button></div>
+  </div>
+</div>
+
 <!-- オンライン -->
 <div class="overlay" id="dlg-online" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="on-title">
@@ -653,6 +691,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 </div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/daifugo-core.js"></script>
 <script src="js/nn-simd.js"></script>
 <script src="js/daifugo-ai.js"></script>
