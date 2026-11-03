@@ -168,6 +168,7 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 }
 .card.down { transform: rotateY(180deg); }
 .card.flip-in { animation: flipIn .42s cubic-bezier(.3,.7,.2,1) both; }
+body.noanim .card.flip-in { animation: none; }
 @keyframes flipIn { from { transform: rotateY(180deg); } to { transform: rotateY(0); } }
 .card.win .face { box-shadow: 0 0 0 2px var(--gold), 0 0 14px 2px rgba(255, 210, 110, .75), 0 3px 8px rgba(0,0,0,.3); }
 .card.lose { filter: brightness(.55) saturate(.6); }
@@ -577,7 +578,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
       <label class="switch"><input type="checkbox" id="set-rec" checked> おすすめの行動を表示</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 音</label>
-      <label class="switch"><input type="checkbox" id="set-anim" checked> 配る・賭けるの演出</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
       <label class="switch"><input type="checkbox" id="set-four"> 4色のカード（♦を青・♣を緑に）</label>
       <label class="switch"><input type="checkbox" id="set-fast" checked> 降りたら早送り</label>
       <label class="switch"><input type="checkbox" id="set-bb"> 金額をビッグブラインドの数で表示</label>
@@ -714,6 +715,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 </div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/holdem-core.js"></script>
 <script src="js/holdem-ai.js"></script>
 <script src="js/weights.js" onerror="window.HOLDEM_WEIGHTS_MISSING = true"></script>

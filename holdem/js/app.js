@@ -563,7 +563,11 @@
   }
 
   // ------------------------------------------------------------------ 演出
-  const animOn = () => settings.anim && !reduceMotion;
+  // オン／オフは全ゲーム共通（../common/motion.js が覚える）。前の「配る・賭けるの演出」オフはそれに引き継ぐ
+  const TM = window.TTMotion;
+  if (settings.anim === false && TM) { try { if (localStorage.getItem('tt-motion') == null) TM.set(false); } catch (e) { /* そのまま */ } }
+  delete settings.anim;
+  const animOn = () => (TM ? TM.on : !reduceMotion);
   const speed = () => (fastForward || T.watching ? 0.3 : 1);
   function sleep(ms) {
     const e = epoch;
@@ -674,6 +678,8 @@
     render();
     if (jobs.length) SFX.chip(4);
     await Promise.all(jobs);
+    // 勝った額が席の上にふわっと出る
+    if (TM && animOn()) for (let p = 0; p < s.n; p++) if (res.won[p]) { const seat = $('seats').children[S.map[p]]; if (seat) TM.float('+' + fmt(res.won[p]), seat, { color: '#f2c14e', size: 18 }); }
   }
 
   // ------------------------------------------------------------------ ゲームの進行（手元の卓）
@@ -1101,7 +1107,7 @@
 
   function setSetting(k, v) {
     settings[k] = v; store.set('settings', settings);
-    const box = { eq: 'set-eq', rec: 'set-rec', sound: 'set-sound', anim: 'set-anim', four: 'set-four', fast: 'set-fast', bb: 'set-bb' }[k];
+    const box = { eq: 'set-eq', rec: 'set-rec', sound: 'set-sound', four: 'set-four', fast: 'set-fast', bb: 'set-bb' }[k];
     if (box) $(box).checked = v;
     document.body.classList.toggle('four', settings.four);
     if ((k === 'eq' || k === 'rec') && window.HoldemOnline) window.HoldemOnline.setAI(aiFlags());
@@ -1271,10 +1277,18 @@
     // 設定
     $('btn-settings').addEventListener('click', e => { e.stopPropagation(); const p = $('settings'); p.hidden = !p.hidden; $('btn-settings').setAttribute('aria-expanded', String(!p.hidden)); });
     document.addEventListener('click', e => { if (!$('settings').hidden && !e.target.closest('.settings-wrap')) $('settings').hidden = true; });
-    for (const [id, k] of [['set-eq', 'eq'], ['set-rec', 'rec'], ['set-sound', 'sound'], ['set-anim', 'anim'], ['set-four', 'four'], ['set-fast', 'fast'], ['set-bb', 'bb']]) {
+    for (const [id, k] of [['set-eq', 'eq'], ['set-rec', 'rec'], ['set-sound', 'sound'], ['set-four', 'four'], ['set-fast', 'fast'], ['set-bb', 'bb']]) {
       $(id).checked = settings[k];
       $(id).addEventListener('change', e => setSetting(k, e.target.checked));
     }
+    // アニメーションのオン／オフは全ゲーム共通（common/motion.js が覚える）。オフなら札が開く動きも止める
+    const syncAnim = () => document.body.classList.toggle('noanim', !animOn());
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    if (!TM) $('set-anim').closest('label').hidden = true;
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); syncAnim(); });
+    syncAnim();
+    // 卓の表の札（手札・場の札）を長押しすると大きく見る
+    if (TM) TM.peek($('stage'), { pick: t => t.closest && t.closest('.card:not(.down)'), scale: 3 });
     // 見返し
     $('status-tools').addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return;

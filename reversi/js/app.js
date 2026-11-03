@@ -36,8 +36,13 @@
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', side: 'black', cpuB: 'strong', cpuW: 'strong' }, store.get('cfg', {}));
   if (!CPU[cfg.cpu]) cfg.cpu = 'normal';
   // AI補助: showEval = 形勢、best = 最善手の印、nums = 置ける場所ごとの評価値
-  const settings = Object.assign({ sound: true, anim: true, moves: true, analyze: true, showEval: true, best: true, nums: true }, store.get('settings', {}));
+  const settings = Object.assign({ sound: true, moves: true, analyze: true, showEval: true, best: true, nums: true }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.best || settings.nums;
+  // 動きのオン／オフは全ゲーム共通（../common/motion.js が覚える）。前の「石を裏返す動き」オフはそれに引き継ぐ
+  const TM = window.TTMotion;
+  if (settings.anim === false && TM) { try { if (localStorage.getItem('tt-motion') == null) TM.set(false); } catch (e) { /* そのまま */ } }
+  delete settings.anim;
+  const animOn = () => (TM ? TM.on : !reduceMotion);
 
   // ------------------------------------------------------------------ 対局の状態
   const S = {
@@ -205,7 +210,7 @@
     if (S.online && NET && !fromRemote) NET.send({ t: 'mv', n: S.moves.length, m });
     if (m !== PASS) {
       clack('place');
-      if (settings.anim && !reduceMotion) flipped.forEach((s, i) => clack('flip', 0.1 + flipDelay(m, s) / 1000 + i * 0.004));
+      if (animOn()) flipped.forEach((s, i) => clack('flip', 0.1 + flipDelay(m, s) / 1000 + i * 0.004));
     }
     afterChange(m !== PASS ? { move: m, flipped } : null);
     if (S.online && NET) NET.saveState({ moves: S.moves, r: S.result ? 1 : 0 });
@@ -220,7 +225,7 @@
     S.info = null; S.cpuInfo = null;
     saveGame();
     render(anim);
-    if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, anim && settings.anim ? 900 : 350); }
+    if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, anim && animOn() ? 900 : 350); }
     schedule();
   }
 
@@ -367,7 +372,7 @@
   }
   function renderBoard(anim) {
     const pos = shownPos(), grid = $('grid');
-    const animate = !!anim && settings.anim && !reduceMotion && shownStones;
+    const animate = !!anim && animOn() && shownStones;
     const board = $('board');
     if (!animate) board.classList.add('noanim');
     const flippedSet = anim ? new Set(anim.flipped) : null;
@@ -474,6 +479,10 @@
         <span class="chip ${c ? 'w' : 'b'}" aria-hidden="true"></span>
         <div class="id"><span class="name">${nm}</span><span class="sub">${SIDE[c]}${c === BLACK ? '・先手' : ''}</span>${tag}</div>
         <div class="right">${st}<span class="count" aria-label="${SIDE[c]}の石 ${pos.count(c)}個">${pos.count(c)}</span></div>`;
+      // 石の数が増えた側は数字が軽く弾む
+      const n = pos.count(c);
+      if (TM && el.dataset.n != null && +el.dataset.n < n) TM.pop(el.querySelector('.count'));
+      el.dataset.n = n;
     });
   }
 
@@ -1026,11 +1035,15 @@
       const p = $('settings'); p.hidden = !p.hidden;
       $('btn-settings').setAttribute('aria-expanded', String(!p.hidden));
     });
-    [['set-eval', 'showEval'], ['set-best', 'best'], ['set-nums', 'nums'], ['set-moves', 'moves'], ['set-sound', 'sound'], ['set-anim', 'anim'], ['set-analyze', 'analyze']].forEach(([id, k]) => {
+    [['set-eval', 'showEval'], ['set-best', 'best'], ['set-nums', 'nums'], ['set-moves', 'moves'], ['set-sound', 'sound'], ['set-analyze', 'analyze']].forEach(([id, k]) => {
       const el = $(id);
       el.checked = settings[k];
       el.addEventListener('change', () => setSetting(k, el.checked));
     });
+    // アニメーションのオン／オフは全ゲーム共通（common/motion.js が覚える）
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    if (!TM) $('set-anim').closest('label').hidden = true;
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); });
     $('evstrip').addEventListener('click', () => openSheet('ev'));
     $('evstrip').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet('ev'); } });
     $('side').addEventListener('click', e => {

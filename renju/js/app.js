@@ -15,6 +15,9 @@
   const SIDE = ['', '黒', '白'];
   const MARK = ['', '●', '○'];
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 動きのオン／オフは全ゲーム共通（../common/motion.js が覚える）
+  const TM = window.TTMotion;
+  const animOn = () => (TM ? TM.on : !reduceMotion);
   let pointerType = 'mouse';
   document.addEventListener('pointerdown', e => { pointerType = e.pointerType || 'mouse'; }, true);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -345,6 +348,25 @@
       (col === WHITE ? `<circle cx="${x}" cy="${y}" r="18.6" fill="url(#shell)"/>` : '') + '</g>';
   }
 
+  // 五（以上）をつくって終わった石の並び（端から端の順）。五で終わっていなければ null
+  function winRow(g) {
+    const mv = g.moves;
+    if (!g.result || g.result.reason !== '五' || !mv.length) return null;
+    const p = mv[mv.length - 1], c = g.at(p), x0 = p % N, y0 = (p / N) | 0;
+    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+      const run = [p];
+      for (const s of [1, -1]) {
+        for (let k = 1; ; k++) {
+          const x = x0 + dx * k * s, y = y0 + dy * k * s;
+          if (x < 0 || y < 0 || x >= N || y >= N || g.at(y * N + x) !== c) break;
+          if (s > 0) run.push(y * N + x); else run.unshift(y * N + x);
+        }
+      }
+      if (run.length >= 5) return run;
+    }
+    return null;
+  }
+
   function render() {
     document.body.classList.toggle('eval-off', !settings.showEval);
     renderPlayers(); renderBoard(); renderControls(); renderKifu(); renderTape(); renderEval(); renderGraph(); renderSqInfo();
@@ -359,11 +381,24 @@
     let st = '';
     for (let k = 0; k < ply; k++) {
       const p = mv[k], col = k % 2 ? WHITE : BLACK;
-      st += stoneSVG(p, col, p === S.lastAnim && k === ply - 1 && live() && !reduceMotion ? 'newstone' : '');
+      st += stoneSVG(p, col, p === S.lastAnim && k === ply - 1 && live() && animOn() ? 'newstone' : '');
       if (settings.num) st += `<text class="num" x="${PX(p)}" y="${PY(p) + 6}" fill="${k === ply - 1 ? 'var(--shu)' : col === BLACK ? '#f2ede2' : '#1d1b17'}">${k + 1}</text>`;
     }
     if (ply && !settings.num) { const p = mv[ply - 1]; st += `<circle class="last" cx="${PX(p)}" cy="${PY(p)}" r="5"/>`; }
     $('g-stones').innerHTML = st;
+    // 五ができて終わったら、その並びを石の下で光らせる（五ができたその時だけ帯が伸びる。描き直しで動きが切れないよう、並びが変わったときだけ作る）
+    let wg = $('g-win');
+    if (!wg) { wg = document.createElementNS('http://www.w3.org/2000/svg', 'g'); wg.id = 'g-win'; $('g-stones').before(wg); }
+    const row = winRow(g), key = row ? row.join(',') : '';
+    if (wg.dataset.key !== key) {
+      wg.dataset.key = key;
+      wg.innerHTML = '';
+      if (row) {
+        const a = row[0], b = row[row.length - 1], len = Math.ceil(Math.hypot(PX(b) - PX(a), PY(b) - PY(a)));
+        const grow = S.lastAnim === mv[ply - 1] && live() && animOn();
+        wg.innerHTML = `<line class="winline${grow ? ' go' : ''}" style="--len:${len}" x1="${PX(a)}" y1="${PY(a)}" x2="${PX(b)}" y2="${PY(b)}"/>`;
+      }
+    }
     S.lastAnim = -1;
     // 打てない点（黒の禁手・1手目は天元だけ）をやんわり暗く
     let dim = '';
@@ -1034,7 +1069,11 @@
       el.checked = settings[k];
       el.addEventListener('change', () => setSetting(k, el.checked));
     });
-    const drawConfirm = () => { $('set-confirm').innerHTML = [['auto', 'タッチのとき'], ['always', 'いつも'], ['never', 'しない']].map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${settings.confirm === v}">${l}</button>`).join(''); };
+    // アニメーションのオン／オフは全ゲーム共通（common/motion.js が覚える）
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    if (!TM) $('set-anim').closest('label').hidden = true;
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); });
+    const drawConfirm =() => { $('set-confirm').innerHTML = [['auto', 'タッチのとき'], ['always', 'いつも'], ['never', 'しない']].map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${settings.confirm === v}">${l}</button>`).join(''); };
     drawConfirm();
     $('set-confirm').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { setSetting('confirm', b.dataset.v); drawConfirm(); } });
     $('evstrip').addEventListener('click', () => openSheet('ev'));
