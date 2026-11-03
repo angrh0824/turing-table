@@ -7,7 +7,6 @@
   const { Position, WHITE, BLACK, P, SQ, ARROW, EMPTY } = A;
   const $ = id => document.getElementById(id);
   const SIDE = ['白', '黒'];
-  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let pointerType = 'mouse';
   document.addEventListener('pointerdown', e => { pointerType = e.pointerType || 'mouse'; }, true);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -44,6 +43,11 @@
   // AI補助: showEval = 形勢、terr = 陣地を盤に塗る、best = 最善手の矢印
   const settings = Object.assign({ sound: true, anim: true, analyze: true, showEval: true, terr: true, best: true, confirm: coarse }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.terr || settings.best;
+  // 駒の動き・つかんで置く は全ゲーム共通の ../common/motion.js（TTMotion）。オン／オフも全ゲーム共通
+  const TM = window.TTMotion || null;
+  const motionOn = () => !!(TM && TM.on);
+  // 前に「駒と矢の動き」を切っていた人は、全ゲーム共通の設定がまだなければそれを引き継ぐ
+  if (settings.anim === false && TM) { try { if (localStorage.getItem('tt-motion') == null) TM.set(false); } catch (e) { /* そのまま */ } }
 
   // ------------------------------------------------------------------ 対局の状態
   const S = {
@@ -228,7 +232,10 @@
     S.moves.push(m); S.hist.push(p);
     clearSel(); S.inspect = 0;
     if (S.online && NET && !fromRemote) NET.send({ t: 'mv', n: S.moves.length, m: A.toWire(m) });
-    afterChange({ move: m });
+    // 自分で指した手は、アマゾンはもう行き先に滑らせてある（矢だけ飛ぶ。つかんで置いた矢はその場で刺さる）
+    const how = fromRemote ? null : humanAnim;
+    humanAnim = null;
+    afterChange(Object.assign({ move: m }, how));
     if (S.online && NET) NET.saveState({ moves: S.moves.map(A.toWire), r: S.result ? 1 : 0 });
   }
 
@@ -241,14 +248,14 @@
     S.info = null; S.cpuInfo = null; terrCache = null;
     saveGame();
     render(anim);
-    if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, anim && settings.anim ? 1100 : 350); }
-    schedule(anim);
+    if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, anim && motionOn() ? 1100 : 350); }
+    schedule();
   }
 
   // 「新しい対局」を開いている間は裏の対局を進めない（CPU は読まず指さない。閉じたら schedule() で続ける）
   const choosing = () => !$('dlg-new').hidden;
 
-  function schedule(anim) {
+  function schedule() {
     clearTimeout(S.timer);
     S.thinking = false;
     if (choosing()) { AI.cancel(); renderPlayers(); return; }
@@ -257,8 +264,6 @@
     if (isRemote(c)) { AI.cancel(); renderEval(); return; }
     if (!isCPU(c)) { analyze(); return; }
     const cpu = CPU[S.seats[c]], ply = S.moves.length, t0 = Date.now();
-    // 動きが終わってから読み始めたように見せる（読みは裏ですぐ始める）
-    const animWait = anim && settings.anim && !reduceMotion ? 700 : 0;
     S.thinking = true;
     renderPlayers(); renderSqInfo(); renderMarks();
     // 強い CPU も序盤の6手は評価に小さな揺らぎを入れて、毎回同じ指し方にならないようにする
@@ -269,7 +274,8 @@
       info => {
         onInfo(ply, c, info, 'cpu');
         S.thinking = false;
-        const wait = Math.max(120, 450 + animWait - (Date.now() - t0));
+        // 読みはすぐ始めている。盤に出すのは、前の手の動き（0.3〜0.7秒）が終わってから
+        const wait = Math.max(120, 450 - (Date.now() - t0), animEnd - performance.now() + 60);
         if (live() && S.moves.length === ply && !S.result && !choosing() && info && info.move >= 0) S.timer = setTimeout(() => play(info.move), wait);
       });
   }
@@ -328,14 +334,14 @@
         if (settings.confirm) { sound('tick'); renderMarks(); renderSqInfo(); } else commit();
         return;
       }
-      if (p === sel.to) { sel.to = 0; sound('tick'); renderMarks(); renderSqInfo(); return; } // 行き先を選び直す
-      if (pc === me && p !== sel.from) { clearSel(); sel.from = p; sound('tick'); renderMarks(); renderSqInfo(); }
+      if (p === sel.to) { sound('tick'); unpickDest(); return; } // 行き先を選び直す
+      if (pc === me && p !== sel.from) selectFrom(p);
       return;
     }
     if (sel.from) {
       if (p === sel.from) { clearSel(); renderMarks(); renderSqInfo(); return; }
       if (pc === me) { sel.from = p; sound('tick'); renderMarks(); renderSqInfo(); return; }
-      if (destTargets().has(p)) { sel.to = p; sound('move'); renderMarks(); renderSqInfo(); return; }
+      if (destTargets().has(p)) { pickDest(p); return; }
       clearSel(); renderMarks(); renderSqInfo();
       return;
     }
@@ -355,14 +361,39 @@
     b[t] = EMPTY; b[f] = me;
     return out;
   }
-  function commit() {
+  // dropped: 矢をつかんで置いた（飛ばさずにその場で刺さる）
+  function commit(dropped) {
     const m = A.mv(S.sel.from, S.sel.to, S.sel.arrow);
     if (!curPos().isLegal(m)) { clearSel(); render(); return; }
+    humanAnim = { queenDone: true, dropped: !!dropped };
     play(m);
   }
   function undoStep() {
-    if (S.sel.arrow) S.sel.arrow = 0; else if (S.sel.to) S.sel.to = 0; else S.sel.from = 0;
+    if (S.sel.arrow) S.sel.arrow = 0;
+    else if (S.sel.to) { unpickDest(); return; }
+    else S.sel.from = 0;
     renderMarks(); renderSqInfo();
+  }
+  // 行き先を選ぶ: アマゾンが元のマス（つかんで置いたときは離した所）から行き先へ滑る
+  function pickDest(p, at) {
+    const from = at || pcRect(S.sel.from);
+    S.sel.to = p; S.sel.arrow = 0;
+    sound('move'); renderMarks(); renderSqInfo();
+    slideQueen(p, from);
+  }
+  // 行き先を取り消す: アマゾンが元のマスへ戻る
+  function unpickDest() {
+    const from = pcRect(S.sel.to);
+    S.sel.to = 0; S.sel.arrow = 0;
+    renderMarks(); renderSqInfo();
+    slideQueen(S.sel.from, from);
+  }
+  // ほかのアマゾンを選び直す（行き先まで選んでいたら、そのアマゾンは元へ戻る）
+  function selectFrom(p) {
+    const back = S.sel.to ? [S.sel.from, pcRect(S.sel.to)] : null;
+    clearSel(); S.sel.from = p; S.inspect = 0;
+    sound('tick'); renderMarks(); renderSqInfo();
+    if (back) slideQueen(back[0], back[1]);
   }
   let flashMsg = '', flashTimer = 0;
   function flashInfo(msg) { flashMsg = msg; clearTimeout(flashTimer); flashTimer = setTimeout(() => { flashMsg = ''; renderSqInfo(); }, 2200); renderSqInfo(); }
@@ -388,6 +419,7 @@
     if (!body.classList.contains(mode)) { body.classList.remove('L-wide', 'L-land', 'L-port'); body.classList.add(mode); closeSheet(); }
     const main = $('main'), stage = $('stage');
     if (!stage.offsetParent) return;
+    stage.style.marginTop = '0px'; // 前に盤をまん中へ下げた分は、測る前に外す
     const mcs = getComputedStyle(main);
     const top = main.getBoundingClientRect().top;
     const availH = window.innerHeight - top - parseFloat(mcs.paddingBottom) - 2;
@@ -408,6 +440,13 @@
     if (document.documentElement.style.getPropertyValue('--bs') !== bs + 'px') document.documentElement.style.setProperty('--bs', bs + 'px');
     const over = main.scrollHeight - main.clientHeight;
     if (over > 0 && mode !== 'L-land' && bs > 220) document.documentElement.style.setProperty('--bs', Math.max(220, bs - over) + 'px');
+    // スマホ縦: 余った高さで上をあけて、盤が画面のまん中に来るようにする（余りが足りなければ、できるところまで下げる）
+    if (mode === 'L-port') {
+      const slack = main.clientHeight - parseFloat(mcs.paddingBottom) - stage.offsetHeight;
+      const br = $('board-wrap').getBoundingClientRect();
+      const want = window.innerHeight / 2 - (br.top + br.height / 2);
+      stage.style.marginTop = Math.round(Math.max(0, Math.min(slack, want))) + 'px';
+    } else stage.style.marginTop = '';
     if (mode === 'L-land') {
       const br = $('board-wrap').getBoundingClientRect();
       $('side').style.setProperty('--sheet-left', Math.round(br.right + 8) + 'px');
@@ -446,15 +485,18 @@
     drawn.clear();
   }
   const drawn = new Map(); // マス → 描いている駒（0 なし・1 白・2 黒）
-  let animToken = 0;
   function renderBoard(anim) {
     if ((bottomColor() === BLACK) !== flipped) buildBoard();
     const pos = shownPos(), board = $('board');
-    const animate = !!anim && settings.anim && !reduceMotion && live() && drawn.size > 0;
-    if (!animate) board.classList.add('noanim');
-    const token = ++animToken;
-    let mf = 0, mt = 0, ma = 0;
-    if (animate) { mf = A.mFrom(anim.move); mt = A.mTo(anim.move); ma = A.mArrow(anim.move); }
+    const animate = !!(anim && anim.move) && motionOn() && live() && drawn.size > 0;
+    // 見返し・新しい対局などで局面が変わったら、途中の動きはその場で終える
+    if (!animate && flyingArrow && animPly !== shownPly()) { TM.finish(); flyingArrow = 0; animPly = -1; }
+    let fromRect = null;
+    if (animate) {
+      TM.finish(); // 前の手の動きが残っていたら終わらせる
+      flyingArrow = A.mArrow(anim.move); animPly = S.moves.length;
+      if (!anim.queenDone) fromRect = pcRect(A.mFrom(anim.move));
+    } else board.classList.add('noanim'); // がらりと変わる描き直しは、すぐに描く
     for (const [p, el] of cells) {
       const v = pos.b[p];
       const want = v === 1 || v === 2 ? v : 0;
@@ -462,7 +504,7 @@
         el.querySelector('.pc').innerHTML = want ? AMZ(want - 1) : '';
         drawn.set(p, want);
       }
-      el.classList.toggle('blk', v === ARROW && !(animate && p === ma));
+      el.classList.toggle('blk', v === ARROW && p !== flyingArrow);
     }
     // 矢の絵は、放たれた向きに回す（絵の矢は右上向き）
     for (let i = 0, n = shownPly(); i < n; i++) {
@@ -470,32 +512,11 @@
       const deg = Math.round(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI + 45), svg = cells.get(A.mArrow(m)).querySelector('.arw svg');
       if (svg.dataset.deg !== String(deg)) { svg.dataset.deg = deg; svg.style.transform = `rotate(${deg}deg)`; }
     }
-    if (animate) {
-      // 駒がすべるように動き、続いて矢が飛んで刺さる
-      const pc = cells.get(mt).querySelector('.pc'), from = cells.get(mf).getBoundingClientRect(), to = cells.get(mt).getBoundingClientRect();
-      pc.style.transition = 'none'; pc.style.translate = `${from.left - to.left}px ${from.top - to.top}px`;
-      void pc.offsetWidth;
-      pc.style.transition = ''; pc.style.translate = '';
-      sound('move');
-      setTimeout(() => {
-        if (token !== animToken) return;
-        const [x1, y1] = cellXY(mt), [x2, y2] = cellXY(ma);
-        const ov = $('ov'), ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        ln.setAttribute('class', 'fly'); ln.setAttribute('x1', x1); ln.setAttribute('y1', y1); ln.setAttribute('x2', x1); ln.setAttribute('y2', y1);
-        ov.appendChild(ln);
-        sound('whoosh');
-        const t0 = performance.now(), dur = 160 + 25 * Math.hypot(x2 - x1, y2 - y1);
-        const step = now => {
-          if (token !== animToken) { ln.remove(); return; }
-          const k = Math.min(1, (now - t0) / dur), e = 1 - (1 - k) * (1 - k), tail = Math.max(0, e - 0.35);
-          ln.setAttribute('x1', x1 + (x2 - x1) * tail); ln.setAttribute('y1', y1 + (y2 - y1) * tail);
-          ln.setAttribute('x2', x1 + (x2 - x1) * e); ln.setAttribute('y2', y1 + (y2 - y1) * e);
-          if (k < 1) requestAnimationFrame(step);
-          else { ln.remove(); cells.get(ma).classList.add('blk'); sound('thunk'); }
-        };
-        requestAnimationFrame(step);
-      }, 320);
-    } else { board.offsetWidth; requestAnimationFrame(() => board.classList.remove('noanim')); }
+    if (!animate) {
+      if (anim && anim.move && live()) sound('thunk'); // 動きを切っていても、指した音は鳴らす
+      board.offsetWidth;
+      requestAnimationFrame(() => board.classList.toggle('noanim', !motionOn()));
+    }
     // 終局の表示
     let em = $('endmark');
     if (live() && S.result) {
@@ -503,6 +524,122 @@
       em.innerHTML = `<b>${SIDE[S.result.winner]}の勝ち</b><span>${esc(S.result.reason)}</span>`;
     } else if (em) em.remove();
     renderMarks();
+    if (animate) animateMove(anim.move, anim, fromRect);
+  }
+
+  // ------------------------------------------------------------------ 動き（TTMotion）: アマゾンが滑る・矢が飛んで刺さる
+  //   CPU・オンラインの相手の手も同じ速さ（アマゾン 0.15〜0.34秒・矢 0.14〜0.3秒）。進行（AI の読み・オンラインの送受信）は動きを待たない
+  let flyingArrow = 0, animPly = -1, animEnd = 0, humanAnim = null;
+  const pcRect = p => cells.get(p).querySelector('.pc').getBoundingClientRect();
+  // p のマスに描いたアマゾンを、from（DOMRect）の所から滑らせる（.pc は選んだときの浮き上がりに使うので、中の絵を動かす）
+  function slideQueen(p, from) {
+    const svg = motionOn() && from && cells.get(p) && cells.get(p).querySelector('.pc svg');
+    if (!svg) return Promise.resolve();
+    const r = svg.getBoundingClientRect();
+    return TM.fly(svg, from, { ms: Math.round(Math.min(340, 150 + Math.hypot(from.left - r.left, from.top - r.top) * 0.4)) });
+  }
+  // 指した手: アマゾンが滑り、続いて矢がアマゾンから狙ったマスへ飛んで刺さる（マスがふさがる）
+  //   how.queenDone: 人が行き先を選んだときにもう滑らせた。how.dropped: 矢をつかんで置いた（飛ばさずにその場で刺さる）
+  function animateMove(m, how, fromRect) {
+    const t = A.mTo(m), a = A.mArrow(m), ply = animPly;
+    const slide = how.queenDone ? Promise.resolve() : (sound('move'), slideQueen(t, fromRect));
+    animEnd = performance.now() + (how.queenDone ? 0 : 340) + (how.dropped ? 220 : 300);
+    slide.then(() => {
+      if (ply !== animPly || flyingArrow !== a) return; // 次の手が来た（その手の描き直しで、この矢はもう描いてある）
+      if (how.dropped) { landArrow(a); return; }
+      const [x1, y1] = cellXY(t), [x2, y2] = cellXY(a), NS = 'http://www.w3.org/2000/svg', ov = $('ov');
+      const ln = document.createElementNS(NS, 'line'), head = document.createElementNS(NS, 'use');
+      ln.setAttribute('class', 'fly');
+      head.setAttribute('href', '#arw'); head.setAttribute('class', 'flyhead');
+      head.setAttribute('x', '-.42'); head.setAttribute('y', '-.42'); head.setAttribute('width', '.84'); head.setAttribute('height', '.84');
+      const deg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI + 45; // 絵の矢は右上向き
+      ov.append(ln, head);
+      sound('whoosh');
+      TM.tween(Math.round(Math.min(300, 140 + Math.hypot(x2 - x1, y2 - y1) * 22)), k => {
+        const tail = Math.max(0, k - 0.35), hx = x1 + (x2 - x1) * k, hy = y1 + (y2 - y1) * k;
+        ln.setAttribute('x1', x1 + (x2 - x1) * tail); ln.setAttribute('y1', y1 + (y2 - y1) * tail);
+        ln.setAttribute('x2', hx); ln.setAttribute('y2', hy);
+        head.setAttribute('transform', `translate(${hx} ${hy}) rotate(${deg})`);
+        if (k >= 1) { ln.remove(); head.remove(); landArrow(a); }
+      });
+    });
+  }
+  function landArrow(a) {
+    if (flyingArrow !== a) return;
+    flyingArrow = 0;
+    const el = cells.get(a);
+    if (!el || shownPos().b[a] !== ARROW) return;
+    const arw = el.querySelector('.arw');
+    arw.style.transition = 'none'; // ふわっと出す CSS の代わりに、刺さる pop
+    el.classList.add('blk');
+    void arw.offsetWidth;
+    arw.style.transition = '';
+    sound('thunk');
+    TM.pop(arw, 'land');
+  }
+
+  // アマゾンをつかんで置く・続けて矢をつかんで放つ（TTMotion.drag。マウス・指どちらでも。動かさずに離せばタップと同じ。2本指はピンチで拡大）
+  //   行き先を選んだあとは、動いたアマゾンから矢をつかみ出して、狙うマスに置く
+  let dragMode = '', dragSet = null;
+  const cellOf = el => (el && el.closest ? el.closest('.sq') : null);
+  function bindDrag() {
+    if (!TM) return;
+    const grid = $('grid');
+    // 動いている途中に触ったら、今の動きをその場で終わらせる（次の操作を待たせない）
+    grid.addEventListener('pointerdown', () => TM.finish(), true);
+    const arrowFrom = p => !!(S.sel.to && p === S.sel.to);
+    TM.drag(grid, {
+      pick: t => {
+        const b = cellOf(t);
+        if (!b || !humanTurn()) return null;
+        const p = Number(b.dataset.p), pos = curPos();
+        if (arrowFrom(p)) return b.querySelector('.pc');
+        if (S.sel.to && p === S.sel.from) return null; // 元のマスに残る薄い影
+        return pos.b[p] === pos.stm + 1 && pos.reachFrom(p).length ? b.querySelector('.pc') : null;
+      },
+      ghost: el => {
+        const p = Number(cellOf(el).dataset.p), g = document.createElement('div');
+        if (arrowFrom(p)) {
+          el.classList.add('aimfrom'); // 矢を放つ間も、アマゾンは薄くしない
+          g.className = 'arwghost';
+          g.innerHTML = '<svg viewBox="0 0 20 20"><use href="#arw"/></svg>';
+          const r = el.getBoundingClientRect();
+          g.style.width = g.style.height = Math.round(r.width * 0.85) + 'px';
+        } else {
+          g.className = 'amzghost';
+          g.innerHTML = AMZ(curPos().stm);
+        }
+        return g;
+      },
+      start: el => {
+        const p = Number(cellOf(el).dataset.p);
+        S.inspect = 0;
+        if (arrowFrom(p)) { dragMode = 'arrow'; dragSet = arrowTargets(); return; }
+        dragMode = 'queen';
+        if (S.sel.from !== p || S.sel.to) selectFrom(p);
+        dragSet = destTargets();
+      },
+      target: (x, y) => {
+        const b = cellOf(document.elementFromPoint(x, y));
+        return b && dragSet && dragSet.has(Number(b.dataset.p)) ? b : null;
+      },
+      drop: (el, to, at) => {
+        const p = Number(to.dataset.p), mode = dragMode;
+        dragMode = ''; dragSet = null;
+        el.classList.remove('aimfrom');
+        if (!humanTurn()) return false;
+        if (mode === 'arrow') {
+          if (!arrowTargets().has(p)) return false;
+          S.sel.arrow = p;
+          if (settings.confirm) { sound('tick'); renderMarks(); renderSqInfo(); } else commit(true);
+          return true;
+        }
+        if (!destTargets().has(p)) return false;
+        pickDest(p, at);
+        return true;
+      },
+      cancel: el => { dragMode = ''; dragSet = null; setTimeout(() => el.classList.remove('aimfrom'), 260); },
+    });
   }
 
   // 陣地（先に届く側）。局面ごとに一度だけ数える
@@ -527,7 +664,7 @@
     for (const [p, el] of cells) {
       const v = pos.b[p];
       let cls = 'sq' + (el.dataset.dk ? ' dk' : '');
-      if (v === ARROW) cls += ' blk';
+      if (v === ARROW && p !== flyingArrow) cls += ' blk'; // 飛んでいる途中の矢は、刺さってから描く
       if (my) {
         if (sel.arrow) {
           if (p === sel.from) cls += ' ghost' + (aims.has(p) ? ' aim can' : '');
@@ -696,7 +833,9 @@
       html = `<span class="txt"><b>${who}の番</b>　<span class="muted">${humanTurn() ? 'アマゾンを選んでください' : ''}${n ? `${humanTurn() ? '・' : ''}直前 ${moveText(n)}` : ''}</span></span>`;
     }
     el.className = cls;
-    el.innerHTML = html + `<span class="tools">${tools}</span>`;
+    // 変わらないときは書き直さない（マウスが盤から「確定」へ動く途中で、押す直前のボタンが入れ替わって押せないことがあった）
+    const out = html + `<span class="tools">${tools}</span>`;
+    if (el._html !== out) { el._html = out; el.innerHTML = out; }
   }
 
   // 棋譜テープ（盤の下で横に流れる手の一覧）。タップでその局面へ
@@ -1207,11 +1346,15 @@
       const p = $('settings'); p.hidden = !p.hidden;
       $('btn-settings').setAttribute('aria-expanded', String(!p.hidden));
     });
-    [['set-eval', 'showEval'], ['set-terr', 'terr'], ['set-best', 'best'], ['set-confirm', 'confirm'], ['set-sound', 'sound'], ['set-anim', 'anim'], ['set-analyze', 'analyze']].forEach(([id, k]) => {
+    [['set-eval', 'showEval'], ['set-terr', 'terr'], ['set-best', 'best'], ['set-confirm', 'confirm'], ['set-sound', 'sound'], ['set-analyze', 'analyze']].forEach(([id, k]) => {
       const el = $(id);
       el.checked = settings[k];
       el.addEventListener('change', () => setSetting(k, el.checked));
     });
+    // アニメーションのオン／オフは全ゲーム共通（common/motion.js が覚える）
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    if (!TM) $('set-anim').closest('label').hidden = true;
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); renderBoard(); });
     $('evstrip').addEventListener('click', () => openSheet('ev'));
     $('evstrip').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet('ev'); } });
     $('side').addEventListener('click', e => {
@@ -1466,6 +1609,7 @@
   // ------------------------------------------------------------------ はじめ
   buildBoard();
   bind();
+  bindDrag();
   if (ONLINE_OK) { net(); renderOnlineBadge(); }
   if (roomCode && ONLINE_OK) openOnline();
   const saved = store.get('game', null);
