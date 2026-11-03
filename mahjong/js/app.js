@@ -319,15 +319,24 @@
     const handUnits = (14 - 3 * ms.length) * 1.04 + 0.36 + (ms.length ? 0.35 + meldUnits : 0);
     // 手牌も卓の上（手前側）なので、卓の縁（rt）と手牌の段の余白を引いて決める
     const rt = Math.round(Math.max(4, Math.min(9, Math.min(W, H) * 0.011)));
-    let rw, hw;
+    let rw, hw, padt = 0;
     if (land) {
       hw = Math.min(60, (W - 16 - 2 * rt - 32) / handUnits, H * 0.13);
       const handH = hw * (0.3 + 1.34 + 0.09) + rt + 7;
       rw = Math.min(34, (H - 8 - handH - rt - 4) / kH, (W * 0.48) / kW);
     } else {
-      rw = Math.min(30, (W - 4 - 2 * rt - 4) / kW, (H * 0.56) / kH);
+      // 縦長: 卓（河と相手＋手牌）を画面の真ん中に。下に情報の行・AI補助（2行ぶん）・操作と、行どうしの間
       hw = Math.min(40, (W - 4 - 2 * rt - 4) / handUnits);
+      const handH = hw * (0.3 + 1.34 + 0.09) + rt + 7, below = 32 + 52 + 34 + 5 * 4 + 4;
+      rw = Math.min(30, (W - 4 - 2 * rt - 4) / kW, (H - 4 - (rt + 2) - 4 - handH - below) / kH);
+      const block = rt + 2 + kH * rw + 4 + handH;
+      padt = Math.max(0, Math.min((H - block) / 2 - 4, H - 4 - block - below));
     }
+    play.style.setProperty('--padt', padt.toFixed(1) + 'px');
+    // この局の記録は、横長は左の列・縦長は「記録」のパネルの中
+    const log = $('log');
+    if (land && log.parentNode !== $('leftp')) $('leftp').appendChild(log);
+    if (!land && log.parentNode !== $('sheet')) $('sheet').insertBefore(log, $('hist'));
     const root = document.documentElement.style;
     root.setProperty('--rt', rt + 'px');
     root.setProperty('--rw', rw.toFixed(2) + 'px');

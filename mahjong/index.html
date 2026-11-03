@@ -79,7 +79,9 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 /* ---------- 対局の画面（配置は app.js が land / port のクラスで切り替え） ---------- */
 .play { position: absolute; inset: 0; display: grid; }
 .play.land { grid-template-columns: minmax(0, 1fr) var(--SW) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "left table right" "hand hand hand"; gap: 0 10px; padding: 2px 8px 6px; }
-.play.port { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto auto auto auto; grid-template-areas: "log" "info" "assist" "table" "hand" "ctrl"; gap: 4px; padding: 0 2px calc(4px + env(safe-area-inset-bottom, 0px)); }
+/* 縦長: 卓（河と相手＋手牌）を画面の真ん中に。上の余白 --padt は app.js が決める（AI補助が出入りしても卓は動かない）。
+   卓のすぐ下に情報の行と AI補助、いちばん下に操作。この局の記録（鳴き・立直・ドラ）は「記録」のパネルの中 */
+.play.port { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--padt, 0px)) auto auto auto auto minmax(0, 1fr) auto; grid-template-areas: "padt" "table" "hand" "info" "assist" "padb" "ctrl"; gap: 4px; padding: 0 2px calc(4px + env(safe-area-inset-bottom, 0px)); }
 .stage { grid-area: table; position: relative; z-index: 1; width: var(--SW); height: var(--SH); justify-self: center; align-self: center; }
 .play.port .stage { margin-top: calc(var(--rt) + 2px); }
 .play.land .stage { margin-top: calc(var(--rt) + 4px); }
@@ -87,12 +89,11 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .rightp { grid-area: right; position: relative; z-index: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; justify-content: center; padding: calc(var(--rt) + 6px) calc(var(--rt) + 6px) 4px 0; }
 .play.port .leftp { display: contents; }
 .play.port .players { display: none; }
-.play.port #log { grid-area: log; min-height: 0; }
 .play.port .rightp { display: contents; }
 .play.port #infobar { grid-area: info; }
 .play.port #assist { grid-area: assist; }
-.play.port .ctrl { grid-area: ctrl; align-self: start; }
-.play.port #log, .play.port #infobar, .play.port #assist, .play.port .ctrl { margin: 0 4px; }
+.play.port .ctrl { grid-area: ctrl; align-self: end; }
+.play.port #infobar, .play.port #assist, .play.port .ctrl { margin: 0 4px; }
 .handbar { grid-area: hand; position: relative; z-index: 1; min-width: 0; }
 
 /* 卓（革の縁＋羅紗）。横長は画面いっぱい、縦長は「河と相手」と「手牌」の段にまたがる */
@@ -239,7 +240,12 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .assist .waits { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; --w: 15px; }
 .assist .waits span { display: inline-flex; align-items: center; gap: 2px; }
 .assist .waits .tile { margin-bottom: 1px; }
-.play.port .assist { padding: 4px 8px; }
+/* 縦長は情報の行と AI補助を薄く */
+.play.port .infobar { min-height: 30px; padding: 2px 4px 2px 10px; font-size: 12.5px; }
+.play.port .infobar .btn.small { padding: 2px 8px; }
+.play.port .assist { padding: 3px 8px; gap: 3px; font-size: 11.5px; }
+.play.port .assist .cand, .play.port .assist .waits { --w: 13px; }
+.play.port .assist .cand { padding: 1px 5px 1px 2px; }
 .ctrl { display: flex; gap: 6px; flex-wrap: wrap; }
 .btn { border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 10px; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .btn:hover:not([disabled]) { border-color: var(--accent); }
@@ -274,6 +280,9 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .log li .who { font-weight: 700; white-space: nowrap; min-width: 3.2em; }
 .log li.me .who { color: var(--accent); }
 .log li.big { font-weight: 700; color: var(--accent); }
+/* 縦長では「この局」の記録を「記録」のパネルの中に置く（見返している間は出さない） */
+.sheet > .log { flex: 0 1 auto; max-height: 45%; background: var(--surface-2); }
+.sheet > #navrow:not([hidden]) ~ .log { display: none; }
 
 /* ---------- 下からせり上がるパネル（局の記録） ---------- */
 .sheet {
@@ -439,7 +448,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .pl .sc { font-size: 13px; }
   .infobar { min-height: 32px; font-size: 12px; padding: 2px 4px 2px 9px; }
   .ctrl .btn { padding: 4px 6px; font-size: 12px; }
-  .log { display: none; }
+  .leftp .log { display: none; }
   .callbtn { height: 36px; font-size: 16px; min-width: 56px; padding: 0 12px; }
   .overlay { padding: 6px; }
   .dialog { padding: 12px 16px; }
