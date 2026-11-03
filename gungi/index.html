@@ -90,6 +90,11 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 /* ---------- 対局画面 ---------- */
 .play { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: start; }
 @media (max-width: 980px) { .play { grid-template-columns: minmax(0, 1fr); } }
+/* 狭い画面: 盤の列が画面より低いとき（スマホ縦）は、上下の真ん中に置く。収まらないときは上から */
+@media (max-width: 979px) {
+  .play { min-height: 100%; }
+  .board-col { margin-block: auto; }
+}
 .board-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; align-items: center; }
 .board-col > * { width: 100%; max-width: var(--board-w, min(680px, max(360px, calc(100vh - 330px)))); }
 
@@ -101,29 +106,37 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 }
 .player.turn { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .player .id { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.player .stone { width: 18px; height: 18px; border-radius: 50%; flex: none; }
-.player .stone.b { background: radial-gradient(circle at 35% 30%, var(--pc-black-hi), var(--pc-black) 70%); }
-.player .stone.w { background: radial-gradient(circle at 35% 30%, #fff, var(--pc-white) 65%, var(--pc-white-lo)); border: 1px solid var(--pc-white-lo); }
+.player .stone, .pcs-side .stone { width: 18px; height: 18px; border-radius: 50%; flex: none; }
+.stone.b { background: radial-gradient(circle at 35% 30%, var(--pc-black-hi), var(--pc-black) 70%); }
+.stone.w { background: radial-gradient(circle at 35% 30%, #fff, var(--pc-white) 65%, var(--pc-white-lo)); border: 1px solid var(--pc-white-lo); }
 .player .name { font-weight: 700; white-space: nowrap; }
 .player .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .player .think { font-size: 12px; color: var(--accent); white-space: nowrap; display: flex; align-items: center; gap: 6px; justify-self: end; }
 .player .think i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.player .hand { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; min-height: 46px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px 6px 4px 2px; }
+/* 手駒の列: 横へは指でずらせる。縦に動かすと、その駒をつかんで盤へ運べる（common/motion.js の drag） */
+.player .hand { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; min-height: 46px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px 6px 4px 2px; touch-action: pan-x pinch-zoom; }
 .player .hand::-webkit-scrollbar { display: none; }
 .player .hand .hp { flex: none; }
 .player .st { display: flex; align-items: center; gap: 6px; justify-self: end; min-width: 0; }
 .player .hand .lab, .player .caps .lab { font-size: 11px; color: var(--muted); letter-spacing: .06em; margin-right: 2px; }
-.player .caps { display: flex; flex-wrap: nowrap; gap: 3px; align-items: center; justify-content: flex-end; font-size: 12px; min-width: 0; overflow: hidden; }
+/* 取った駒: いつも右端に見せる（新しいほうが右）。押すと両者の手駒と取った駒の一覧 */
+.player .caps { display: flex; flex-wrap: nowrap; gap: 3px; align-items: center; justify-content: flex-end; font-size: 12px; min-width: 0; overflow: hidden;
+  border: 0; background: transparent; color: inherit; padding: 4px 5px; margin: -4px -5px; border-radius: 8px; cursor: pointer; }
+.player .caps:hover { background: var(--surface-2); }
 .player .caps .mini-disc { width: 20px; height: 20px; font-size: 11px; flex: none; }
-.player .caps .more { color: var(--muted); font-size: 11px; margin-left: 2px; }
+.player .caps .more { color: var(--muted); font-size: 11px; margin-right: 2px; }
+.player .caps .none { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.player .caps .lab { display: none; }
+@media (min-width: 980px) { .player .caps .lab { display: inline; } }
+.player .id .think { margin-left: 2px; }
 .empty-note { color: var(--muted); font-size: 12px; }
 .hp { position: relative; border: 0; background: none; padding: 0; cursor: pointer; width: 42px; height: 42px; border-radius: 50%; }
-.hp[disabled] { cursor: default; }
+.hp[aria-disabled="true"] { cursor: zoom-in; }
 .hp .disc { position: absolute; inset: 0; font-size: 20px; }
 .hp .n { position: absolute; right: -5px; bottom: -4px; background: var(--ink); color: var(--bg); font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 17px; height: 17px; line-height: 17px; text-align: center; padding: 0 3px; z-index: 2; }
 .hp.sel .disc { box-shadow: 0 0 0 3px var(--accent), 0 3px 6px rgba(0,0,0,.3); transform: translateY(-2px); }
-.hp:not([disabled]):hover .disc { transform: translateY(-2px); }
+.hp:not([aria-disabled="true"]):hover .disc { transform: translateY(-2px); }
 
 /* 盤（広い画面では左に縦の評価値バー。狭い画面では盤の下の「評価値の行」に出す） */
 .board-row { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; align-items: stretch; }
@@ -204,9 +217,25 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 /* 利きを見ている駒: 赤い点線の輪 */
 .sq.inspect .disc.top { outline: 3px dashed #cc321c; outline-offset: 1px; }
 .mini-disc { position: relative; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-family: var(--font-display); font-weight: 800; font-size: 13px; }
-.mini-disc.b { background: var(--pc-black); color: #f3eddf; }
+.mini-disc.b { background: var(--pc-black); color: #f3eddf; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 24%, transparent); } /* ダークでも暗い欄に沈まないよう細い縁 */
 .mini-disc.w { background: var(--pc-white); color: #16181b; border: 1px solid var(--pc-white-lo); }
-.moving { z-index: 30; position: relative; }
+
+/* 駒が動くようす（app.js の runAnim、common/motion.js）: 行き先にあった重なりは、動く駒が乗るまで下に見せておく */
+.sq .pc > .under { position: absolute; inset: 0; display: grid; place-items: center; }
+.sq .pc.flying > .stack > .disc.top.b { box-shadow: 0 2px 0 #000, 0 8px 14px rgba(0,0,0,.4) !important; }
+.sq .pc.flying > .stack > .disc.top.w { box-shadow: 0 2px 0 #988d74, 0 8px 14px rgba(0,0,0,.32) !important; }
+.sq .pc.flying > .stack > .tier { visibility: hidden; }
+/* 取られた駒: 取った側の「取った駒」の欄へ飛ぶ写し */
+.disc.capfly { position: fixed; right: auto; bottom: auto; z-index: 9990; pointer-events: none; }
+/* 長押しで大きく見る（TTMotion.peek）: マスの重なり（上から何段目に何があるか）・手駒・取った駒 */
+.gpeek { --s: 36px; width: calc(var(--s) * 1.8); background: var(--surface); color: var(--ink); border-radius: calc(var(--s) * .12); padding: calc(var(--s) * .07) calc(var(--s) * .1); font-family: var(--font-body); line-height: 1.25; }
+.gpeek .hd { font-size: calc(var(--s) * .12); color: var(--muted); font-weight: 700; white-space: nowrap; padding-bottom: calc(var(--s) * .03); }
+.gpeek .row { display: flex; align-items: center; gap: calc(var(--s) * .08); padding: calc(var(--s) * .035) 0; white-space: nowrap; font-size: calc(var(--s) * .15); }
+.gpeek .row + .row { border-top: calc(var(--s) * .015) solid var(--line); }
+.gpeek .row .disc { position: relative; inset: auto; width: calc(var(--s) * .4); height: calc(var(--s) * .4); flex: none; }
+.gpeek .row:not(.top) .disc { width: calc(var(--s) * .3); height: calc(var(--s) * .3); margin-inline: calc(var(--s) * .05); }
+.gpeek .row b { font-weight: 700; }
+.gpeek .row small { display: block; color: var(--muted); font-size: .72em; }
 
 /* 盤上の矢印（最善手） */
 .arrows { position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: visible; }
@@ -399,6 +428,18 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .on-list { max-height: 26vh; }
 }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+/* 手駒と取った駒の一覧（対局者の欄を押すと開く） */
+.pcs-side + .pcs-side { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pcs-side h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 15px; }
+.pcs-side h3 small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.pcs-row { display: grid; grid-template-columns: 6.2em minmax(0, 1fr); gap: 8px; align-items: start; margin-top: 6px; }
+.pcs-row .lab { font-size: 12px; color: var(--muted); padding-top: 10px; white-space: nowrap; }
+.pcs-row .empty-note { display: inline-block; padding-top: 9px; }
+.pcs-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchip { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2); border-radius: 999px; padding: 3px 11px 3px 3px; font-size: 14px; }
+.pchip .disc { position: relative; inset: auto; width: 36px; height: 36px; flex: none; }
+.pchip small { color: var(--muted); font-size: 12px; margin-left: -2px; }
+.pchip:not(:has(b, small)) { padding-right: 3px; }
 .dialog textarea { width: 100%; min-height: 160px; font: 13px/1.6 var(--font-body); background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .result-title { font-family: var(--font-display); font-size: 34px; margin: 0; }
 /* オンライン */
@@ -530,9 +571,26 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .controls .btn { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
   .controls .wide { display: none; }
   .navrow .ibtn { width: 34px; }
-  .player .caps .lab { display: none; }
+  .player .think .dp { display: none; }
   .player .caps .mini-disc { width: 18px; height: 18px; }
+  .player .caps .none { font-size: 10px; }
+  .pcs-row { grid-template-columns: 5.4em minmax(0, 1fr); }
+  .pchip { font-size: 13px; padding-right: 9px; }
+  .pchip .disc { width: 32px; height: 32px; }
   .sqinfo { height: 38px; font-size: 12.5px; }
+}
+/* 横向きのスマホ（盤が小さく対局者の欄も狭い）: 手駒の列が潰れないよう、CPU の強さの添え書きを隠し、手駒はスマホ縦と同じ大きさに */
+@media (max-height: 500px) {
+  .player .sub { display: none; }
+  .player { padding: 4px 8px; gap: 2px 8px; }
+  .player .hand { min-height: 40px; gap: 5px; }
+  .hp { width: 34px; height: 34px; }
+  .hp .disc { font-size: 16px; }
+  .hp .n { min-width: 15px; height: 15px; line-height: 15px; font-size: 9px; right: -4px; bottom: -3px; }
+}
+/* 幅 375 前後: 下の5つのボタンが盤の幅に収まるよう、ボタンの左右の余白を詰める */
+@media (max-width: 400px) {
+  .controls .btn { padding: 6px 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .wr-bar .b, .evalbar .fill, .disc, .player, .evstrip .bar .b { transition: none; }
@@ -560,7 +618,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
       <label class="switch"><input type="checkbox" id="set-arrow" checked> 最善手を矢印で表示</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 駒音</label>
-      <label class="switch"><input type="checkbox" id="set-anim" checked> 駒の動きをアニメーション</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲームで共通）</label>
       <label class="switch"><input type="checkbox" id="set-reach" checked> 駒にマウスを乗せると利きを表示</label>
       <label class="switch"><input type="checkbox" id="set-analyze" checked> 自分の手番で形勢を読む</label>
     </div>
@@ -707,6 +765,15 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   </div>
 </div>
 
+<!-- 手駒と取った駒の一覧 -->
+<div class="overlay" id="dlg-pieces" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pc-title" style="width:min(520px,100%)">
+    <h2 id="pc-title">手駒と取った駒</h2>
+    <div id="pc-body"></div>
+    <div class="actions"><button class="btn" id="pc-close">閉じる</button></div>
+  </div>
+</div>
+
 <!-- 棋譜の読み込み -->
 <div class="overlay" id="dlg-import" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="im-title">
@@ -726,6 +793,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 <script src="js/gungi-ai.js"></script>
 <script src="js/weights.js" onerror="window.GUNGI_WEIGHTS_MISSING = true"></script>
 <script src="../common/online.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
