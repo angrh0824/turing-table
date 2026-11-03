@@ -22,8 +22,11 @@
     normal: { label: 'ふつう', stars: 2, desc: '1手に32回だけ先を読みます', visits: 32, timeMs: 4000 },
     strong: { label: 'つよい', stars: 3, desc: '1手2秒まで、数百回読みます', visits: 800, timeMs: 2000 },
     max: { label: '最強', stars: 4, desc: '1手6秒、全部のスレッドで読みます', visits: 200000, timeMs: 6000, parallel: true },
+    // 超最強: 最強と同じ AI で、考える時間だけ5倍に（ブラウザと同じ探索で 1手8000回 vs 1600回 を測って、はっきり強かったので足した。README）
+    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、1手 約30秒・全部のスレッドでじっくり読みます', visits: 1000000, timeMs: 30000, parallel: true, tm: '1手 約30秒' },
   };
-  const CPU_KEYS = ['easy', 'normal', 'strong', 'max'];
+  const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
+  const ULTRA_NOTE = '超最強は、最強と同じ AI で考える時間を5倍にしたものです。ブラウザと同じ読み方で 1手8000回 vs 1600回（5倍）を64局対戦させると、長く読む側の42勝2敗20分（勝率81%・Elo +255±39）でした。';
   const ANALYZE_MS = 10000, HINT_MS = 2500; // 人の番に読む時間（電池を使いすぎないよう、10秒で止める）
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -1022,7 +1025,7 @@
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${String(val) === String(v)}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
-    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
+    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(5 - CPU[k].stars)}</span><b>${CPU[k].label}</b>${CPU[k].tm ? `<i class="tm">${CPU[k].tm}</i>` : ''}<small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['black', '黒（先に打つ）'], ['white', '白'], ['random', 'ランダム']], draft.side);
     seg('ng-cpu-b', CPU_KEYS.map(k => [k, CPU[k].label]), draft.cpuB);
@@ -1178,6 +1181,7 @@
         ${chart ? `<p class="hint" style="margin:14px 0 6px">第1世代からの強さの伸び（Elo）。世代どうしを先後入れ替えで対戦させた差を、古い順につないで足したもの（となりを測っていない世代は飛ばす。目安）。縦線は誤差の目安。</p>${chart}` : '<p class="hint">世代どうしの対戦の記録は、学習が進むとここに出ます。</p>'}
         ${rowsElo ? `<div class="tbl wide-only" style="margin-top:8px"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>勝率</th><th>Elo</th></tr></thead><tbody>${rowsElo}</tbody></table></div>` : ''}
         ${rowsLv ? `<p class="hint" style="margin:12px 0 4px">CPU の強さの段の差（すぐ下の段と対戦）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>Elo</th></tr></thead><tbody>${rowsLv}</tbody></table></div>` : ''}
+        <p class="hint" style="margin-top:10px">${ULTRA_NOTE}</p>
         <p class="hint">人間に勝てるかどうかは、オンライン対戦の成績で見ていきます。</p>
       </div>
       <div class="card" data-tab="しくみ">
