@@ -104,6 +104,7 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .player .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .player .st { display: flex; align-items: center; gap: 10px; justify-self: end; font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .player .st b { color: var(--ink); font-size: 14px; }
+.player .ageha b { display: inline-block; } /* 取った石が飛んできたとき弾ませる */
 .player .think { color: var(--accent); display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
 .player .think i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -123,9 +124,10 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
   background:
     radial-gradient(ellipse 120% 60% at 30% 20%, rgba(255, 236, 190, .28), transparent 60%),
     linear-gradient(160deg, var(--kaya-hi), var(--kaya) 45%, var(--kaya-lo));
-  aspect-ratio: 1 / 1; width: 100%; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+  aspect-ratio: 1 / 1; width: 100%; overflow: hidden; user-select: none; -webkit-user-select: none;
 }
-.goban svg.board { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+/* 1本指は打つ・つかむのに使い、2本指の拡大は残す（touch-action: none にすると拡大できない） */
+.goban svg.board { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; touch-action: pinch-zoom; }
 .goban svg.board text { font-family: var(--font-body); font-weight: 700; }
 /* 盤の目・石の印など（SVG） */
 .g-line { stroke: var(--grid); }
@@ -139,12 +141,10 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .pend-line { stroke: var(--accent); opacity: .55; }
 @keyframes pend { from { opacity: 1; } to { opacity: .35; } }
 .dead-x { stroke: var(--shu); stroke-linecap: round; }
-/* 拡大鏡（タッチで指の上に出る） */
-.loupe { position: fixed; z-index: 90; width: 124px; height: 124px; border-radius: 50%; pointer-events: none; overflow: hidden;
-  box-shadow: 0 8px 22px rgba(0,0,0,.35), 0 0 0 3px var(--surface), 0 0 0 4px var(--line);
-  background: linear-gradient(160deg, var(--kaya-hi), var(--kaya) 45%, var(--kaya-lo)); }
-.loupe svg { width: 100%; height: 100%; display: block; }
-.loupe .lp-name { position: absolute; left: 0; right: 0; bottom: 9px; text-align: center; font: 700 12px/1 var(--font-body); color: #2a1d0c; text-shadow: 0 0 3px rgba(255,240,210,.9); }
+/* 動き（../common/motion.js）: 置いた石が弾む（SVG の石はその石の真ん中で大きさを変える）・取られた石がアゲハマへ飛ぶ */
+#b-stones > g { transform-box: fill-box; transform-origin: center; }
+.cap-fly { position: fixed; z-index: 75; pointer-events: none; overflow: visible; }
+.hand-stone { position: fixed; pointer-events: none; }
 
 /* 盤の下: 情報の行（高さ固定。盤が動かないように）・形勢の行・棋譜テープ */
 .boardfoot { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
@@ -447,6 +447,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
       <label class="switch"><input type="checkbox" id="set-confirm" checked> タッチでは打つ前に確かめる</label>
       <label class="switch"><input type="checkbox" id="set-coords" checked> 座標</label>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 石の音</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
       <label class="switch"><input type="checkbox" id="set-analyze" checked> 自分の手番で形勢を読む</label>
       <label class="switch"><input type="checkbox" id="set-resign" checked> CPU は大差なら投了する</label>
     </div>
@@ -610,6 +611,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 </div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/go-core.js"></script>
 <script src="js/go-nn.js"></script>
 <script src="js/go-search.js"></script>

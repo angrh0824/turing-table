@@ -40,6 +40,9 @@
   const settings = Object.assign({ sound: true, showEval: true, cands: true, own: false, confirm: true, coords: true, analyze: true, resign: true }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.cands || settings.own;
   const aiFlags = () => (settings.showEval ? 1 : 0) | (settings.cands ? 2 : 0) | (settings.own ? 4 : 0);
+  // 動き: 全ゲーム共通の部品（../common/motion.js）。オフ・動きを減らす設定・裏のタブでは一瞬で終わる
+  const MO = window.TTMotion || null;
+  const SVGNS = 'http://www.w3.org/2000/svg';
 
   // ------------------------------------------------------------------ 対局の状態
   const S = {
@@ -453,9 +456,12 @@
     if (Math.hypot(x - i * 100, y - j * 100) > 62) return -1;
     return S.board.pt(i, j);
   }
-  let aim = null; // タッチで狙っている点 { id, p }
+  let aim = null; // タッチで狙っている点 { id, p, start }
+  let dragging = false, dragP = -1; // つかんで動かしている間（置き先は drag の target が決める）
   function onDown(e) {
     if (e.button && e.button !== 0) return;
+    if (MO) MO.finish(); // 動いている途中でも、次の操作をすぐ受け付ける
+    if (!e.isPrimary) { dropAim(); return; } // 2本目の指 = 拡大しようとしている。打たない
     const p = pointAt(e.clientX, e.clientY);
     if (S.phase === 'mark' && live() && !S.result) return; // 死に石の印は離したときに
     if (!humanTurn()) return;
@@ -463,16 +469,15 @@
       e.preventDefault();
       aim = { id: e.pointerId, p, start: S.pending };
       try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* なくても動く */ }
-      showLoupe(e.clientX, e.clientY, p);
       S.hover = p; renderBoardMarks();
     }
   }
+  function dropAim() { if (aim) { aim = null; S.hover = -1; renderBoardMarks(); renderSqInfo(); } }
   function onMove(e) {
     if (aim && e.pointerId === aim.id) {
+      if (dragging) return;
       const p = pointAt(e.clientX, e.clientY);
-      aim.p = p; S.hover = p;
-      showLoupe(e.clientX, e.clientY, p);
-      renderBoardMarks();
+      if (p !== aim.p) { aim.p = p; S.hover = p; renderBoardMarks(); }
       return;
     }
     if (e.pointerType === 'mouse' && humanTurn()) {
@@ -484,9 +489,10 @@
     const p = pointAt(e.clientX, e.clientY);
     if (S.phase === 'mark' && live() && !S.result) { if (p >= 0 && S.markReady && (!S.online || !S.online.myAgree || true)) toggleDead(p); return; }
     if (aim && e.pointerId === aim.id) {
-      hideLoupe();
       const start = aim.start;
-      aim = null; S.hover = -1;
+      aim = null;
+      if (dragging) return; // つかんで離した: 置くのは drag の drop（このあとに呼ばれる）
+      S.hover = -1;
       if (!humanTurn()) { renderBoardMarks(); return; }
       if (p < 0 || !S.board.isLegal(p)) { if (p >= 0) flashIllegal(p); S.pending = -1; render(); return; }
       if (!settings.confirm || p === start) { play(p); return; }
@@ -513,33 +519,58 @@
     setTimeout(() => { if (illegalMsg && Date.now() - illegalMsg.t >= 2400) { illegalMsg = null; renderSqInfo(); } }, 2500);
   }
 
-  // 拡大鏡: 指で隠れる場所を、指の少し上に大きく見せる（盤の SVG の中身をそのまま使う）
-  function showLoupe(cx, cy, p) {
-    let el = $('loupe');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'loupe'; el.className = 'loupe';
-      el.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><use href="#bcontent"/><g class="lp-x"></g></svg><span class="lp-name"></span>';
-      document.body.appendChild(el);
-    }
-    const V = view();
-    const r = $('board').getBoundingClientRect();
-    const bx = (cx - r.left) / r.width * V.w + V.x, by = (cy - r.top) / r.height * V.w + V.x;
-    const span = S.size <= 9 ? 210 : S.size <= 13 ? 250 : 290;
-    const fx = p >= 0 ? S.board.xy(p)[0] * 100 : bx, fy = p >= 0 ? S.board.xy(p)[1] * 100 : by;
-    el.querySelector('svg').setAttribute('viewBox', `${fx - span / 2} ${fy - span / 2} ${span} ${span}`);
-    // 狙っている点に細い十字（石があっても見えるよう赤）
-    const k = span * 0.09;
-    el.querySelector('.lp-x').innerHTML = `<path d="M${fx - k} ${fy}H${fx + k}M${fx} ${fy - k}V${fy + k}" stroke="var(--shu)" stroke-width="${span / 70}" stroke-linecap="round"/>`;
-    el.querySelector('.lp-name').textContent = p >= 0 ? S.board.name(p) : '';
-    const size = 124;
-    let left = cx - size / 2, top = cy - size - 46;
-    if (top < 6) top = cy + 46;
-    left = Math.max(6, Math.min(window.innerWidth - size - 6, left));
-    el.style.left = left + 'px'; el.style.top = top + 'px';
-    el.hidden = false;
+  // つかんで置く（../common/motion.js の drag。指とペンだけ）: 盤に指を置いて少し動かすと、指の少し上に石が出て、その石の下の点に薄い石が出る。
+  // 離すとそこに打つ（「タッチでは打つ前に確かめる」がオンなら、タップと同じく仮置き）。動かさずに離せば、いままでのタップ。
+  // 盤は 2本指で拡大できる（2本目の指が触れたら、つかむのをやめる）
+  function bindDrag() {
+    if (!MO) return;
+    const hand = document.createElement('div'); // つかむ「石」の場所と大きさ（見えない。指についてくる石は ghost）
+    hand.className = 'hand-stone'; hand.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(hand);
+    const mark = document.createElementNS(SVGNS, 'g'); // 置ける点の上にいる印（見た目は S.hover の薄い石で出す）
+    MO.drag($('board'), {
+      pick(target, e) {
+        if (e.pointerType === 'mouse' || !humanTurn()) return null;
+        // 石の大きさ（19路でも見えるよう 20px 以上）。縦に長い箱にして、石が指よりはっきり上に出るように（drag は箱の高さの6割だけ上に出す）
+        // 写しの SVG は影のぶん 112/96 だけ広い。盤の石と同じ大きさに見えるように
+        const r = $('board').getBoundingClientRect(), d = Math.max(20, 2 * R * r.width / view().w) * 112 / 96, hh = Math.max(d, 72);
+        Object.assign(hand.style, { left: e.clientX - d / 2 + 'px', top: e.clientY - hh / 2 + 'px', width: d + 'px', height: hh + 'px' });
+        dragP = -1;
+        return hand;
+      },
+      ghost(el) {
+        const g = document.createElementNS(SVGNS, 'svg'), r = el.getBoundingClientRect();
+        g.setAttribute('viewBox', '-56 -56 112 112'); // 箱は縦に長いので、石は箱の真ん中（= 置き先を決める点）に描かれる
+        g.innerHTML = stoneHTML(0, 0, S.board.toPlay);
+        Object.assign(g.style, { width: r.width + 'px', height: r.height + 'px', overflow: 'visible' }); // 自分で作った写しは大きさも自分で
+        return g;
+      },
+      start() { dragging = true; },
+      target(x, y) {
+        const p = humanTurn() ? pointAt(x, y) : -1, ok = p >= 0 && S.board.isLegal(p);
+        dragP = p;
+        if (S.hover !== (ok ? p : -1)) { S.hover = ok ? p : -1; renderBoardMarks(); renderSqInfo(); }
+        return ok ? mark : null;
+      },
+      drop() {
+        dragging = false;
+        const p = dragP;
+        S.hover = -1;
+        if (!humanTurn() || p < 0 || !S.board.isLegal(p)) return false;
+        if (!settings.confirm || p === S.pending) { play(p); return true; }
+        S.pending = p;
+        clack('tick');
+        renderBoardMarks(); renderSqInfo();
+        return true;
+      },
+      cancel() {
+        dragging = false;
+        S.hover = -1;
+        if (dragP >= 0 && humanTurn()) flashIllegal(dragP);
+        renderBoardMarks(); renderSqInfo();
+      },
+    });
   }
-  function hideLoupe() { const el = $('loupe'); if (el) el.hidden = true; }
 
   // ------------------------------------------------------------------ 描画
   function render() {
@@ -583,6 +614,17 @@
     w = Math.round(Math.max(240, Math.min(720, w)));
     const cur = document.documentElement.style.getPropertyValue('--board-w');
     if (cur !== w + 'px') document.documentElement.style.setProperty('--board-w', w + 'px');
+    // スマホ縦など（盤の大きさが幅で決まって、下が余るとき）: 上に余白を入れて、盤を画面の上下の真ん中に寄せる（下が画面からはみ出さない分だけ）
+    // 上の余白は列の内側なので、列の上の端（top）と盤の大きさの計算は変わらない
+    let pad = 0;
+    if (!landscape && !window.matchMedia('(min-width: 980px)').matches) {
+      const pad0 = parseFloat(col.style.paddingTop) || 0, g = $('goban').getBoundingClientRect();
+      let bottom = 0;
+      for (const el of col.children) if (getComputedStyle(el).display !== 'none') bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
+      const spare = window.innerHeight - 12 - (bottom - pad0), want = window.innerHeight / 2 - ((g.top + g.bottom) / 2 - pad0);
+      pad = Math.floor(Math.max(0, Math.min(spare, want)));
+    }
+    if ((parseFloat(col.style.paddingTop) || 0) !== pad) col.style.paddingTop = pad ? pad + 'px' : '';
   }
 
   function renderPlayers() {
@@ -606,9 +648,11 @@
       const kom = c === WHITE ? `コミ${S.komi}${S.handicap >= 2 ? `＋${S.handicap}` : ''}` : (S.handicap >= 2 ? `置き石${S.handicap}` : '');
       const nm = on ? (c === on.myColor ? 'あなた' : esc(on.opp.name)) : seatLabel(c);
       const tag = on ? aiTagHTML(c === on.myColor ? aiFlags() : on.opp.ai, c === on.myColor ? on.myHints : on.opp.hints) : '';
-      el.innerHTML = `
+      // アゲハマ（取った石）は、考え中・勝ち負けを出しているときも見えるように並べる。中身が変わらなければ描き直さない（弾む動きが消えないように）
+      const html = `
         <div class="id"><span class="stone ${c === BLACK ? 'b' : 'w'}"></span><span class="name">${COLOR[c]}　${nm}</span>${tag}<span class="sub">${kom}</span></div>
-        <div class="st">${st || `<span title="取った石（中国ルールでは数えに入らない）">アゲハマ <b>${prisoners}</b></span>`}</div>`;
+        <div class="st">${st}<span class="ageha" data-c="${c}" title="取った石（中国ルールでは数えに入らない）">アゲハマ <b>${prisoners}</b></span></div>`;
+      if (el._h !== html) { el._h = html; el.innerHTML = html; }
     });
   }
 
@@ -678,10 +722,41 @@
       if (col !== BLACK && col !== WHITE) continue;
       const [x, y] = b.xy(p);
       const dead = markDead && S.dead.has(p);
-      h += stoneHTML(x, y, col, dead ? ' opacity=".42"' : '', p);
+      h += stoneHTML(x, y, col, (dead ? ' opacity=".42"' : '') + ` data-p="${p}"`, p);
     }
-    $('b-stones').innerHTML = h;
+    const st = $('b-stones');
+    if (st._h !== h) { st._h = h; st.innerHTML = h; } // 石が変わらなければ描き直さない（弾む動きが途中で消えないように）
     renderBoardMarks();
+    animateMove(b);
+  }
+
+  // 動き: 前に描いた盤から1手だけ進んだ（対局中の最新の局面）なら、置いた石を軽く弾ませ、取られた石を取った側のアゲハマへ飛ばす。
+  // 人・CPU・オンラインの相手の手のどれも同じ。描いたあとに動きを足すだけなので、AI の読みやオンラインの同期は待たせない
+  let drawn = null;
+  function animateMove(b) {
+    const n = b.moves.length, prev = drawn, top = live() && shownPly() === S.board.moves.length;
+    drawn = { key: S.boardKey, n, top, last: n ? b.moves[n - 1] : null, cells: Uint8Array.from(b.c) };
+    if (!MO || !MO.on || !prev || !top || !prev.top || prev.key !== S.boardKey || prev.n + 1 !== n || (n >= 2 && prev.last !== b.moves[n - 2])) return;
+    const m = b.moves[n - 1];
+    if (m === PASS) return;
+    const el = $('b-stones').querySelector(`[data-p="${m}"]`);
+    if (el) MO.pop(el, 'land');
+    const caps = b.points.filter(p => prev.cells[p] !== EMPTY && b.c[p] === EMPTY);
+    if (!caps.length) return;
+    const r = $('board').getBoundingClientRect(), V = view(), k = r.width / V.w, d = 2 * R * k;
+    const dst = document.querySelector(`#player-top .ageha[data-c="${3 - b.toPlay}"] b, #player-bottom .ageha[data-c="${3 - b.toPlay}"] b`);
+    const t = dst && dst.getBoundingClientRect();
+    caps.forEach((p, i) => {
+      const [x, y] = b.xy(p), g = document.createElementNS(SVGNS, 'svg');
+      g.setAttribute('class', 'cap-fly'); g.setAttribute('viewBox', '-56 -56 112 112'); g.setAttribute('aria-hidden', 'true');
+      g.innerHTML = stoneHTML(0, 0, b.toPlay, '', p); // 取られたのは、いま手番になった側の石
+      const from = { left: r.left + (x * 100 - V.x) * k - d / 2, top: r.top + (y * 100 - V.x) * k - d / 2, width: d, height: d };
+      const at = t && t.width ? { left: t.left + t.width / 2 - 9, top: t.top + t.height / 2 - 9, width: 18, height: 18 } : from;
+      Object.assign(g.style, { left: at.left + 'px', top: at.top + 'px', width: at.width + 'px', height: at.height + 'px' });
+      document.body.appendChild(g);
+      const job = at === from ? MO.vanish(g) : MO.fly(g, from, { arc: true, ms: 360, delay: Math.min(i, 12) * 30 });
+      job.then(() => { g.remove(); if (dst && i === caps.length - 1) MO.pop(dst, 'land'); });
+    });
   }
 
   // 石の上の印: 直前の手・コウ・候補手・地の見込み・打つ前の確かめ・死に石の印。マウスを乗せたときの薄い石
@@ -1213,8 +1288,9 @@
     svg.addEventListener('pointerdown', onDown);
     svg.addEventListener('pointermove', onMove);
     svg.addEventListener('pointerup', onUp);
-    svg.addEventListener('pointercancel', () => { aim = null; hideLoupe(); S.hover = -1; renderBoardMarks(); });
+    svg.addEventListener('pointercancel', e => { if (aim && e.pointerId === aim.id) dropAim(); }); // 2本指で拡大を始めたときなど
     svg.addEventListener('pointerleave', onLeave);
+    bindDrag();
     svg.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('click', e => {
       if (!e.target.closest('.settings-wrap')) { $('settings').hidden = true; $('btn-settings').setAttribute('aria-expanded', 'false'); }
@@ -1308,6 +1384,12 @@
       el.checked = settings[k];
       el.addEventListener('change', () => setSetting(k, el.checked));
     });
+    // アニメーションは全ゲーム共通で覚える（../common/motion.js）
+    let animOn = true;
+    try { animOn = localStorage.getItem('tt-motion') !== '0'; } catch (err) { /* そのまま */ }
+    $('set-anim').checked = animOn;
+    $('set-anim').disabled = !MO;
+    $('set-anim').addEventListener('change', () => { if (MO) MO.set($('set-anim').checked); });
     $('evstrip').addEventListener('click', () => openSheet('ev'));
     $('evstrip').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet('ev'); } });
     $('side').addEventListener('click', e => {

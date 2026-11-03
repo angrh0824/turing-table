@@ -227,7 +227,7 @@
   //   target(x, y, el) → 置き先の要素か null（省略時は指の下の [data-drop]）
   //   drop(el, to, at) → 離したとき。false を返したら置けなかった扱いで元へ戻る。at は離した所の DOMRect（fly(新しい要素, at) で吸い付かせる）
   //   cancel(el)       → 置き先の外で離したとき（選択を解く など）
-  //   ghost(el)        → 指についてくる見た目（省略時は el の見た目の写し）
+  //   ghost(el)        → 指についてくる見た目（省略時は el の見た目の写し。大きさを付けなければ el と同じ大きさ）
   // })  → 外すときに呼ぶ関数を返す
   // 写しは body に置くので、親に頼る CSS が外れないよう見た目を書き写す（SVG の中の図形は、見た目に関わるものだけ。札の絵柄が細かくても速い）
   const SVGP = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'opacity', 'display',
@@ -293,6 +293,8 @@
       st.ox = st.touch ? 0 : st.x0 - (r.left + r.width / 2);
       st.oy = st.touch ? 0 : st.y0 - (r.top + r.height / 2);
       st.g = o.ghost ? o.ghost(st.el) : ghostOf(st.el);
+      if (!st.g.style.width) st.g.style.width = st.w + 'px';   // ghost(el) が大きさを付けていなければ el と同じ大きさ
+      if (!st.g.style.height) st.g.style.height = st.h + 'px';
       st.g.classList.add('tt-ghost');
       document.body.appendChild(st.g);
       st.el.classList.add('tt-dragging');

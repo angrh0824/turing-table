@@ -43,6 +43,9 @@
   // AI補助: showEval = 形勢、arrow = 最善手の矢印。notation: 'cn' 中国式 / 'iccs' 座標
   const settings = Object.assign({ sound: true, anim: true, moves: true, reach: true, analyze: true, showEval: true, arrow: true, coords: true, notation: 'cn' }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.arrow;
+  // 動き: 全ゲーム共通の部品と設定（common/motion.js。オフ・動きを減らす設定・裏のタブでは一瞬で終わる）
+  const MO = window.TTMotion || null;
+  if (MO) { try { settings.anim = localStorage.getItem('tt-motion') !== '0'; } catch (e) { /* そのまま */ } }
 
   // ------------------------------------------------------------------ 対局の状態
   const S = {
@@ -322,9 +325,39 @@
   function setInspect(sq) { S.inspect = sq; renderBoard(); renderSqInfo(); }
   function clearSel() { S.sel = -1; S.targets = new Map(); S.inspect = -1; renderBoard(); renderSqInfo(); }
 
-  // ドラッグで指す（マウス・指どちらでも。動かさずに離せばタップと同じ）
+  // つかんで置く（common/motion.js の drag。マウス・指どちらでも）: 動かせる駒を少し動かすとつかみ、行き先が光る。
+  // 行き先で離すとそこへ指し、ほかで離すと元へ戻る。動かさずに離せばふつうのタップ（タップ → タップ はそのまま）。
+  // 盤は 2本指で拡大できる（touch-action を none にしない）
   let drag = null, suppressClick = false, noAnimOnce = false;
   function bindDrag() {
+    if (MO) {
+      let from = -1;
+      MO.drag($('grid'), {
+        pick(target) {
+          const el = target.closest && target.closest('.sq');
+          if (!el || !humanTurn()) return null;
+          const sq = Number(el.dataset.sq), p = S.pos.b[sq];
+          if (!p || (p >> 3) !== S.pos.stm || !canMoveFrom(sq)) return null;
+          from = sq;
+          return el.querySelector('.piece');
+        },
+        start() { if (humanTurn() && S.sel !== from) select(from); },
+        target(x, y) {
+          const hit = document.elementFromPoint(x, y), el = hit && hit.closest && hit.closest('#grid .sq');
+          return el && S.targets.has(Number(el.dataset.sq)) ? el : null;
+        },
+        drop(el, to, at) {
+          const m = humanTurn() && S.targets.get(Number(to.dataset.sq));
+          if (!m) return false;
+          dropAt = at; // 離した所から行き先へ吸い付かせる
+          play(m);
+          return true;
+        },
+        cancel() { clearSel(); },
+      });
+      return;
+    }
+    // motion.js が読めないとき（ふつうはない）の、自前のつかんで置く
     const grid = $('grid');
     grid.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
@@ -450,6 +483,15 @@
     // それでもはみ出すとき（文字の大きさなど）は、はみ出した分だけ小さく
     const over = main.scrollHeight - main.clientHeight;
     if (over > 0 && mode !== 'L-land') setU(u - over / BH_U);
+    // スマホ縦: 盤そのものが画面の真ん中に来るよう、余った高さの分だけ全体を下げる（盤の下の情報・操作の方が多いので、ただ真ん中に寄せると盤が上に寄る）
+    const play = $('view-play');
+    play.style.paddingTop = '0px';
+    if (mode === 'L-port') {
+      const sr = stage.getBoundingClientRect(), br = $('board-wrap').getBoundingClientRect();
+      const slack = main.clientHeight - parseFloat(mcs.paddingBottom) - sr.height - 2;
+      const want = window.innerHeight / 2 - (br.top + br.height / 2);
+      play.style.paddingTop = Math.max(0, Math.min(slack, want)).toFixed(1) + 'px';
+    }
     if (mode === 'L-land') {
       const br = $('board-wrap').getBoundingClientRect();
       $('side').style.setProperty('--sheet-left', Math.round(br.right + 8) + 'px');
@@ -617,8 +659,10 @@
       } else if (S.result && live()) {
         st = S.result.winner === c ? '<span class="think win">勝ち</span>' : S.result.winner === -1 ? '<span class="think">引き分け</span>' : '<span class="think lose">負け</span>';
       }
-      const caps = capturedBy(pos, c);
-      const capHTML = caps.length ? `<span class="caps" title="取った駒 ${caps.length}つ">${caps.slice(0, 9).map(t => P.svg(c ^ 1, t, '')).join('')}${caps.length > 9 ? `<span class="more">+${caps.length - 9}</span>` : ''}</span>` : '';
+      // 取った駒はいつも見える: 種類ごとに1つ（2つ以上は数）。タップで2人分の一覧、長押しで大きく
+      const caps = capturedBy(pos, c), groups = [];
+      for (const t of caps) { const g = groups.find(x => x[0] === t); if (g) g[1]++; else groups.push([t, 1]); }
+      const capHTML = caps.length ? `<button type="button" class="caps" data-act="caps" title="取った駒 ${caps.length}つ（タップで一覧）" aria-label="${SIDE[c]}が取った駒 ${caps.length}つ。タップで一覧">${groups.map(([t, n]) => `<span class="cap">${P.svg(c ^ 1, t, '').replace('<svg ', `<svg data-t="${t}" `)}${n > 1 ? `<b>${n}</b>` : ''}</span>`).join('')}</button>` : '';
       const on = S.online;
       const nm = on ? (c === on.myColor ? 'あなた' : esc(on.opp.name)) : SIDE[c];
       const tag = on ? aiTagHTML(c === on.myColor ? aiFlags() : on.opp.ai, c === on.myColor ? on.myHints : on.opp.hints) : '';
@@ -816,28 +860,43 @@
     svg.innerHTML = html;
   }
 
-  // ------------------------------------------------------------------ アニメーション（動いた駒が元の点からすべる）
+  // ------------------------------------------------------------------ 動き（common/motion.js の TTMotion）
+  // 指す前に、動く駒と取られる駒の場所を覚えておき、描き直したあとで、動いた駒は元の点から行き先へ滑らせ（CPU・オンラインの手も同じ速さ）、
+  // 取られた駒は取った側のカードの置き場へ飛ばす。局面はすぐ進める（AI の読みとオンラインの同期は動きを待たない）
+  let dropAt = null; // つかんで置いた手は、離した所から吸い付かせる
+  const cardOf = c => $(c === (S.flip ? RED : BLACK) ? 'player-top' : 'player-bottom');
   function animOrigin(m) {
-    if (!settings.anim || reduceMotion || !live()) return null;
+    const at = dropAt;
+    dropAt = null;
+    if (!live() || !(MO ? MO.on : settings.anim && !reduceMotion)) return null;
     if (noAnimOnce) { noAnimOnce = false; return null; }
-    const el = sqEl(C.mvFrom(m)).querySelector('.piece');
-    return el ? [{ rect: el.getBoundingClientRect(), to: C.mvTo(m) }] : null;
+    if (MO) MO.finish(); // 前の動きはその場で終わらせてから測る
+    const from = sqEl(C.mvFrom(m)).querySelector('.piece'), to = C.mvTo(m);
+    const capEl = C.mvCap(m) ? sqEl(to).querySelector('.piece') : null;
+    return {
+      to, from: at || (from && from.getBoundingClientRect()),
+      cap: capEl ? { rect: capEl.getBoundingClientRect(), t: S.pos.b[to] & 7, by: S.pos.stm } : null,
+    };
   }
-  function runAnim(list) {
-    for (const a of list) {
-      const el = sqEl(a.to).querySelector('.piece');
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      const dx = a.rect.left - r.left, dy = a.rect.top - r.top;
-      const sq = el.closest('.sq');
-      sq.classList.add('moving');
-      el.style.transition = 'none';
-      el.style.transform = `translate(${dx}px, ${dy}px)`;
-      el.getBoundingClientRect();
-      el.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)';
-      el.style.transform = '';
-      setTimeout(() => { el.style.transition = ''; sq.classList.remove('moving'); }, 230);
+  function runAnim(a) {
+    const el = sqEl(a.to).querySelector('.piece');
+    if (MO) {
+      if (el && a.from) MO.fly(el, a.from);
+      if (a.cap) {
+        const icon = cardOf(a.cap.by).querySelector(`.caps svg[data-t="${a.cap.t}"]`);
+        if (icon) MO.fly(icon, a.cap.rect, { arc: true, ms: 380 });
+      }
+      return;
     }
+    if (!el || !a.from) return;
+    const r = el.getBoundingClientRect();
+    const dx = a.from.left - r.left, dy = a.from.top - r.top;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    el.getBoundingClientRect();
+    el.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)';
+    el.style.transform = '';
+    setTimeout(() => { el.style.transition = ''; }, 230);
   }
 
   // ------------------------------------------------------------------ 棋譜・操作
@@ -958,6 +1017,25 @@
     $('rs-again').textContent = S.online ? 'もう一局（赤黒交代）' : 'もう一局';
     $('dlg-result').hidden = false;
     $('rs-again').focus({ preventScroll: true });
+  }
+
+  // 取った駒の一覧: 2人分を大きく（種類ごとに並べて数も）。カードの取った駒をタップで開き、外のタップ・Esc・「閉じる」で閉じる
+  function openCaps() {
+    const pos = shownPos(), on = S.online;
+    const who = c => (on ? (c === on.myColor ? 'あなた' : `${esc(on.opp.name)}さん`) : seatLabel(c));
+    $('caps-body').innerHTML = [S.flip ? RED : BLACK, S.flip ? BLACK : RED].map(c => {
+      const caps = capturedBy(pos, c);
+      const body = caps.length ? caps.map(t => P.svg(c ^ 1, t, '')).join('') : '<span class="hint">まだありません</span>';
+      return `<div class="caprow"><div class="lab">${P.svg(c, KING, 'chip')}${SIDE[c]}（${who(c)}）が取った駒 <b>${caps.length}</b></div><div class="capbig">${body}</div></div>`;
+    }).join('') + '<p class="hint" style="margin:6px 0 0">駒を長押しすると大きく見られます。</p>';
+    $('dlg-caps').hidden = false;
+  }
+  // 長押しで大きく見る（common/motion.js の peek）: 盤の駒・カードの取った駒・一覧の駒
+  function bindPeek() {
+    if (!MO || !MO.peek) return;
+    MO.peek($('grid'), { pick: t => { const el = t.closest && t.closest('.sq'); return el ? el.querySelector('.piece') : null; } });
+    for (const id of ['player-top', 'player-bottom']) MO.peek($(id), { pick: t => (t.closest && t.closest('.caps .cap')) || null });
+    MO.peek($('caps-body'), { pick: t => (t.closest && t.closest('.capbig svg')) || null });
   }
 
   // ------------------------------------------------------------------ ルール / AI ページ
@@ -1333,7 +1411,7 @@
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; viewPly(0); });
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeSheet(); if (!$('dlg-new').hidden) closeNew(); ['dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
+      if (e.key === 'Escape') { closeSheet(); if (!$('dlg-new').hidden) closeNew(); ['dlg-result', 'dlg-import', 'dlg-online', 'dlg-caps'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }
@@ -1341,6 +1419,12 @@
       if (e.key === 'End') { e.preventDefault(); viewPly(S.moves.length); }
     });
     bindDrag();
+    bindPeek();
+    // 取った駒をタップで一覧
+    for (const id of ['player-top', 'player-bottom']) $(id).addEventListener('click', e => { if (e.target.closest('[data-act="caps"]')) openCaps(); });
+    $('dlg-caps').addEventListener('click', e => { if (e.target === $('dlg-caps') || e.target.closest('[data-act="caps-close"]')) $('dlg-caps').hidden = true; });
+    // 動いている途中でも盤に触れたら、今の動きをその場で終わらせて次の操作を受け付ける
+    $('board-wrap').addEventListener('pointerdown', () => { if (MO) MO.finish(); }, true);
   }
   function openImport() { $('im-msg').textContent = ''; $('dlg-import').hidden = false; $('im-text').focus(); }
 
@@ -1547,6 +1631,7 @@
 
   function setSetting(k, v, quiet) {
     settings[k] = v; store.set('settings', settings);
+    if (k === 'anim' && MO) MO.set(v); // アニメーションは全ゲーム共通で覚える
     const box = { showEval: 'set-eval', arrow: 'set-arrow' }[k];
     if (box) $(box).checked = v;
     if (quiet) return;
