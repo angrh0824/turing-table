@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
-  const Y = window.YachtCore, AI = window.YachtAI;
+  const Y = window.YachtCore, AI = window.YachtAI, M = window.TTMotion;
   Y.loadTable(window.YACHT_TABLE, window.YACHT_SD);
   if (window.YACHT_WEIGHTS) { try { AI.setNet(window.YACHT_WEIGHTS); } catch (e) { console.error(e); } }
   const NCAT = Y.NCAT, CATS = Y.CATS, LV = AI.LEVELS, LV_KEYS = AI.LEVEL_KEYS;
@@ -13,8 +13,11 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('yacht-' + k)); return v == null ? d : v; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('yacht-' + k, JSON.stringify(v)); } catch (e) { /* 覚えられないときはこのページだけ */ } },
   };
-  const reduced = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const settings = Object.assign({ ai: true, values: true, best: true, sound: true, anim: true, fast: false, confirm: true }, store.get('settings', {}));
+  const settings = Object.assign({ ai: true, values: true, best: true, sound: true, fast: false, confirm: true }, store.get('settings', {}));
+  // アニメーションのオン／オフは全ゲーム共通（common/motion.js が localStorage 'tt-motion' に覚える）。前の「サイコロを転がす動き」オフは引き継ぐ
+  const motionPref = () => { try { return localStorage.getItem('tt-motion'); } catch (e) { return null; } };
+  if (settings.anim === false && motionPref() == null) M.set(false);
+  delete settings.anim;
   let cfg = Object.assign({ mode: 'cpu', n: 2, cpu: 'strong', order: 'first', watch: ['best', 'strong', 'normal', 'easy'] }, store.get('cfg', {}));
   const OPTIMAL = Y.tableValue(0, 0);
   const ROWS = [0, 1, 2, 3, 4, 5, 'sub', 6, 7, 8, 9, 10, 11, 'tot'];
@@ -84,8 +87,9 @@
   let timer = 0, anim = null;
   const isOnline = () => !!(S && S.online);
   const seatOf = i => S.seats[i];
+  // 自分が操作できる番か（サイコロが転がっている途中も true。その間のタップは、まず動きを終わらせる）
   function myInput() {
-    if (!S || S.view != null || S.g.over || anim) return false;
+    if (!S || S.view != null || S.g.over) return false;
     if (S.online) return S.g.cur === S.online.me && S.online.canAct();
     const k = seatOf(S.g.cur).kind;
     return k === 'me' || k === 'human';
@@ -159,7 +163,7 @@
   }
   const cpuDelay = k => {
     const f = settings.fast ? 0.35 : 1;
-    return Math.round(f * ({ start: 500, hold: 520, pick: 650, roll: 380 }[k] || 400));
+    return Math.round(f * ({ start: 450, hold: 450, pick: 600, roll: 300 }[k] || 400));
   };
   // CPU の1手番を、振る → 残す → 振る → … → 役を選ぶ → 記入 の小さな段に分けて進める
   function cpuStep() {
@@ -208,12 +212,14 @@
     const human = seatOf(seat).kind === 'me' || seatOf(seat).kind === 'human';
     if (human && !S.online) S.hist.push(JSON.stringify({ g, meta: S.meta }));
     if (human) judgeScore(cat);
+    const before = Y.totalOf(g.sheets[seat]), upBefore = g.sheets[seat].up;
     const pts = Y.applyScore(g, cat);
     S.just = { seat, cat };
     Sound.write(pts >= 30 && cat >= 8);
     S.pend = -1; S.cpu = null; S.adv = null; S.hintOn = false;
     save();
     renderAll();
+    celebrate(seat, cat, pts, before, upBefore);
     if (g.over) { finish(); return; }
     onTurnStart();
   }
@@ -222,6 +228,7 @@
   function onRoll() {
     Sound.unlock();
     if (!myInput()) return;
+    if (anim) { settle(); return; }   // 転がっている途中のタップは止めるだけ（二度押しで振りすぎない）
     const g = S.g;
     if (g.rolls >= 3) { if (S.pend >= 0) onCat(S.pend, true); return; }
     if (g.rolls > 0 && g.hold === 31) { toast('5個とも残しています。役を選ぶか、目をタップして外してください'); return; }
@@ -232,6 +239,7 @@
   }
   function onDie(i) {
     if (!myInput() || !Y.canHold(S.g)) return;
+    settle();
     const m = S.g.hold ^ (1 << i);
     Sound.tick();
     if (S.online) { S.g.hold = m; S.online.act({ t: 'hold', mask: m }); renderAll(); return; }
@@ -242,12 +250,14 @@
   function onCat(cat, force) {
     Sound.unlock();
     if (!myInput() || !Y.canScore(S.g, cat)) return;
+    settle();
     if (settings.confirm && !force && S.pend !== cat) { S.pend = cat; renderAll(); return; }
     if (S.online) { judgeScore(cat); S.online.act({ t: 'score', cat }); S.pend = -1; renderAll(); return; }
     commit(cat);
   }
   function undo() {
-    if (S.online || !S.hist.length || anim) return;
+    if (S.online || !S.hist.length) return;
+    settle();
     clearTimeout(timer);
     const h = JSON.parse(S.hist.pop());
     S.g = h.g; S.meta = h.meta || []; S.pend = -1; S.cpu = null; S.adv = null; S.view = null; S.resultShown = false;
@@ -320,6 +330,7 @@
   function hint() {
     if (!myInput()) { toast('あなたの番のときに使えます'); return; }
     if (S.g.rolls === 0) { toast('まず「振る」を押しましょう'); return; }
+    settle();
     S.hintOn = true; S.hints++;
     if (S.online) S.online.useHint();
     const R = reading();
@@ -345,59 +356,97 @@
     const sh = $('sheet');
     sh.style.setProperty('--np', n);
     sh.classList.toggle('view', !live);
-    const inter = live && myInput();
+    const inter = live && myInput() && !anim;   // 転がっている間は、出た目の点をまだ見せない
     const R = inter && g.rolls > 0 && (showValues() || showBest()) ? reading() : null;
     const tot = g.sheets.map(Y.totalOf), mx = Math.max(...tot), anyFilled = g.sheets.some(s => s.mask);
     const viewE = live ? null : S.g.log[S.view];
-    let h = '<div class="corner">役</div>';
+    const h = ['<div class="corner">役</div>'];
     for (let p = 0; p < n; p++) {
       const t = live && p === g.cur && !g.over;
       const sp = S.seats[p], marks = sp.kind === 'remote' ? `${sp.ai ? '<span class="aimark" title="AI補助あり">AI</span>' : ''}${sp.hints ? `<span class="aimark" title="ヒントの回数">ヒ${sp.hints}</span>` : ''}` : '';
-      h += `<div class="head${t ? ' turn' : ''}" style="--sc:var(--s${p})" title="${esc(nameOf(p) + (levelText(p) ? ' ' + levelText(p) : '') + (sp.kind === 'remote' ? (sp.ai ? '・AI補助あり' : '・AI補助なし') + (sp.hints ? `・ヒント${sp.hints}回` : '') : ''))}"><span class="dot"></span><span class="nm">${esc(nameOf(p))}</span>${marks}</div>`;
+      h.push(`<div class="head${t ? ' turn' : ''}" style="--sc:var(--s${p})" title="${esc(nameOf(p) + (levelText(p) ? ' ' + levelText(p) : '') + (sp.kind === 'remote' ? (sp.ai ? '・AI補助あり' : '・AI補助なし') + (sp.hints ? `・ヒント${sp.hints}回` : '') : ''))}"><span class="dot"></span><span class="nm">${esc(nameOf(p))}</span>${marks}</div>`);
     }
     for (const r of ROWS) {
       if (r === 'sub') {
-        h += '<div class="lab subrow" title="1〜6の目の合計が63以上なら +35点">上段の計<span class="rule">63〜で+35</span></div>';
+        h.push('<div class="lab subrow" title="1〜6の目の合計が63以上なら +35点">上段の計<span class="rule">63〜で+35</span></div>');
         for (let p = 0; p < n; p++) {
           const s = g.sheets[p];
           let par = 0; for (let c = 0; c < 6; c++) if (s.mask & (1 << c)) par += 3 * (c + 1);
           const doneUp = (s.mask & 63) === 63;
           const small = s.up >= 63 ? '<span class="bn">+35</span>' : doneUp ? '<span class="pace ng">なし</span>' : (s.mask & 63) ? `<span class="pace ${s.up >= par ? 'ok' : 'ng'}">${s.up >= par ? '+' : '−'}${Math.abs(s.up - par)}</span>` : '<span class="pace">あと63</span>';
-          h += `<div class="cell subrow${p === g.cur && live ? ' curcol' : ''}" style="--sc:var(--s${p})">${s.up}${small}</div>`;
+          h.push(`<div class="cell subrow${p === g.cur && live ? ' curcol' : ''}" style="--sc:var(--s${p})" data-sub="${p}">${s.up}${small}</div>`);
         }
         continue;
       }
       if (r === 'tot') {
-        h += '<div class="lab totrow">合計</div>';
-        for (let p = 0; p < n; p++) h += `<div class="cell totrow${n > 1 && anyFilled && tot[p] === mx ? ' lead' : ''}${p === g.cur && live ? ' curcol' : ''}" style="--sc:var(--s${p})">${tot[p]}</div>`;
+        h.push('<div class="lab totrow">合計</div>');
+        for (let p = 0; p < n; p++) h.push(`<div class="cell totrow${n > 1 && anyFilled && tot[p] === mx ? ' lead' : ''}${p === g.cur && live ? ' curcol' : ''}" style="--sc:var(--s${p})" data-tot="${p}">${tot[p]}</div>`);
         continue;
       }
       const c = r;
-      h += `<div class="lab" data-rule="${c}" title="${esc(CATS[c].desc)}">${c < 6 ? dieSVG(c + 1).replace('class="dsvg"', 'class="dsvg mini"') : ''}${esc(CATS[c].name)}<span class="rule">${RULE[c]}</span></div>`;
+      h.push(`<div class="lab" data-rule="${c}" title="${esc(CATS[c].desc)}">${c < 6 ? dieSVG(c + 1).replace('class="dsvg"', 'class="dsvg mini"') : ''}${esc(CATS[c].name)}<span class="rule">${RULE[c]}</span></div>`);
       for (let p = 0; p < n; p++) {
         const s = g.sheets[p], col = p === g.cur && live ? ' curcol' : '';
         const st = `style="--sc:var(--s${p})"`;
         if (s.mask & (1 << c)) {
           const just = (live && S.just && S.just.seat === p && S.just.cat === c) || (viewE && viewE.s === p && viewE.c === c);
-          h += `<div class="cell${s.sc[c] === 0 ? ' zero-in' : ''}${just ? ' just' : ''}${col}" ${st}>${s.sc[c]}</div>`;
+          h.push(`<div class="cell${s.sc[c] === 0 ? ' zero-in' : ''}${just ? ' just' : ''}${col}" ${st} data-pc="${p}-${c}">${s.sc[c]}</div>`);
         } else if (live && p === g.cur && g.rolls > 0 && !g.over) {
           const pts = Y.score(c, g.dice);
           if (inter) {
             let ai = '';
             if (R && showValues()) { const o = R.cats.get(c); ai = `<span class="ai${o.cat === R.bestCat ? '' : ' lo'}">${R.judge === 'w' ? pct(o.w) : '期待' + Math.round(o.e)}</span>`; }
             const best = R && showBest() && R.bestCat === c;
-            h += `<button class="cell${col}${S.pend === c ? ' pend' : ''}${best ? ' best' : ''}" ${st} data-cat="${c}" aria-label="${esc(CATS[c].name)}に${pts}点を記入"><span class="pv${pts ? '' : ' zero'}">${pts}</span>${ai}</button>`;
+            h.push(`<button class="cell open${col}${S.pend === c ? ' pend' : ''}${best ? ' best' : ''}" ${st} data-cat="${c}" aria-label="${esc(CATS[c].name)}に${pts}点を記入"><span class="pv${pts ? '' : ' zero'}">${pts}</span>${ai}</button>`);
           } else {
-            h += `<div class="cell${col}${S.pend === c ? ' pend' : ''}" ${st}>${S.pend === c ? `<span class="pv">${pts}</span>` : ''}</div>`;
+            h.push(`<div class="cell${col}${S.pend === c ? ' pend' : ''}" ${st}>${S.pend === c ? `<span class="pv">${pts}</span>` : ''}</div>`);
           }
-        } else h += `<div class="cell${col}" ${st}></div>`;
+        } else h.push(`<div class="cell${col}" ${st}></div>`);
       }
     }
-    sh.innerHTML = h;
-    S.just = live ? S.just : S.just;
+    // 変わったマスだけ差し替える（記入した直後の光・得点の数え上げを、ほかの描き直しで切らないように）
+    const kids = sh.children;
+    if (kids.length !== h.length) {
+      sh.innerHTML = h.join('');
+      h.forEach((x, i) => { kids[i]._h = x; });
+      return;
+    }
+    const tpl = document.createElement('template');
+    h.forEach((x, i) => {
+      if (kids[i]._h === x) return;
+      tpl.innerHTML = x;
+      const el = tpl.content.firstChild;
+      el._h = x;
+      kids[i].replaceWith(el);
+    });
+  }
+
+  // 記入したとき: 点がふわっと出て、合計を数え上げる。ヨット・ストレート・上段ボーナスは光らせる
+  function celebrate(p, c, pts, before, upBefore) {
+    const sh = $('sheet'), s = S.g.sheets[p], after = Y.totalOf(s);
+    const cell = sh.querySelector(`[data-pc="${p}-${c}"]`), big = pts >= 30;
+    if (cell) {
+      M.float(pts ? `+${pts}` : '0', cell, { color: pts ? (big ? 'var(--gold)' : 'var(--good)') : 'var(--muted)', size: big ? 24 : 18 });
+      M.pop(cell, big ? 'glow' : 'land');
+    }
+    if (c === Y.YACHT && pts) {
+      M.float('ヨット！', $('dice'), { color: 'var(--sel-ring)', size: 30, ms: 1300 });
+      dieEls.forEach((el, i) => setTimeout(() => M.pop(el._cube, 'glow'), i * 60));
+    }
+    if (upBefore < Y.BONUS_AT && s.up >= Y.BONUS_AT) {
+      const sub = sh.querySelector(`[data-sub="${p}"]`);
+      if (sub) { M.float(`+${Y.BONUS} ボーナス`, sub, { color: 'var(--gold)', size: 18, ms: 1300 }); M.pop(sub, 'glow'); }
+    }
+    if (after > before) {
+      M.tween(Math.min(650, 250 + (after - before) * 6), t => {
+        const el = S.view == null && $('sheet').querySelector(`[data-tot="${p}"]`);
+        if (el) el.textContent = Math.round(before + (after - before) * t);
+      });
+    }
   }
 
   // サイコロ: ボタンは1回だけ作り、目と印だけ差し替える（転がっている間の動きを切らないように）
+  // 目は common/motion.js の CSS の立方体。大きさはボタンの幅に合わせる（--tt-die-size）
   const dieEls = [];
   function buildDice() {
     const box = $('dice');
@@ -405,28 +454,34 @@
     for (let i = 0; i < 5; i++) {
       const b = document.createElement('button');
       b.className = 'die blank'; b.type = 'button';
-      b.innerHTML = '<svg viewBox="0 0 100 100" aria-hidden="true"><rect class="body" x="5" y="5" width="90" height="90" rx="20"/><g class="pips"></g></svg><span class="tag" hidden>キープ</span><span class="rec" hidden></span>';
+      b.innerHTML = '<span class="ph"></span><span class="cube"></span><span class="tag" hidden>キープ</span><span class="rec" hidden></span>';
+      b._cube = b.querySelector('.cube');
+      b._v = 0;
       b.addEventListener('click', () => onDie(i));
       box.appendChild(b); dieEls.push(b);
     }
+    // 傾いて止まっても隣とぶつからないよう、ボタンより少し小さく
+    const size = () => { const w = dieEls[0].clientWidth; if (w) box.style.setProperty('--tt-die-size', `${Math.round(w * 0.9)}px`); };
+    if (window.ResizeObserver) new ResizeObserver(size).observe(dieEls[0]);
+    window.addEventListener('resize', size);
+    size();
   }
   function renderDice() {
     const g = viewGame(), live = S.view == null;
     const inter = live && myInput() && Y.canHold(g);
     let rec = 0, drop = 0;
-    if (inter && showBest()) {
+    if (inter && !anim && showBest()) {
       const R = reading();
       if (R.best && R.best.keep >= 0) { rec = Y.holdMaskFor(g.dice, R.best.keep, g.hold); drop = g.hold & ~rec; }
     }
     for (let i = 0; i < 5; i++) {
-      const el = dieEls[i];
-      const rolling = anim && (anim.mask >> i) & 1;
-      const v = rolling ? anim.face[i] : g.dice[i];
+      const el = dieEls[i], v = g.dice[i];
+      const rolling = !!anim && (anim.mask >> i) & 1;
       const held = live && g.rolls > 0 && g.rolls < 3 && !g.over && (g.hold >> i) & 1;
+      if (!rolling && v && el._v !== v) { M.dice(el._cube, v, { roll: false }); el._v = v; }
       el.classList.toggle('blank', !v);
-      el.classList.toggle('held', !!held && !rolling);
-      el.querySelector('.pips').innerHTML = pipsSVG(v);
-      el.querySelector('.tag').hidden = !held || rolling;
+      el.classList.toggle('held', !!held);
+      el.querySelector('.tag').hidden = !held;
       const r = el.querySelector('.rec');
       r.hidden = !((rec | drop) >> i & 1) || rolling;
       r.classList.toggle('drop', !!((drop >> i) & 1));
@@ -435,31 +490,36 @@
       el.setAttribute('aria-pressed', held ? 'true' : 'false');
     }
   }
+  // 振り直したサイコロだけを転がす。少しずつずらして止める。動きがオフ・裏のタブなら一瞬（common/motion.js）
   function animateRoll(mask) {
-    const dur = !settings.anim || reduced ? 0 : (S.online || seatOf(S.g.cur).kind !== 'cpu' || !settings.fast ? 620 : 380);
-    Sound.rattle(Math.max(0.25, dur / 1000));
-    if (!dur || !mask) { renderAll(); return Promise.resolve(); }
-    anim = { mask, face: [1, 1, 1, 1, 1].map(() => 1 + Math.floor(Math.random() * 6)) };
-    dieEls.forEach((el, i) => {
-      if (!((mask >> i) & 1)) return;
-      el.classList.remove('rolling');
-      el.style.setProperty('--rot', String((Math.random() < 0.5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2))));
-      el.style.setProperty('--jx', `${Math.round((Math.random() * 2 - 1) * 14)}%`);
-      el.style.setProperty('--dur', `${dur / 1000}s`);
-      void el.offsetWidth;
-      el.classList.add('rolling');
-    });
-    renderAll();
+    const g = S.g, quick = settings.fast && !S.online && seatOf(g.cur).kind === 'cpu';
+    const jobs = [];
+    let k = 0, ms = 0;
+    for (let i = 0; i < 5; i++) {
+      if (!((mask >> i) & 1)) continue;
+      const el = dieEls[i];
+      el.classList.remove('blank');
+      el._v = g.dice[i];
+      ms = quick ? 450 + k * 25 : 700 + k * 40;
+      jobs.push(M.dice(el._cube, g.dice[i], { ms }));
+      k++;
+    }
+    Sound.rattle(M.on && k ? ms / 1000 : 0.25);
+    if (!M.on || !mask) { renderAll(); return Promise.resolve(); }
     return new Promise(res => {
-      const iv = setInterval(() => { if (!anim) return; for (let i = 0; i < 5; i++) if ((anim.mask >> i) & 1) anim.face[i] = 1 + Math.floor(Math.random() * 6); renderDice(); }, 75);
-      setTimeout(() => {
-        clearInterval(iv);
-        anim = null;
-        dieEls.forEach(el => el.classList.remove('rolling'));
-        renderAll();
-        res();
-      }, dur);
+      // 画面が描かれず動きが進まないときも、進行は止めない（決まった時間で打ち切る）
+      const cap = setTimeout(() => { if (anim === a) { M.finish(); a.end(); } }, ms + 400);
+      const a = anim = { mask, end() { if (anim !== a) return; clearTimeout(cap); anim = null; renderAll(); res(); } };
+      renderAll();
+      Promise.all(jobs).then(() => a.end());
     });
+  }
+  // 転がっている途中に次の操作が来たら、その場で止めて目を見せる
+  function settle() {
+    if (!anim) return;
+    const a = anim;
+    M.finish();
+    a.end();
   }
 
   function renderInfo() {
@@ -489,7 +549,7 @@
         } else if (g.rolls === 0) txt = `${you} ${round} — 振ってください`;
         else if (g.rolls < 3) txt = `${you} — 残す目と、記入する役をタップ`;
         else txt = `${you} — 記入する役を選んでください`;
-        if (!right && settings.ai && settings.values && myInput()) {
+        if (!right && settings.ai && settings.values && myInput() && !anim) {
           const R = reading();
           const v = R.judge === 'w' && R.w != null ? `勝率 ${pct(R.w)}` : `期待 ${Math.round(R.e)}点`;
           right = `<button class="ev" data-act="panel" title="AI の読みを開く">${v}</button>`;
@@ -534,6 +594,7 @@
   function renderPanel() {
     const el = $('evcard'), g = S.g;
     if (!settings.ai) { el.innerHTML = '<h2>AI の読み</h2><p class="hint" style="margin:0 0 8px">AI補助はオフです。</p><div><button class="btn small" data-act="ai-on">表示する</button></div>'; return; }
+    if (anim && myInput()) return;   // 自分のサイコロが止まるまでは、前の読みのまま
     let h = '';
     if (myInput()) {
       const R = reading(), J = R.judge;
@@ -739,7 +800,7 @@
   function saveSettings() { store.set('settings', settings); }
   function syncSettingsUI() {
     $('set-values').checked = settings.values; $('set-best').checked = settings.best; $('set-sound').checked = settings.sound;
-    $('set-anim').checked = settings.anim; $('set-fast').checked = settings.fast; $('set-confirm').checked = settings.confirm;
+    $('set-anim').checked = motionPref() !== '0'; $('set-fast').checked = settings.fast; $('set-confirm').checked = settings.confirm;
   }
 
   // ------------------------------------------------------------------ つなぎ
@@ -758,6 +819,7 @@
       onRoll();
     });
     $('sheet').addEventListener('click', e => {
+      if (anim && myInput()) { settle(); return; }
       const b = e.target.closest('[data-cat]');
       if (b) { onCat(+b.dataset.cat); return; }
       const l = e.target.closest('[data-rule]');
@@ -791,7 +853,8 @@
       if (!e.target.closest('.more-wrap')) $('menu-more').hidden = true;
       if (!e.target.closest('.settings-wrap')) $('settings').hidden = true;
     });
-    const setMap = { 'set-values': 'values', 'set-best': 'best', 'set-sound': 'sound', 'set-anim': 'anim', 'set-fast': 'fast', 'set-confirm': 'confirm' };
+    $('set-anim').addEventListener('change', e => { M.set(e.target.checked); settle(); });
+    const setMap = { 'set-values': 'values', 'set-best': 'best', 'set-sound': 'sound', 'set-fast': 'fast', 'set-confirm': 'confirm' };
     Object.keys(setMap).forEach(id => $(id).addEventListener('change', e => {
       settings[setMap[id]] = e.target.checked;
       if ((id === 'set-values' || id === 'set-best') && e.target.checked && !settings.ai) { settings.ai = true; if (S.online) S.online.setAI(1); }
@@ -872,6 +935,7 @@
       const rolled = sameTurn && g.rolls > prev.rolls ? (prev.rolls === 0 ? 31 : 31 & ~g.hold) : 0;
       const newTurn = prev.round !== g.round || prev.cur !== g.cur;
       const wrote = g.log.length > prev.log.length ? g.log[g.log.length - 1] : null;
+      const was = wrote && prev.sheets[wrote.s] ? { total: Y.totalOf(prev.sheets[wrote.s]), up: prev.sheets[wrote.s].up } : null;
       // 自分が残し方を変えている途中は、卓からの古い印で上書きしない
       const keepHold = sameTurn && g.rolls === prev.rolls && g.cur === S.online.me && S.online.canAct() ? prev.hold : g.hold;
       S.g = JSON.parse(JSON.stringify(g));
@@ -881,7 +945,8 @@
       if (g.cur !== S.online.me) S.pend = g.pend != null ? g.pend : -1;
       if (g.over && !prev.over) { finish(); }
       if (!g.over && prev.over) { S.resultShown = false; S.meta = []; $('dlg-result').hidden = true; }
-      if (rolled && !anim) animateRoll(rolled); else renderAll();
+      if (rolled) { settle(); animateRoll(rolled); } else renderAll();
+      if (was && g.log.length === prev.log.length + 1) celebrate(wrote.s, wrote.c, wrote.p, was.total, was.up);
     },
     endOnline() { if (!S || !S.online) return; S = null; if (!restore()) newGameFrom(cfg); else { renderAll(); onTurnStart(); } },
   };

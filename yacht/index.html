@@ -97,14 +97,14 @@ main.scroll { overflow-y: auto; overscroll-behavior: contain; }
 .sheet-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
 .sheet {
   height: 100%; display: grid; grid-template-rows: minmax(30px, auto) repeat(14, minmax(0, 1fr));
-  grid-template-columns: var(--labw, minmax(96px, 150px)) repeat(var(--np, 2), minmax(0, 1fr));
+  grid-template-columns: var(--labw, minmax(96px, 164px)) repeat(var(--np, 2), minmax(0, 1fr));
   background:
     linear-gradient(var(--paper), var(--paper));
   border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
   font-variant-numeric: tabular-nums;
 }
 .sheet > div, .sheet > button { min-width: 0; min-height: 0; border: 0; margin: 0; padding: 0 6px; background: transparent; display: flex; align-items: center; border-bottom: 1px solid var(--paper-line); }
-.sheet .lab { gap: 7px; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; border-right: 1px solid var(--paper-line); padding-left: 10px; cursor: help; }
+.sheet .lab { gap: 7px; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; border-right: 1px solid var(--paper-line); padding-left: 10px; cursor: help; font-feature-settings: "palt"; }
 .sheet .lab .rule { margin-left: auto; color: var(--muted); font-size: 10.5px; font-weight: 400; }
 .sheet .lab .mini { width: 17px; height: 17px; flex: none; }
 .sheet .head { justify-content: center; gap: 5px; font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; border-bottom: 2px solid var(--paper-line); position: relative; }
@@ -117,10 +117,15 @@ main.scroll { overflow-y: auto; overscroll-behavior: contain; }
 .sheet .cell.curcol { background: color-mix(in srgb, var(--sc) 7%, transparent); }
 .sheet .cell .pv { color: var(--muted); font-weight: 500; opacity: .85; }
 .sheet .cell .pv.zero { opacity: .45; }
-.sheet .cell .ai { font-size: 9.5px; font-weight: 700; color: var(--good); margin-top: 1px; letter-spacing: .02em; }
+.sheet .cell .ai { font-size: 10.5px; font-weight: 700; color: var(--good); margin-top: 1px; letter-spacing: .02em; }
 .sheet .cell .ai.lo { color: var(--muted); font-weight: 500; }
 .sheet button.cell { cursor: pointer; }
-.sheet button.cell:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* 記入できるマス: 薄い青の地と青い数字（記入済みの黒い数字と見分ける） */
+.sheet .cell.open { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.sheet .cell.open::before { content: ""; position: absolute; inset: 3px 5px; border-radius: 7px; border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, transparent); pointer-events: none; }
+.sheet .cell.open .pv { color: var(--accent); opacity: 1; font-weight: 700; }
+.sheet .cell.open .pv.zero { color: var(--muted); opacity: .6; font-weight: 500; }
+.sheet button.cell:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .sheet .cell.best::after { content: "★"; position: absolute; top: 1px; right: 3px; font-size: 10px; color: var(--good); }
 .sheet .cell.pend { background: color-mix(in srgb, var(--accent) 20%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
 .sheet .cell.pend .pv { color: var(--accent); opacity: 1; font-weight: 800; }
@@ -155,28 +160,24 @@ main.scroll { overflow-y: auto; overscroll-behavior: contain; }
   background: radial-gradient(120% 140% at 50% 0%, var(--felt-hi), var(--felt) 55%, var(--felt-lo));
   box-shadow: inset 0 0 0 3px var(--rim), inset 0 0 0 5px color-mix(in srgb, var(--rim) 40%, transparent), inset 0 6px 16px rgba(0,0,0,.35), var(--shadow);
 }
-.dice { flex: 1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; min-width: 0; }
-.die { position: relative; border: 0; padding: 0; background: none; cursor: pointer; aspect-ratio: 1 / 1; width: 100%; max-width: 64px; justify-self: center; transition: translate .16s cubic-bezier(.2,.8,.2,1); }
-.die[disabled] { cursor: default; }
-.die svg { width: 100%; height: 100%; display: block; overflow: visible; filter: drop-shadow(0 3px 2px rgba(0,0,0,.35)); }
-.die .body { fill: var(--die); stroke: var(--die-lo); stroke-width: 2; }
-.die .pip { fill: var(--pip); }
-.die .pip.one { fill: var(--pip-one); }
-.die.blank .body { fill: color-mix(in srgb, var(--die) 30%, transparent); stroke: color-mix(in srgb, var(--die) 45%, transparent); stroke-dasharray: 6 5; }
-.die.held { translate: 0 -7px; }
-.die.held svg { filter: drop-shadow(0 7px 4px rgba(0,0,0,.4)); }
-.die.held .body { stroke: var(--sel-ring); stroke-width: 6; }
-.die .tag { position: absolute; left: 50%; bottom: -15px; translate: -50% 0; font-size: 9.5px; font-weight: 700; color: var(--sel-ring); letter-spacing: .08em; white-space: nowrap; pointer-events: none; }
-.die .rec { position: absolute; left: 50%; top: -9px; translate: -50% 0; width: 8px; height: 8px; border-radius: 50%; background: #6be39b; box-shadow: 0 0 0 2px rgba(0,0,0,.35); pointer-events: none; }
-.die .rec.drop { background: transparent; box-shadow: inset 0 0 0 2px #ffb4a0; }
-.die.rolling svg { animation: tumble var(--dur, .62s) cubic-bezier(.25,.6,.3,1); }
-@keyframes tumble {
-  0% { transform: translate(0, -22%) rotate(0deg) scale(.9); }
-  30% { transform: translate(var(--jx, 8%), 6%) rotate(calc(var(--rot, 1) * 200deg)) scale(1.04); }
-  60% { transform: translate(calc(var(--jx, 8%) * -.6), -6%) rotate(calc(var(--rot, 1) * 320deg)); }
-  85% { transform: translate(0, 2%) rotate(calc(var(--rot, 1) * 352deg)); }
-  100% { transform: translate(0, 0) rotate(calc(var(--rot, 1) * 360deg)); }
+/* サイコロ: common/motion.js の CSS の立方体（.cube）。残す目は浮き上がって金色に */
+.dice {
+  flex: 1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; min-width: 0;
+  --tt-die-bg: var(--die); --tt-die-pip: var(--pip); --tt-die-pip1: var(--pip-one); --tt-die-edge: color-mix(in srgb, var(--die-lo) 75%, #000 25%);
 }
+.die { position: relative; isolation: isolate; border: 0; padding: 0; background: none; cursor: pointer; aspect-ratio: 1 / 1; width: 100%; max-width: 64px; justify-self: center; transition: translate .24s cubic-bezier(.3,1.6,.5,1); }
+.die[disabled] { cursor: default; }
+.die .cube { position: absolute; inset: 0; margin: auto; }
+.die::after { content: ""; position: absolute; z-index: -1; left: 10%; right: 10%; bottom: -7%; height: 18%; border-radius: 50%; background: rgba(0,0,0,.42); filter: blur(3px); transition: translate .24s cubic-bezier(.3,1.6,.5,1), scale .24s, opacity .24s; }
+.die .ph { display: none; position: absolute; inset: 6%; border-radius: 18%; border: 2px dashed color-mix(in srgb, var(--die) 50%, transparent); background: color-mix(in srgb, var(--die) 10%, transparent); }
+.die.blank .ph { display: block; }
+.die.blank .cube, .die.blank::after { display: none; }
+.die.held { translate: 0 -11px; --tt-die-bg: #ffefb8; }
+.die.held::after { translate: 0 11px; scale: .78; opacity: .55; }
+.die.held .tt-die .f { box-shadow: inset 0 0 0 3px var(--sel-ring), inset 0 0 0 4px rgba(120, 80, 0, .35), inset 0 -3px 6px rgba(0,0,0,.08); }
+.die .tag { position: absolute; left: 50%; bottom: -17px; translate: -50% 0; font-size: 10.5px; font-weight: 800; line-height: 1.3; padding: 0 5px; border-radius: 999px; background: var(--sel-ring); color: #3a2604; letter-spacing: .06em; white-space: nowrap; pointer-events: none; }
+.die .rec { position: absolute; left: 50%; top: -10px; translate: -50% 0; width: 9px; height: 9px; border-radius: 50%; background: #6be39b; box-shadow: 0 0 0 2px rgba(0,0,0,.35); pointer-events: none; }
+.die .rec.drop { background: transparent; box-shadow: inset 0 0 0 2px #ffb4a0; }
 .dsvg { display: inline-block; vertical-align: middle; }
 .dsvg .body { fill: var(--die); stroke: color-mix(in srgb, var(--die-lo) 70%, #000 30%); stroke-width: 5; }
 .dsvg .pip { fill: var(--pip); }
@@ -373,8 +374,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
   .onbtn .cnt small { display: none; }
-  .sheet { --labw: minmax(84px, 112px); }
-  .sheet .lab { font-size: 12px; padding-left: 7px; gap: 5px; }
+  .sheet { --labw: minmax(84px, 121px); }
+  .sheet .lab { font-size: 12px; padding-left: 7px; gap: 5px; letter-spacing: -.02em; }
   .sheet .lab .rule { display: none; }
   .sheet .cell { font-size: 15px; }
   .sheet .totrow.cell { font-size: 16px; }
@@ -407,7 +408,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .table-col { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px 12px; }
   .sheet-wrap { grid-column: 1; grid-row: 1 / -1; }
   .info { grid-column: 2; grid-row: 1; }
-  .tray { grid-column: 2; grid-row: 2; }
+  .tray { grid-column: 2; grid-row: 2; flex-direction: column; align-items: stretch; gap: 14px; padding: 16px 12px 10px; }   /* サイコロを横いっぱいに大きく、振るボタンはその下 */
+  .rollbtn { width: 100%; height: 46px; grid-auto-flow: column; justify-content: center; gap: 12px; }
   .controls { grid-column: 2; grid-row: 4; flex-wrap: wrap; }
   .sheet { grid-template-rows: minmax(22px, auto) repeat(14, minmax(0, 1fr)); }
   .sheet .cell { font-size: 13px; }
@@ -416,7 +418,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .play { grid-template-columns: minmax(0, 900px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .die, .side, .die.rolling svg { transition: none; animation: none !important; }
+  .die, .die::after, .side { transition: none; animation: none !important; }
   .sheet .cell.just { animation: none; }
 }
 </style>
@@ -440,7 +442,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
       <label class="switch"><input type="checkbox" id="set-best" checked> おすすめ（残す目・★の役）を表示</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 音</label>
-      <label class="switch"><input type="checkbox" id="set-anim" checked> サイコロを転がす動き</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
       <label class="switch"><input type="checkbox" id="set-fast"> CPU をすばやく</label>
       <label class="switch"><input type="checkbox" id="set-confirm" checked> 役は2回タップで記入（1回目は確認）</label>
     </div>
@@ -535,6 +537,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
 <div class="toast" id="toast" hidden></div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/yacht-core.js"></script>
 <script src="js/yacht-ai.js"></script>
 <script src="js/table.js"></script>

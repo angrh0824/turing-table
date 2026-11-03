@@ -31,7 +31,10 @@
   let draft = Object.assign({ mode: 'cpu', cpu: 'normal', cpuW: 'strong', cpuB: 'max', len: 5, cube: 'on' }, store.get('cfg', {}));
   const settings = Object.assign({ sound: true, anim: true, arrow: true, showEval: true, autoroll: true, autoconfirm: false, mirror: false, numbers: true }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.arrow;
-  const animOn = () => settings.anim && !reduceMotion && !document.hidden; // 裏のタブではタイマーが間引かれるので動かさない
+  // 動き: 全ゲーム共通の設定（common/motion.js。オフ・動きを減らす設定・裏のタブでは一瞬で終わる）
+  const MO = window.TTMotion || null;
+  if (MO) { try { settings.anim = localStorage.getItem('tt-motion') !== '0'; } catch (e) { /* そのまま */ } }
+  const animOn = () => (MO ? MO.on : settings.anim && !reduceMotion && !document.hidden);
 
   // ------------------------------------------------------------------ 対局の状態
   const S = {
@@ -128,23 +131,19 @@
     const a = new Uint8Array(1);
     for (;;) { crypto.getRandomValues(a); if (a[0] < 252) return 1 + (a[0] % 6); }
   }
-  // 振るアニメーション（目をぱらぱら変えて止める）
+  // 振るアニメーション: 立方体のサイコロが盤の上を転がって、決まった目（final）で止まる（0.7〜0.9秒。ゾロ目は残りの2個がぽんと出る）
+  // 振り分けは両側に1個ずつ（final = [白の目, 黒の目]）
   async function rollAnim(final, opening) {
-    const groups = opening ? [{ side: 'bottom' }, { side: 'top' }] : [{ side: S.st.turn === S.bottom ? 'bottom' : 'top' }];
+    const ep = S.epoch, roller = S.st.turn;
     snd('roll');
-    const ep = S.epoch;
-    if (animOn()) {
-      const t0 = performance.now();
-      while (performance.now() - t0 < 520 && ep === S.epoch) { // 新しい対局のダイアログなどで止められたら、すぐやめる
-        S.rolling = groups.map(g => ({ side: g.side, vals: opening ? [1 + Math.floor(Math.random() * 6)] : [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)], rot: [Math.random() * 40 - 20, Math.random() * 40 - 20] }));
-        renderBoard();
-        await sleep(65);
-      }
-    }
-    if (ep !== S.epoch) return;
+    S.rolling = opening
+      ? [{ side: 'bottom', vals: [final[S.bottom]], color: COLOR[S.bottom] }, { side: 'top', vals: [final[S.bottom ^ 1]], color: COLOR[S.bottom ^ 1] }]
+      : [{ side: roller === S.bottom ? 'bottom' : 'top', vals: diceList(final), color: COLOR[roller] }];
+    renderBoard();
+    await board.rollDice();
+    if (ep !== S.epoch) return; // 新しい対局のダイアログなどで止められた
     S.rolling = null;
     snd('land');
-    void final;
   }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   // 進行のための待ち。裏のタブではタイマーが大きく間引かれる（1分に1回まで）ので、見ていないときはすぐ進める
@@ -170,6 +169,7 @@
     S.pm = null; S.sel = null; S.dests = null; S.view = null; S.busy = false; S.thinking = false; S.anim = null; S.rolling = null; S.hint = null; S.msg = '';
     AN.cache.clear(); AN.running = null;
     hideChooser();
+    $('dlg-result').hidden = true;
     recompute();
     S.resultShown = S.st.phase === 'over';
     save(); render(); schedule();
@@ -287,14 +287,15 @@
   }
   function clearSel() { S.sel = null; S.dests = null; hideChooser(); }
   // 行き先を押した: 目の使い方が1通り（最短で、ヒットの仕方が同じ）ならすぐ、違うなら小さな選択
-  function chooseDest(to) {
+  // at = つかんで離した場所（画面の座標の四角）。あればそこから行き先へ吸い付かせる
+  function chooseDest(to, at) {
     const routes = S.dests.get(to);
     if (!routes) return;
     const minLen = Math.min(...routes.map(r => r.length));
     const short = routes.filter(r => r.length === minLen);
     const groups = new Map();
     for (const r of short) { const sig = r.map(h => (h[2] ? h[1] : '')).join(','); if (!groups.has(sig)) groups.set(sig, r); }
-    if (groups.size === 1) { playRoute(short[0]); return; }
+    if (groups.size === 1) { if (at) dropRoute(short[0], at); else playRoute(short[0]); return; }
     showChooser(to, [...groups.values()]);
   }
   function routeText(r) {
@@ -334,6 +335,39 @@
     render();
     if (!forced && pmComplete() && settings.autoconfirm) setTimeout(() => { if (S.pm && pmComplete() && !S.busy) confirmMove(); }, 250);
   }
+  // つかんで離した駒: 離した所から行き先へ一気に吸い付き（目を2つ以上続けて使う手もまとめて）、ヒットした駒はバーへ飛ぶ
+  async function dropRoute(route, at) {
+    const pm = S.pm, ep = S.epoch;
+    if (!pm) return;
+    S.busy = true; clearSel();
+    const side = pm.side, f0 = route[0][0], tEnd = route[route.length - 1][1];
+    const m = Int8Array.from(pm.me), o = Int8Array.from(pm.opp);
+    m[f0]--;
+    S.anim = { side, me: m, opp: o, flying: true };
+    renderBoard();
+    const k2 = tEnd < 0 ? BG.offCount(pm.me) : (o[23 - tEnd] === 1 ? 0 : m[tEnd]);
+    await board.animateFrom(at, slotOf(side, tEnd), k2, COLOR[side], 140);
+    if (ep !== S.epoch) return;
+    let anyHit = false;
+    for (const [f, t, , die] of route) {
+      const hit = BG.applyHop(pm.me, pm.opp, f, t);
+      pm.hops.push([f, t, hit]);
+      const j = pm.dice.indexOf(die); pm.dice.splice(j >= 0 ? j : 0, 1);
+      if (hit && animOn()) {
+        anyHit = true;
+        const o2 = Int8Array.from(pm.opp); o2[24]--;
+        S.anim = { side, me: pm.me, opp: o2 };
+        renderBoard();
+        await board.animate(slotOf(side ^ 1, 23 - t), 0, slotOf(side ^ 1, 24), o2[24], COLOR[side ^ 1], 180);
+        if (ep !== S.epoch) return;
+      } else if (hit) anyHit = true;
+    }
+    S.anim = null;
+    snd(anyHit ? 'hit' : tEnd < 0 ? 'off' : 'move');
+    S.busy = false;
+    render();
+    if (pmComplete() && settings.autoconfirm) setTimeout(() => { if (S.pm && pmComplete() && !S.busy) confirmMove(); }, 250);
+  }
   function undoHop() {
     const pm = S.pm;
     if (!pm || !pm.hops.length || S.busy || pm.forced) return;
@@ -371,8 +405,8 @@
     const hitting = t >= 0 && o[23 - t] === 1;
     S.anim = { side, me: m, opp: o, flying: true };
     renderBoard();
-    const k2 = t < 0 ? 0 : hitting ? 0 : m[t];
-    await board.animate(slotOf(side, f), k1, slotOf(side, t), k2, COLOR[side], 230);
+    const k2 = t < 0 ? BG.offCount(me) : hitting ? 0 : m[t];   // 上がりは受け皿の次の段へ
+    await board.animate(slotOf(side, f), k1, slotOf(side, t), k2, COLOR[side], t < 0 ? 260 : 230);
     if (hitting) {
       m[t]++; o[23 - t] = 0;
       S.anim = { side, me: m, opp: o, flying: false, flyOpp: true };
@@ -389,7 +423,7 @@
       S.anim = { side, me, opp };
       snd(hit ? 'hit' : t < 0 ? 'off' : 'move');
       renderBoard();
-      if (animOn()) await sleep(70);
+      if (animOn()) await sleep(40);
     }
     S.anim = null;
   }
@@ -424,7 +458,7 @@
       else {
         pick = await cpuChooseMove(st, lv, ep);
         if (stale() || !pick) return;
-        await wait(500);
+        await wait(300);
       }
       if (stale()) return;
       S.thinking = false;
@@ -682,7 +716,7 @@
     const sideName = s => (s === bottom ? 'bottom' : 'top');
     // サイコロ
     if (live() && S.rolling) {
-      m.dice = S.rolling.map(g => ({ side: g.side, vals: g.vals, color: g.side === 'bottom' ? COLOR[bottom] : COLOR[top], rot: g.rot, rolling: true }));
+      m.dice = S.rolling.map(g => ({ side: g.side, vals: g.vals, color: g.color, rolling: true }));
     } else if (st.phase === 'move' && st.dice) {
       const vals = diceList(st.dice);
       let used = vals.map(() => false);
@@ -1002,6 +1036,8 @@
 
   // ------------------------------------------------------------------ 入力
   function onBoardClick(ev) {
+    if (ev.target.closest('#chooser')) return;
+    if (MO) MO.finish(); // 動いている途中でも、次の操作をすぐ受け付ける
     const t = board.hitTest(ev.target);
     if (t && t.act) {
       if (t.act === 'roll') { humanRoll(); return; }
@@ -1020,13 +1056,95 @@
     const srcs = sourcesPM();
     if (idx != null && srcs.has(idx)) { select(idx); return; }
     // 動かせない駒を押したら理由を出す
-    if (idx != null && idx >= 0 && S.pm.me[idx] > 0) S.msg = S.pm.me[24] > 0 ? 'バーの駒を先に入れます' : pmComplete() ? 'もう全部の目を使いました（確定か戻す）' : 'その駒は今の目では動かせません';
+    const own = idx != null && idx >= 0 && S.pm.me[idx] > 0;
+    if (own) S.msg = S.pm.me[24] > 0 ? 'バーの駒を先に入れます' : pmComplete() ? 'もう全部の目を使いました（確定か戻す）' : 'その駒は今の目では動かせません';
     else S.msg = '';
     clearSel(); render();
     S.msg = '';
+    if (own && MO) MO.pop(board.topChecker(slot), 'shake');
+  }
+  // つかんで置く（common/motion.js）: 動かせる駒を少し動かすとつかみ、行き先が光る。行き先で離すとそこへ、ほかで離すと元へ戻る。
+  // 動かさずに離せばふつうのタップ（タップ → タップ はそのまま）
+  function bindDrag() {
+    if (!MO) return;
+    let from = null;
+    const canMove = () => live() && !S.busy && S.pm && !S.pm.forced && isHuman(S.pm.side);
+    MO.drag($('board'), {
+      pick(target, e) {
+        if (!canMove()) return null;
+        const slot = board.slotAt(e.clientX, e.clientY);
+        if (slot == null) return null;
+        const idx = idxOf(S.pm.side, slot);
+        if (idx == null || !sourcesPM().has(idx)) return null;
+        from = idx;
+        return board.topChecker(slot);
+      },
+      start() {
+        if (!canMove()) return;
+        S.sel = from; S.dests = routesFrom(from); hideChooser();
+        render();
+      },
+      target(x, y) {
+        if (!S.pm || !S.dests) return null;
+        const slot = board.slotAt(x, y);
+        if (slot == null) return null;
+        const idx = idxOf(S.pm.side, slot);
+        return idx != null && S.dests.has(idx) ? board.destEl(slot) : null;
+      },
+      drop(el, to, at) {
+        if (!canMove() || !S.dests) return false;
+        const idx = idxOf(S.pm.side, Number(to.getAttribute('data-slot')));
+        if (idx == null || !S.dests.has(idx)) return false;
+        chooseDest(idx, at);
+        return true;
+      },
+      cancel() { clearSel(); render(); },
+    });
+  }
+  // 長押しで大きく見る（common/motion.js の peek）: ポイント・バー・上がりの山（何枚・どちらの駒か）と、キューブ（値と持ち主）
+  function bindPeek() {
+    if (!MO || !MO.peek) return;
+    let what = null;
+    const inside = (el, x, y) => { if (!el) return false; const r = el.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
+    const caption = s => {
+      if (s === 'cube') {
+        const st = shownState().st;
+        return st.owner === -1 ? `キューブ ${st.cube}（真ん中。どちらも上げられる）` : `キューブ ${st.cube}（${seatName(st.owner)}が持っている）`;
+      }
+      const n = board.countAt(s), c = board.colorAt(s), who = c === COLOR[0] ? SIDE[0] : SIDE[1];
+      if (s === 24 || s === 25) return `${who} ${n}枚がバー`;
+      if (s >= 26) return `${who} ${n}枚 上がり`;
+      return `${who} ${n}枚・${s + 1} のポイント（下の${SIDE[S.bottom]}から見て）`;
+    };
+    MO.peek($('board'), {
+      pick(target, e) {
+        if (S.cfg.cube && inside(board.cubeEl(), e.clientX, e.clientY)) { what = 'cube'; return board.cubeEl(); }
+        const s = board.slotAt(e.clientX, e.clientY);
+        if (s == null || !board.countAt(s)) return null;
+        what = s;
+        return board.hitEl(s);
+      },
+      show(el) {
+        const r = el.getBoundingClientRect();
+        const k = Math.min(innerWidth * 0.8 / r.width, innerHeight * 0.6 / r.height, 4);
+        const box = document.createElement('div');
+        box.className = 'peekbox';
+        Object.assign(box.style, { width: r.width + 'px', height: r.height + 'px' });
+        const z = board.zoomView(what, r.width, r.height);
+        if (z) box.appendChild(z);
+        const cap = document.createElement('div');
+        cap.className = 'peekcap';
+        cap.style.fontSize = (13 / k).toFixed(2) + 'px';
+        cap.textContent = caption(what);
+        box.appendChild(cap);
+        return box;
+      },
+    });
   }
   function bind() {
-    $('board').addEventListener('click', onBoardClick);
+    $('board-wrap').addEventListener('click', onBoardClick);
+    bindDrag();
+    bindPeek();
     $('chooser').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b || !S.chooser) return;
       const r = b.dataset.r === 'x' ? null : S.chooser[Number(b.dataset.r)];
@@ -1150,6 +1268,7 @@
   }
   function setSetting(k, v, quiet) {
     settings[k] = v; store.set('settings', settings);
+    if (k === 'anim' && MO) MO.set(v); // アニメーションは全ゲーム共通で覚える
     const box = { showEval: 'set-eval', arrow: 'set-arrow', autoroll: 'set-autoroll', autoconfirm: 'set-autoconfirm', mirror: 'set-mirror', numbers: 'set-numbers', sound: 'set-sound', anim: 'set-anim' }[k];
     if (box) $(box).checked = v;
     if (quiet) return;

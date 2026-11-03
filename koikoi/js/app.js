@@ -6,7 +6,6 @@
   const $ = id => document.getElementById(id);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const sleep = ms => new Promise(res => setTimeout(res, ms));
-  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ------------------------------------------------------------------ CPU の強さ
   const CPU = {
@@ -181,7 +180,7 @@
         if (i >= 0) h.splice(i, 1); else { const u = h.indexOf(-1); if (u >= 0) h.splice(u, 1); }
       } else if (f.float !== c) {
         f.deck--; f.float = c; f.last = [c];
-        out.push({ f: cloneFrame(f), hint: { [c]: 'deck' }, snd: 'flip', dur: 300 });
+        out.push({ f: cloneFrame(f), hint: { [c]: 'deck' }, snd: 'flip', dur: 260, pause: 60 });
       }
       f.float = f.float === c ? -1 : f.float;
       const took = ev.took.filter(x => x !== c);
@@ -190,13 +189,13 @@
         f.on[c] = si;
       } else placeInSlot(f.slots, c);
       f.last = [c].concat(took);
-      out.push({ f: cloneFrame(f), hint: ev.k === 'play' ? { [c]: p === S.me ? null : 'ohand' } : {}, snd: took.length ? 'slap' : 'slap-soft', dur: 280, pause: took.length ? 220 : 120 });
+      out.push({ f: cloneFrame(f), hint: ev.k === 'play' ? { [c]: p === S.me ? null : 'ohand', arc: true } : { arc: true }, snd: took.length ? 'slap' : 'slap-soft', dur: 240, pause: took.length ? 140 : 60 });
       if (took.length) {
         f.slots = f.slots.map(x => (took.includes(x) ? -1 : x));
         delete f.on[c];
         f.caps[p] = f.caps[p].concat(ev.took);
         f.last = [];
-        out.push({ f: cloneFrame(f), hint: {}, snd: 'take', dur: 340 });
+        out.push({ f: cloneFrame(f), hint: {}, snd: 'take', dur: 300, pause: 20 });
       }
     }
     return out;
@@ -204,10 +203,10 @@
 
   // ------------------------------------------------------------------ 描画
   const cardHTML = (id, cls = '', tagName = 'span', extra = '') =>
-    `<${tagName}${tagName === 'button' ? ' type="button"' : ''} class="card ${cls}" data-k="${id}" data-c="${id}" ${tagName === 'button' ? `aria-label="${NAME[id]}"` : `role="img" aria-label="${NAME[id]}"`} ${extra}>${KC.svg(id, { tag: settings.tag })}</${tagName}>`;
-  // 卓の外（記録・役の演出・ルールのページ）の札。動かさないので data-k を付けない
-  const plainCard = id => `<span class="card" role="img" aria-label="${NAME[id]}">${KC.svg(id, { tag: settings.tag })}</span>`;
-  const backHTML = (key, cls = '') => `<span class="card back ${cls}" data-k="${key}" aria-hidden="true">${KC.svg(-1)}</span>`;
+    `<${tagName}${tagName === 'button' ? ' type="button"' : ''} class="card ${cls}" data-key="${id}" data-c="${id}" ${tagName === 'button' ? `aria-label="${NAME[id]}"` : `role="img" aria-label="${NAME[id]}"`} ${extra}>${KC.svg(id, { tag: settings.tag })}</${tagName}>`;
+  // 卓の外（記録・役の演出・ルールのページ）の札。動かさないので data-key を付けない
+  const plainCard = id => `<span class="card" data-c="${id}" role="img" aria-label="${NAME[id]}">${KC.svg(id, { tag: settings.tag })}</span>`;
+  const backHTML = (key, cls = '') => `<span class="card back ${cls}" data-key="${key}" aria-hidden="true">${KC.svg(-1)}</span>`;
 
   function render() {
     const r = R();
@@ -256,6 +255,17 @@
     if (cnt[3] === 9) out.push('カス あと1');
     return out;
   }
+  // いつも見える取り札: 光・タネ・タンは「何の札か」が読める小さな札（光とタネは絵の名前の1字、タンは月の1字と短冊の色）、カスは枚数
+  // 長押しで大きな札、タップで2人分の一覧（大きな札）
+  const TILE = { 0: '鶴', 8: '幕', 28: '月', 40: '雨', 44: '鳳', 4: '鶯', 12: '鵑', 16: '橋', 20: '蝶', 24: '猪', 29: '雁', 32: '盃', 36: '鹿', 41: '燕' };
+  const AKA = [1, 5, 9], AO = [21, 33, 37];
+  function tileHTML(c, asKasu) {
+    const t = asKasu ? 3 : TYPE[c];
+    const cls = t === 2 ? (AKA.includes(c) ? 'aka' : AO.includes(c) ? 'ao' : 'tan') : 'k' + t;
+    const label = t === 0 || t === 1 ? TILE[c] : MONTHS[c >> 2][0];
+    const last = S.frame.last.includes(c) ? ' last' : '';
+    return `<span class="ctile ${cls}${last}" data-key="${asKasu ? 'k' + c : c}" data-c="${c}" role="img" aria-label="${NAME[c]}${asKasu ? '（カスとして）' : ''}" title="${NAME[c]}">${label}</span>`;
+  }
   function capsHTML(p) {
     const caps = S.frame.caps[p], r = R();
     const has = new Uint8Array(48);
@@ -264,14 +274,15 @@
     for (const [lab, t] of GROUP) {
       const cs = caps.filter(c => TYPE[c] === t || (t === 3 && c === 32 && r.rules.sakeKasu)).sort((a, b) => a - b);
       const n = cs.length;
-      const ov = t === 3 ? (n > 14 ? -0.84 : n > 8 ? -0.76 : -0.62) : n > 6 ? -0.72 : -0.6;
-      h += `<div class="cgroup${n ? '' : ' empty'}${t === 3 ? ' kasu' : ''}"><span class="lab">${lab}<b>${n || ''}</b></span><div class="pile" style="--ov:${ov}">` +
-        cs.map(c => (c === 32 && t === 3 ? `<span class="card ghostcap" data-k="k32" role="img" aria-label="菊に盃（カスとして）">${KC.svg(32, { tag: settings.tag })}</span>` : cardHTML(c, S.frame.last.includes(c) ? 'last' : ''))).join('') + '</div></div>';
+      h += `<div class="cgroup${n ? '' : ' empty'}${t === 3 ? ' kasu' : ''}"><span class="lab">${lab}<b>${n || ''}</b></span><div class="tiles">` +
+        cs.map(c => tileHTML(c, t === 3 && c === 32)).join('') + '</div></div>';
     }
+    // できた役は1つの札（名前と点・合計）、もう少しの役も1つにまとめる（2行より高くならないように）
     const y = K.yakuOf(has, r.rules);
-    let chips = y.list.map(([k, v]) => `<span class="ychip">${K.YAKU[k].name} ${v}</span>`).join('');
-    if (y.list.length > 1) chips += `<span class="ychip sum">計${y.total}点</span>`;
-    if (settings.near && r.phase !== 'end') chips += nearYaku(p).map(t => `<span class="ychip near">${t}</span>`).join('');
+    let chips = '';
+    if (y.list.length) chips += `<span class="ychip">${y.list.map(([k, v]) => `${K.YAKU[k].name}${v}`).join('・')}${y.list.length > 1 ? `<i>計${y.total}</i>` : '点'}</span>`;
+    const near = settings.near && r.phase !== 'end' ? nearYaku(p).map(t => t.replace(' あと1', '')) : [];
+    if (near.length) chips += `<span class="ychip near">あと1: ${near.join('・')}</span>`;
     return h + `<div class="yaku">${chips}</div>`;
   }
   function renderCaps() {
@@ -442,45 +453,74 @@
     return `<table class="months"><thead><tr><th></th><th>${shortName(me)}</th><th>${shortName(o)}</th></tr></thead><tbody>${rows}<tr class="sum"><td>計</td><td>${m.totals[me]}</td><td>${m.totals[o]}</td></tr></tbody></table>`;
   }
 
-  // ------------------------------------------------------------------ 札が動くようす（FLIP）
+  // ------------------------------------------------------------------ 札が動くようす（common/motion.js の TTMotion）
+  // 描き直しの前後で同じ data-key の札を結んで滑らせる。新しく出た札は、山札（裏から表に返る）・相手の手札・指を離した所から飛ばす
+  // 動きを減らす設定・設定のオフ・裏のタブでは TTMotion がすぐ終わるので、進行はそのまま（間だけ少し置く）
+  const TM = window.TTMotion || null;
+  const moving = () => !!(TM && TM.on);
   function snap() {
     const m = new Map();
-    $('table').querySelectorAll('[data-k]').forEach(el => m.set(el.dataset.k, el.getBoundingClientRect()));
+    $('table').querySelectorAll('[data-key]').forEach(el => m.set(el.dataset.key, el.getBoundingClientRect()));
     return m;
   }
-  function animateFrom(before, hint, dur) {
-    if (!settings.anim || reduceMotion) return;
-    const oh = [...$('ohand').querySelectorAll('[data-k]')];
-    $('table').querySelectorAll('[data-k]').forEach(el => {
-      const k = el.dataset.k;
-      let r0 = before.get(k), flipIn = false;
-      if (!r0 && hint[k] === 'deck') { r0 = before.get('deck'); flipIn = true; }
-      if (!r0 && hint[k] === 'ohand') { r0 = before.get('ob' + (oh.length)) || before.get('ob0'); flipIn = true; }
-      if (!r0 && /^ob\d/.test(k) && hint[k] === 'deck') r0 = before.get('deck');
-      if (!r0) return;
-      const r1 = el.getBoundingClientRect();
-      if (!r1.width) return;
-      const dx = r0.left - r1.left, dy = r0.top - r1.top, s = r0.width / r1.width;
-      if (!flipIn && Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(s - 1) < 0.01) return;
-      el.style.zIndex = 30;
-      const a = el.animate([
-        { transform: `translate(${dx}px, ${dy}px) scale(${s})${flipIn ? ' rotateY(80deg)' : ''}`, transformOrigin: '0 0' },
-        { transform: 'none', transformOrigin: '0 0' },
-      ], { duration: dur, easing: 'cubic-bezier(.2,.8,.2,1)' });
-      a.onfinish = () => { el.style.zIndex = ''; };
-    });
+  // 札が表に返る（山札をめくる・相手が出す）。飛んでいる途中で、横向きから開く
+  function faceUp(el, ms) {
+    return el.animate([{ rotate: 'y 90deg' }, { rotate: 'y 90deg', offset: 0.3 }, { rotate: 'y 0deg' }], { duration: ms, easing: 'ease-out' }).finished.catch(() => {});
   }
-  const speed = () => (settings.fast ? 0.55 : 1);
+  function animateFrom(before, hint, dur) {
+    if (!moving()) return Promise.resolve();
+    const nOb = $('ohand').querySelectorAll('[data-key]').length;
+    const drop = S.dropAt && Date.now() - S.dropAt.t < 2000 ? S.dropAt : null;
+    const jobs = [];
+    let fromDeck = 0;
+    $('table').querySelectorAll('[data-key]').forEach(el => {
+      const k = el.dataset.key;
+      let r0 = before.get(k), turn = false, delay = 0, ms = dur;
+      if (drop && drop.key === k) { r0 = drop.rect; ms = 150; S.dropAt = null; }      // 離した所から吸い付く
+      else if (!r0 && hint[k] === 'deck') { r0 = before.get('deck'); turn = !/^ob/.test(k); delay = 28 * fromDeck++; }
+      else if (!r0 && hint[k] === 'ohand') { r0 = before.get('ob' + nOb) || before.get('ob0'); turn = true; }
+      if (!r0) return;
+      jobs.push(TM.fly(el, r0, { ms, arc: !!hint.arc && !drop, delay }));
+      if (turn) jobs.push(faceUp(el, ms + delay));
+    });
+    return Promise.all(jobs);
+  }
+  const speed = () => (settings.fast ? 0.6 : 1);
+  // 待つ（画面を触ったら早めに終わる）
+  function wait(ms) {
+    if (S.skip || ms <= 0) return Promise.resolve();
+    return new Promise(res => { const t = setTimeout(() => { S.waker = null; res(); }, ms); S.waker = () => { clearTimeout(t); S.waker = null; res(); }; });
+  }
+  // 卓の上の動きをその場で終わらせる
+  function endMotion() {
+    if (TM) TM.finish();
+    $('table').getAnimations({ subtree: true }).forEach(x => { try { x.finish(); } catch (e) { /* 終わりのない動き（考え中の輪）はそのまま */ } });
+  }
+  // 札の動きの途中で画面を触ったら、今の動きをその場で終わらせて先へ（次の操作を待たせない）
+  function skipMotion() {
+    if (!S.busy) return;
+    S.skip = true;
+    endMotion();
+    if (S.waker) S.waker();
+  }
+  const SOUNDS = { slap: () => SND.slap(), 'slap-soft': () => SND.slap('soft'), take: () => SND.take(), flip: () => SND.flip() };
   async function showFrames(frames, token) {
     for (const st of frames) {
       if (token !== S.token) return false;
-      const before = snap();
+      const fast = S.skip || !moving();
+      const before = fast ? null : snap();
       S.frame = st.f;
       render();
-      animateFrom(before, st.hint || {}, st.dur * speed());
-      if (st.snd === 'slap') SND.slap(); else if (st.snd === 'slap-soft') SND.slap('soft'); else if (st.snd === 'take') SND.take(); else if (st.snd === 'flip') SND.flip();
-      await sleep(((settings.anim && !reduceMotion) ? st.dur : 60) * speed() + (st.pause || 0) * speed());
+      if (!S.skip && st.snd && SOUNDS[st.snd]) SOUNDS[st.snd]();
+      if (!fast) {
+        // 動きの終わりを待つが、長くは待たない（画面が描かれていないと動きが進まないことがある。進行を止めない）
+        const ms = Math.round(st.dur * speed());
+        const ended = await Promise.race([animateFrom(before, st.hint || {}, ms).then(() => true), sleep(ms + 260).then(() => false)]);
+        if (!ended) endMotion();
+      }
+      await wait(Math.round((moving() ? st.pause || 0 : 90) * speed()));
     }
+    S.skip = false;
     return token === S.token;
   }
 
@@ -529,11 +569,11 @@
     const card = (p, open) => `<div class="oyak"><span class="who">${p === S.me ? 'あなた' : nameOf(p)}</span>${open ? plainCard(draw[p]) : `<span class="card">${KC.svg(-1)}</span>`}${open ? `<span class="mon">${MONTH_NUM[draw[p] >> 2]}</span>` : ''}</div>`;
     const show = open => { $('stage').innerHTML = `<div class="yakuban oyakime pop-in"><div class="who">親決め</div><div class="pair">${who.map(p => card(p, open)).join('')}</div>${open ? `<div class="pts"><b>${S.match.dealer === S.me ? 'あなた' : nameOf(S.match.dealer)}</b>が親です（先に打ちます）</div>` : ''}</div>`; };
     show(false);
-    await sleep(700 * speed());
+    await sleep(500 * speed());
     if (token !== S.token) return -1;
     SND.flip();
     show(true);
-    await sleep(1500 * speed());
+    await sleep(1200 * speed());
     if (token !== S.token) return -1;
     clearStage();
     return S.token;
@@ -560,7 +600,7 @@
     const f = cloneFrame(empty);
     const deal = (who, cards) => {
       for (const c of cards) { if (who === 'field') f.slots.push(c); else f.hands[who].push(c); f.deck--; }
-      steps.push({ f: cloneFrame(f), hint: Object.fromEntries(cards.map(c => [c, 'deck'])), snd: 'slap-soft', dur: 260, pause: 40 });
+      steps.push({ f: cloneFrame(f), hint: Object.fromEntries(cards.map(c => [c, 'deck'])), snd: 'slap-soft', dur: 220, pause: 20 });
     };
     // 配る順: 子に4・場に4・親に4・子に4・場に4・親に4（親が配る）
     deal(ko, r.hands[ko].slice(0, 4)); deal('field', r.field.slice(0, 4)); deal(r.dealer, r.hands[r.dealer].slice(0, 4));
@@ -617,8 +657,8 @@
       if (token !== S.token || key !== decisionKey()) return;
       if (list) a = pickWithTemp(list, lvl.temp || 0).a;
     }
-    const wait = (r.phase === 'koi' ? 700 : lg.length > 1 ? 520 : 320) * speed() - (Date.now() - t0);
-    if (wait > 0) await sleep(wait);
+    const rest = (r.phase === 'koi' ? 550 : lg.length > 1 ? 380 : 200) * speed() - (Date.now() - t0);
+    if (rest > 0) await sleep(rest);
     if (token !== S.token || key !== decisionKey()) return;
     S.thinking = false;
     if (choosing()) { renderBars(); return; } // 閉じたときの schedule() で打ち直す
@@ -662,13 +702,13 @@
       // めくった札が2枚と合う: めくった札を見せて止まる
       const ff = cloneFrame(f);
       ff.deck = r.deck.length; ff.float = r.pending; ff.last = [r.pending];
-      frames.push({ f: ff, hint: { [r.pending]: 'deck' }, snd: 'flip', dur: 300 });
+      frames.push({ f: ff, hint: { [r.pending]: 'deck' }, snd: 'flip', dur: 260 });
     }
     if (frames.length) S.slots = frames[frames.length - 1].f.slots.slice(); // 動かした置き場所をそのまま使う
     const ok = await showFrames(frames, token);
     if (!ok) return false;
     S.frame = frameOf(r);
-    S.busy = false;
+    // こいこい・役の演出の間も「動いている途中」（触れば早く終わる）
     if (a === KOI) await koiEffect(p);
     else if (a === STOP && r.phase === 'end') SND.stop();
     // 役ができた
@@ -676,6 +716,7 @@
       await yakuEffect(p, before.score);
       if (token !== S.token) return false;
     }
+    S.busy = false; S.skip = false;
     render();
     saveGame();
     if (r.phase === 'end') { onRoundEnd(); return true; }
@@ -699,7 +740,13 @@
       <div class="cards">${cards.map(plainCard).join('')}</div>
       <div class="pts">役の合計<b>${y.total}</b>点</div>
       <div class="choose" id="koi-choose"></div><div class="advice" id="koi-advice"></div></div>`;
-    if (!isHuman(p) || r.phase !== 'koi') { await sleep(1500 * speed()); if (S.stage && S.stage.kind === 'yaku') clearStage(); }
+    // 取り札の中の役の札を光らせ、役の名前と点をふわっと出す
+    if (TM) {
+      const box = $(p === S.me ? 'caps-me' : 'caps-opp');
+      box.querySelectorAll('.card[data-c]').forEach(el => { if (cards.includes(+el.dataset.c)) TM.pop(el, 'glow'); });
+      TM.float(`${names.join('・')} ${y.total}点`, box, { size: 19, color: '#ffe08a', ms: 1100 });
+    }
+    if (!isHuman(p) || r.phase !== 'koi') { await wait(1100 * speed()); if (S.stage && S.stage.kind === 'yaku') clearStage(); }
   }
   function yakuCards(list, has) {
     const pick = new Set();
@@ -743,7 +790,7 @@
   async function koiEffect(p) {
     SND.koikoi();
     $('stage').innerHTML = '<div class="koicall">こいこい</div>';
-    await sleep(1000 * speed());
+    await wait(750 * speed());
     clearStage();
   }
 
@@ -858,8 +905,25 @@
     const sh = $('sheet');
     sh.dataset.tab = tab || sh.dataset.tab || 'log';
     sh.querySelectorAll('.sheet-tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.st === sh.dataset.tab)));
-    $('sheet-body').innerHTML = sh.dataset.tab === 'log' ? logHTML() : monthsTable(false) + winGraph();
+    $('sheet-body').innerHTML = sh.dataset.tab === 'log' ? logHTML() : sh.dataset.tab === 'caps' ? capsSheetHTML() : monthsTable(false) + winGraph();
     sh.classList.add('open');
+  }
+  // 取り札を大きく: 2人分を種類ごとに並べ、できた役ともう少しの役を添える
+  function capsSheetHTML() {
+    const r = R(), f = S.frame;
+    if (!r || !f) return '';
+    const side = p => {
+      const caps = f.caps[p], has = new Uint8Array(48);
+      caps.forEach(c => { has[c] = 1; });
+      const y = K.yakuOf(has, r.rules);
+      const groups = GROUP.map(([lab, t]) => {
+        const cs = caps.filter(c => TYPE[c] === t).sort((a, b) => a - b);
+        return `<div class="cbig"><span class="lab">${lab} <b>${cs.length}</b></span><div class="cs">${cs.map(plainCard).join('') || '<span class="hint">なし</span>'}</div></div>`;
+      }).join('');
+      const chips = y.list.map(([k, v]) => `<span class="ychip">${K.YAKU[k].name} ${v}</span>`).join('') + (r.phase !== 'end' ? nearYaku(p).map(t => `<span class="ychip near2">${t}</span>`).join('') : '');
+      return `<div class="capside"><h4>${nameOf(p)}　<span class="hint">役の合計 ${y.total}点</span></h4><div class="ychips">${chips || '<span class="hint">役はまだありません</span>'}</div>${groups}</div>`;
+    };
+    return side(opp()) + side(S.me);
   }
   // 月のはじめごとの「対局に勝つ見込み」（AI補助。月の結果の分布から計算した表 V で）
   function winGraph() {
@@ -936,6 +1000,22 @@
     SND.slap('soft');
     render();
   }
+  // つかんだ札を置ける所: 合わせる札の上（2枚から選ぶときはその札だけ）。合う札がなければ場のどこでも
+  function dropTarget(x, y) {
+    const r = R();
+    if (!r) return null;
+    const src = r.phase === 'pick' ? r.pending : S.sel;
+    if (src < 0) return null;
+    const ms = r.matches(src);
+    const hit = document.elementFromPoint(x, y);
+    if (!hit) return null;
+    const card = hit.closest('#field .card[data-c]');
+    if (card && ms.includes(+card.dataset.c)) return card;
+    if (r.phase === 'play' && ms.length !== 2 && hit.closest('#fieldwrap') && !hit.closest('#deck')) {
+      return ms.length ? $('field').querySelector(`.card[data-c="${ms[0]}"]`) : $('field');
+    }
+    return null;
+  }
   function onFieldTap(c) {
     const r = R();
     if (!r || r.phase === 'end' || S.view != null) return;
@@ -952,6 +1032,57 @@
   function bind() {
     document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
     $('hand').addEventListener('click', e => { const el = e.target.closest('.card[data-c]'); if (el) onHandTap(+el.dataset.c); });
+    // 札が動いている途中に触ったら、今の動きを終わらせる（次の操作を待たせない）
+    $('table').addEventListener('pointerdown', () => { if (S.busy) skipMotion(); }, true);
+    // 札をつかんで場へ置く（タップ → タップ もそのまま使える）
+    if (TM) TM.drag($('table'), {
+      pick: t => {
+        const r = R();
+        if (!humanTurn()) return null;
+        if (r.phase === 'play') return t.closest('#hand .card[data-c]');
+        if (r.phase === 'pick') return t.closest('#deck .float .card[data-c]');
+        return null;
+      },
+      start: el => {
+        const r = R();
+        if (r.phase === 'play') {
+          S.sel = +el.dataset.c; S.inspect = -1;
+          $('hand').querySelectorAll('.card.sel').forEach(x => x.classList.remove('sel'));
+          renderField(); renderInfo();
+          SND.slap('soft');
+        }
+      },
+      target: (x, y) => dropTarget(x, y),
+      drop: (el, to, at) => {
+        const r = R(), c = +el.dataset.c;
+        let a = null;
+        if (r.phase === 'play') { const ms = r.matches(c); a = PLAY(c, ms.length === 2 ? +to.dataset.c : -1); }
+        else if (r.phase === 'pick' && to.dataset.c != null) a = PICK(+to.dataset.c);
+        if (a == null || !r.isLegal(a)) return false;
+        S.dropAt = { key: String(c), rect: at, t: Date.now() };
+        userAct(a);
+        return true;
+      },
+      cancel: () => { S.sel = -1; render(); },
+    });
+    // 取り札をタップすると、2人分を大きく並べて見せる（もう一度タップで閉じる）
+    ['caps-me', 'caps-opp'].forEach(id => $(id).addEventListener('click', e => {
+      e.stopPropagation();
+      if ($('sheet').classList.contains('open') && $('sheet').dataset.tab === 'caps') { closeSheet(); return; }
+      if (R() && S.frame) openSheet('caps');
+    }));
+    // 長押しで大きく見る（手札・場・取り札・めくった札・一覧の札）。離すと閉じる
+    if (TM && TM.peek) {
+      const big = el => {
+        const d = document.createElement('span');
+        d.className = 'card';
+        d.innerHTML = KC.svg(+el.dataset.c, { tag: settings.tag });
+        d.style.width = Math.max(18, el.getBoundingClientRect().width) + 'px';
+        return d;
+      };
+      TM.peek($('table'), { pick: t => t.closest('.card[data-c], .ctile[data-c]'), show: big, scale: 9 });
+      TM.peek($('sheet'), { pick: t => t.closest('.card[data-c]'), show: big, scale: 6 });
+    }
     $('fieldwrap').addEventListener('click', e => {
       if (e.target.closest('[data-act="place"]') || ($('fieldwrap').classList.contains('placeable') && !e.target.closest('#deck'))) { if (S.sel >= 0 && humanTurn() && !R().matches(S.sel).length) userAct(PLAY(S.sel, -1)); return; }
       const el = e.target.closest('.card[data-c]');
@@ -960,6 +1091,8 @@
     });
     $('field').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-act="place"]')) { e.preventDefault(); if (S.sel >= 0 && humanTurn()) userAct(PLAY(S.sel, -1)); } });
     $('table').addEventListener('click', e => {
+      // 一覧（せり上がるパネル）が開いていたら、卓をタップ1回で閉じる
+      if ($('sheet').classList.contains('open')) { closeSheet(); if (!e.target.closest('[data-act]')) return; }
       const b = e.target.closest('[data-act]');
       if (!b) { if ((S.sel >= 0 || S.inspect >= 0) && !e.target.closest('.card') && !e.target.closest('.slot')) { S.sel = -1; S.inspect = -1; render(); } return; }
       const act2 = b.dataset.act;
@@ -1007,7 +1140,10 @@
     $('btn-settings').addEventListener('click', e => { e.stopPropagation(); const p = $('settings'); p.hidden = !p.hidden; $('btn-settings').setAttribute('aria-expanded', String(!p.hidden)); });
     $('settings').addEventListener('click', e => e.stopPropagation());
     document.addEventListener('click', () => { $('settings').hidden = true; $('menu-more').hidden = true; });
-    const boxes = { 'set-wp': 'wp', 'set-best': 'best', 'set-tag': 'tag', 'set-near': 'near', 'set-sound': 'sound', 'set-anim': 'anim', 'set-fast': 'fast' };
+    // アニメーションは全ゲーム共通の設定（common/motion.js が覚える）
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); });
+    const boxes = { 'set-wp': 'wp', 'set-best': 'best', 'set-tag': 'tag', 'set-near': 'near', 'set-sound': 'sound', 'set-fast': 'fast' };
     for (const [id, k] of Object.entries(boxes)) {
       $(id).checked = !!settings[k];
       $(id).addEventListener('change', () => {
@@ -1131,7 +1267,9 @@
   let fitPending = 0;
   function fitSoon() { if (!fitPending) fitPending = requestAnimationFrame(() => { fitPending = 0; fit(); }); }
   function fit() {
-    const vw = window.innerWidth, vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    // 2本指で拡大している間も並べ方は変えない（拡大の倍率を掛け戻した高さで決める）
+    const vv = window.visualViewport;
+    const vw = window.innerWidth, vh = vv ? vv.height * (vv.scale || 1) : window.innerHeight;
     const land = vw > vh * 1.15 && vw >= 500;
     document.body.classList.toggle('land', land);
     document.body.classList.toggle('short', land && vh < 520);
@@ -1159,11 +1297,13 @@
         const ow = clamp(cw * 0.48, 14, 30);
         // 横長: 取り札は左の列（上が相手・下が自分）。自分の取り札は手札と同じ高さの枠に、高さがあれば 2×2、なければ1列
         const handH0 = cw * 1.78, two = handH0 >= 150;
-        const mw = land ? clamp(two ? Math.min((handH0 - 56) / 3.2, capw / 6) : Math.min((handH0 - 38) / 1.6, capw / 7.5), 14, cw * 0.8) : clamp(cw * 0.52, 16, 34);
+        // 取り札の小さな札（幅 tw、高さ 1.28tw）。横長は左の列の幅に合わせる
+        const tw = land ? clamp(Math.min(two ? (handH0 - 52) / 2 / 1.28 : (handH0 - 34) / 1.28, capw / 7), 16, 30) : clamp(cw * 0.6, 18, 30);
+        const mw = tw;
         const obarH = Math.max(26, ow * 1.6);
-        const capsH = land ? 0 : 2 * (mw * 1.6 + 16) + 22 + gap; // 取り札2段と自分の帯
+        const capsH = land ? 0 : 2 * (tw * 1.28 + 15) + 22 + gap; // 取り札2段と自分の帯
         // 横長: 自分の取り札は手札と同じ行。取り札の方が高ければ、その分だけ行が高くなる
-        const mcapsH = land ? (two ? 2 * (mw * 1.6 + 16) : mw * 1.6 + 16) + 22 : 0;
+        const mcapsH = land ? (two ? 2 * (tw * 1.28 + 15) : tw * 1.28 + 15) + 22 : 0;
         const handH = Math.max(cw * 1.78, mcapsH);
         const rest = th - obarH - capsH - infoH - handH - gap * (land ? 3 : 5);
         const fwH = rest / (rows * 1.6 + (rows - 1) * 0.14);
@@ -1171,7 +1311,7 @@
         if (fw < cw * 0.85) continue;
         // 大きいほどよい。重ねた手札・場の札が手札より極端に大きいのは少し減点
         const score = Math.min(fw, cw * 1.3) + cw * 1.15 + (hov < 0 ? hov * cw * 1.2 : 0) - (rows - 2) * 2;
-        if (!best || score > best.score) best = { cw, fw, rows, cols, hov, mw, ow, score, two };
+        if (!best || score > best.score) best = { cw, fw, rows, cols, hov, mw, ow, score, two, tw };
       }
     }
     if (!best) best = { cw: 26, fw: 26, rows: 3, cols: Math.ceil(nslots / 3), hov: -0.3, mw: 16, ow: 14 };
@@ -1179,6 +1319,7 @@
     root.setProperty('--cw', Math.floor(best.cw) + 'px');
     root.setProperty('--fw', Math.floor(best.fw) + 'px');
     root.setProperty('--mw', Math.floor(best.mw) + 'px');
+    root.setProperty('--tw', Math.floor(best.tw || 20) + 'px');
     root.setProperty('--ow', Math.floor(best.ow) + 'px');
     root.setProperty('--hov', best.hov.toFixed(3));
     table.style.setProperty('--fcols', best.cols);
@@ -1224,6 +1365,9 @@
         <li>上がった人が次の月の親になります。</li></ul></div>
         <div class="dcard"><h3>この画面の操作</h3><ul>
         <li>手札をタップすると浮き上がり、取れる場の札が光ります（ほかは暗くなります）。光っている札をタップすると取ります。合う札がなければ「置く」かもう一度タップ。</li>
+        <li>手札を<b>つかんで</b>場の札の上へ持っていって離しても出せます（合う札がなければ場のどこでも）。置けない所で離すと手札に戻ります。</li>
+        <li>取り札をタップすると、2人の取り札を大きく並べて見られます（外をタップで閉じます）。札が動いている途中に画面を触ると、動きをすぐ終わらせます。</li>
+        <li>札を<b>長押し</b>すると大きく見られます（手札・場・取り札・めくった札）。指を離すと閉じます。2本指で画面を拡大することもできます。</li>
         <li>めくった札が2枚と合うときは、どちらを取るかタップします。</li>
         <li>「AI補助」をオンにすると、勝ちの見込みと「おすすめ」の札が出ます。「ヒント」は一度だけおすすめを見せます。</li>
         <li>キーボード: 1〜8 で手札を選ぶ、K でこいこい、S で勝負、Esc で選び直し。</li></ul></div>`;

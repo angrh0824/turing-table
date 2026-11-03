@@ -160,6 +160,10 @@ body.land .mcaps { align-self: end; }
 .card.dim svg.kc { filter: brightness(.5) saturate(.6); }
 .card.tap { cursor: pointer; }
 .card.sel { transform: translateY(calc(var(--cw) * -0.16)); z-index: 3; }
+/* つかんだ札の写し（common/motion.js）: 中の SVG まで指の下の判定から外す（置き先を探すときに写し自身に当たらないように） */
+.tt-ghost, .tt-ghost * { pointer-events: none !important; }
+.tt-ghost.card { transform: none; }
+#field.tt-over { outline: 2px dashed rgba(255, 224, 138, .9) !important; outline-offset: 6px; border-radius: 8px; }
 .card.sel svg.kc { box-shadow: 0 0 0 2px var(--sel), 0 6px 14px rgba(0,0,0,.4); }
 .card.match svg.kc { box-shadow: 0 0 0 2.5px var(--match), 0 0 14px 2px rgba(255, 224, 138, .55); }
 .card.pickme { cursor: pointer; }
@@ -170,7 +174,7 @@ body.land .mcaps { align-self: end; }
 .card.on { position: absolute; z-index: 2; }
 
 /* 取り札: 光・タネ・タン・カスの4つの山 */
-.caps { display: flex; align-items: flex-end; gap: 6px; min-height: calc(var(--mw) * 1.6 + 18px); }
+.caps { display: flex; align-items: flex-end; gap: 6px; min-height: calc(var(--tw, 20px) * 1.28 + 15px); }
 body.land .caps { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 8px; align-content: start; }
 body.land.caps1 .caps { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 2px 6px; }
 body.land.caps1 .mcaps { align-content: flex-end; }
@@ -179,18 +183,19 @@ body.land.caps1 .caps .cgroup { flex: 0 1 auto; }
 body.land.caps1 .caps .cgroup.kasu { flex: 1 1 0; }
 body.land .mcaps { align-content: end; }
 .cgroup { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.cgroup .lab { font-size: 10px; color: var(--mat-muted); letter-spacing: .08em; line-height: 1.2; white-space: nowrap; }
+.cgroup .lab { font-size: 10.5px; color: var(--mat-muted); letter-spacing: .06em; line-height: 1.2; white-space: nowrap; }
 .cgroup .lab b { color: var(--mat-ink); font-weight: 700; margin-left: 2px; }
 .cgroup .pile { display: flex; height: calc(var(--mw) * 1.6); }
 .cgroup .pile .card { width: var(--mw); margin-left: calc(var(--mw) * var(--ov, -0.62)); }
 .cgroup .pile .card:first-child { margin-left: 0; }
 .cgroup.empty .pile { width: var(--mw); border: 1px dashed var(--mat-line); border-radius: 3px; }
 .cgroup.kasu { flex: 1 1 auto; }
-body.land .cgroup .pile { overflow: hidden; }
+body.land .cgroup .pile, body.land .cgroup .tiles { overflow: hidden; }
 .yaku { display: flex; flex-wrap: wrap; gap: 3px 4px; align-content: flex-end; margin-left: auto; justify-content: flex-end; max-width: 46%; }
 body.land .yaku { max-width: none; grid-column: 1 / -1; justify-content: flex-start; margin-left: 0; min-height: 18px; }
 body.land .mcaps .yaku { order: -1; }
-.ychip { font: 700 11px/1.5 var(--font-body); padding: 0 7px; border-radius: 999px; background: rgba(242, 193, 78, .92); color: #2a1e10; white-space: nowrap; }
+.ychip { font: 700 11px/1.5 var(--font-body); padding: 0 7px; border-radius: 999px; background: rgba(242, 193, 78, .92); color: #2a1e10; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ychip i { font-style: normal; margin-left: 5px; padding-left: 5px; border-left: 1px solid rgba(42, 30, 16, .35); }
 .ychip.near { background: transparent; color: var(--mat-muted); border: 1px solid var(--mat-line); font-weight: 500; }
 .ychip.sum { background: var(--accent); color: #fff; }
 
@@ -270,7 +275,7 @@ body.land .mcaps .yaku { order: -1; }
 .oyakime .oyak .card { width: calc(var(--cw) * 1.1); }
 .oyakime .oyak .mon { font: 800 14px/1 var(--font-display); color: #fff; letter-spacing: .1em; }
 @keyframes popin { from { opacity: 0; transform: scale(.86); } to { opacity: 1; transform: none; } }
-.koicall { font: 800 clamp(34px, 10vw, 64px)/1 var(--font-display); color: #fff; letter-spacing: .14em; text-shadow: 0 3px 18px rgba(185, 65, 44, .8), 0 0 2px #000; animation: koicall 1.1s ease-out forwards; pointer-events: none; }
+.koicall { font: 800 clamp(34px, 10vw, 64px)/1 var(--font-display); color: #fff; letter-spacing: .14em; text-shadow: 0 3px 18px rgba(185, 65, 44, .8), 0 0 2px #000; animation: koicall .8s ease-out forwards; pointer-events: none; }
 @keyframes koicall { 0% { opacity: 0; transform: scale(.6) rotate(-6deg); } 25% { opacity: 1; transform: scale(1.06) rotate(-3deg); } 80% { opacity: 1; } 100% { opacity: 0; transform: scale(1.12) rotate(-3deg); } }
 
 /* 操作の列 */
@@ -296,7 +301,7 @@ body.land .controls .more-wrap { margin-left: 0; margin-top: auto; }
 body.land .controls .more-wrap .btn { width: 100%; }
 body.land .menu { bottom: 0; right: calc(100% + 6px); }
 .side-score { display: none; }
-body.land .side-score { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; min-height: 0; overflow: auto; }
+body.land .side-score { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
 /* 月ごとの得点の表 */
 .months { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -382,7 +387,7 @@ input.text { width: 100%; font: inherit; padding: 8px 10px; border-radius: 9px; 
 .sheet.open { transform: none; visibility: visible; transition: transform .22s cubic-bezier(.2,.8,.2,1); }
 .sheet-head { display: flex; align-items: center; gap: 8px; }
 .sheet-tabs { display: flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 999px; flex: 1; }
-.sheet-tabs button { flex: 1; border: 0; background: transparent; padding: 6px 8px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700; }
+.sheet-tabs button { flex: 1; border: 0; background: transparent; padding: 6px 8px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700; white-space: nowrap; font-size: 13px; }
 .sheet-tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.14); }
 .sheet-body { overflow-y: auto; min-height: 0; }
 .ibtn { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; color: var(--muted); flex: none; }
@@ -396,6 +401,36 @@ input.text { width: 100%; font: inherit; padding: 8px 10px; border-radius: 9px; 
 .log li .mini { display: inline-flex; gap: 2px; vertical-align: middle; margin: 0 2px; }
 .log li .mini .card { width: 18px; }
 .log li.ev { color: var(--muted); }
+/* 取り札を大きく */
+.capside { margin-bottom: 12px; }
+.capside h4 { margin: 0 0 4px; font-family: var(--font-display); font-size: 15px; }
+.capside .ychips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.capside .ychip.near2 { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+.cbig { display: grid; grid-template-columns: 4.2em minmax(0, 1fr); gap: 6px; align-items: center; padding: 3px 0; border-top: 1px solid var(--line); }
+.cbig .lab { font-size: 12px; color: var(--muted); }
+.cbig .lab b { color: var(--ink); }
+.cbig .cs { display: flex; flex-wrap: wrap; gap: 3px; }
+.cbig .cs .card { width: 34px; }
+.caps { cursor: pointer; }
+/* いつも見える取り札の小さな札（何の札か読める）。光=金、タネ=朱、赤短=赤、青短=藍、短冊=薄い朱、カス=紙 */
+.cgroup .tiles { display: flex; align-items: flex-end; min-width: 0; height: calc(var(--tw, 20px) * 1.28); gap: 2px; }
+.cgroup.empty .tiles { width: calc(var(--tw, 20px) * .9); border: 1px dashed var(--mat-line); border-radius: 4px; }
+.ctile { flex: 0 1 var(--tw, 20px); min-width: 13px; height: 100%; border-radius: 4px; display: grid; place-items: center; overflow: hidden;
+  font: 800 calc(var(--tw, 20px) * .6)/1 var(--font-display); color: #1f1b18; background: #f6f0e3;
+  box-shadow: inset 0 -3px 0 var(--band, #b9ae98), 0 1px 2px rgba(0, 0, 0, .4); }
+.ctile.k0 { --band: #b8861f; background: linear-gradient(#fcf3d4, #ecd28c); }
+.ctile.k1 { --band: #c4402c; }
+.ctile.aka { --band: #c8372d; background: #f6dcd5; }
+.ctile.ao { --band: #2f4f86; background: #dde4f1; }
+.ctile.tan { --band: #e58c70; }
+.ctile.k3 { --band: #b9ae98; color: #6b6052; font-weight: 600; }
+.cgroup.kasu .ctile { flex-basis: calc(var(--tw, 20px) * .8); min-width: 5px; }
+/* 種類ごとのまとまりは、見出し（光 2 など）より狭くしない。カスだけ縮める */
+.caps .cgroup:not(.kasu) { flex: 0 1 auto; min-width: auto; }
+.caps .cgroup.kasu { flex: 1 1 0; min-width: 30px; }
+.caps .cgroup.kasu .tiles { overflow: hidden; }
+.caps .cgroup .lab { padding-right: 2px; }
+.ctile.last { box-shadow: inset 0 -3px 0 var(--band, #b9ae98), 0 0 0 2px rgba(255, 236, 170, .95); }
 .log li[data-v] { cursor: pointer; }
 .log li[data-v]:hover { background: var(--surface-2); }
 .log li.cur { background: var(--accent-soft); }
@@ -447,6 +482,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
   .onbtn .lbl { display: none; }
+  .onbtn small { display: none; }
+  .brand h1 { font-size: 17px; }
   .onbtn[data-st="off"] .cnt::before, .onbtn[data-st="error"] .cnt::before, .onbtn[data-st="unavailable"] .cnt::before { content: "対戦"; }
   .onbtn[data-st="on"] .cnt::before, .onbtn[data-st="connecting"] .cnt::before { content: "対戦 "; }
   .controls { gap: 6px; flex-wrap: nowrap; }
@@ -494,7 +531,7 @@ body.land.short .play { grid-template-columns: minmax(0, 1fr) 132px; gap: 6px; }
       <label class="switch"><input type="checkbox" id="set-tag" checked> 札に月と種類の印をつける</label>
       <label class="switch"><input type="checkbox" id="set-near" checked> もう少しでできる役を表示</label>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 効果音</label>
-      <label class="switch"><input type="checkbox" id="set-anim" checked> 札の動き</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
       <label class="switch"><input type="checkbox" id="set-fast"> CPU を速く打たせる</label>
     </div>
   </div>
@@ -539,7 +576,8 @@ body.land.short .play { grid-template-columns: minmax(0, 1fr) 132px; gap: 6px; }
   <div class="sheet-head">
     <div class="sheet-tabs" role="tablist">
       <button role="tab" data-st="log" aria-selected="true">この月の流れ</button>
-      <button role="tab" data-st="months" aria-selected="false">月ごとの得点</button>
+      <button role="tab" data-st="caps" aria-selected="false">取り札</button>
+      <button role="tab" data-st="months" aria-selected="false">得点表</button>
     </div>
     <button class="ibtn" data-act="sheet-close" aria-label="閉じる"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
@@ -581,6 +619,7 @@ body.land.short .play { grid-template-columns: minmax(0, 1fr) 132px; gap: 6px; }
 </div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/koikoi-core.js"></script>
 <script src="js/nn-simd.js"></script>
 <script src="js/koikoi-ai.js"></script>
