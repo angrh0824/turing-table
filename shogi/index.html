@@ -119,17 +119,17 @@ main.docmode { overflow-y: auto; overscroll-behavior: contain; }
 .player .think { font-size: 12px; color: var(--accent); white-space: nowrap; display: flex; align-items: center; gap: 6px; justify-self: end; }
 .player .think i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.player .hand { display: flex; flex-wrap: nowrap; gap: 2px; align-items: center; min-height: 44px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px 4px 2px 2px; }
-.player .hand::-webkit-scrollbar { display: none; }
+/* 持ち駒はいつも全部見える（多いときは駒が少し細くなる。押すと両者の一覧が大きく開く）。取った駒が飛んでくるので切り取らない */
+.player .hand { display: flex; flex-wrap: nowrap; gap: 2px; align-items: center; min-height: 44px; min-width: 0; overflow: visible; padding: 2px 4px 2px 2px; cursor: pointer; }
 .player .st { display: flex; align-items: center; gap: 6px; justify-self: end; min-width: 0; }
 .empty-note { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.hp { position: relative; border: 0; background: none; padding: 0; cursor: pointer; width: 38px; height: 42px; flex: none; border-radius: 8px; }
-.hp[disabled] { cursor: default; }
+.hp { position: relative; border: 0; background: none; padding: 0; cursor: pointer; width: 38px; height: 42px; flex: 0 1 38px; min-width: 22px; border-radius: 8px; }
+.hp.off { cursor: zoom-in; }
 .hp .koma { position: absolute; inset: 2px 2px 0 2px; }
 .hp .n { position: absolute; right: -1px; bottom: -1px; background: var(--ink); color: var(--bg); font-size: 10px; font-weight: 700; border-radius: 999px; min-width: 16px; height: 16px; line-height: 16px; text-align: center; padding: 0 3px; z-index: 2; }
 .hp.sel .koma { transform: translateY(-3px); filter: drop-shadow(0 0 0 var(--sel-ring)) drop-shadow(0 3px 3px rgba(0,0,0,.35)); }
 .hp.sel::after { content: ""; position: absolute; inset: -1px; border: 2.5px solid var(--sel-ring); border-radius: 8px; }
-.hp:not([disabled]):hover .koma { transform: translateY(-2px); }
+.hp:not(.off):hover .koma { transform: translateY(-2px); }
 
 /* 駒 */
 .koma { display: block; pointer-events: none; transition: transform .12s, translate .14s cubic-bezier(.2,.8,.2,1), scale .14s cubic-bezier(.2,.8,.2,1); }
@@ -188,7 +188,22 @@ main.docmode { overflow-y: auto; overscroll-behavior: contain; }
 .sq.selected .koma { translate: 0 -7%; scale: 1.07; }
 .sq.selected .pc::before { content: ""; position: absolute; inset: -6% -6% -4%; border: 3px solid var(--sel-ring); border-radius: 9px; translate: 0 -7%; }
 .sq.inspect .pc::before { content: ""; position: absolute; inset: -6% -6% -4%; border: 3px dashed #cc321c; border-radius: 9px; }
-.moving { z-index: 30; position: relative; }
+/* つかんで運んでいる駒の行き先（TTMotion.drag が .tt-over を付ける） */
+.sq.tt-over { outline: 3px solid var(--sel-ring) !important; outline-offset: -3px; background: var(--hl-sel); }
+/* 長押しで大きく見る（TTMotion.peek）。駒と、その下に名前 */
+.peek-koma { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.peek-koma .koma { display: block; }
+.peek-koma .cap { color: #fff; font-weight: 700; white-space: nowrap; text-shadow: 0 0 2px rgba(0,0,0,.8); line-height: 1.3; }
+/* 両者の持ち駒の一覧 */
+.hands-dlg { width: min(520px, 100%); }
+.hd-side + .hd-side { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.hd-head { font-weight: 700; margin-bottom: 8px; display: flex; gap: 8px; align-items: baseline; }
+.hd-head span { color: var(--muted); font-weight: 500; font-size: 13px; }
+.hd-list { display: flex; flex-wrap: wrap; gap: 10px 12px; min-height: 40px; align-items: center; }
+.hd-p { display: grid; grid-template-columns: 50px auto; grid-template-rows: auto auto; column-gap: 8px; align-items: center; padding: 6px 10px 6px 6px; border-radius: 10px; background: var(--surface-2); }
+.hd-p .koma { grid-row: 1 / span 2; width: 50px; height: 56px; }
+.hd-p b { font-family: var(--font-display); font-size: 17px; line-height: 1.2; }
+.hd-p span { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 
 /* 盤上の矢印（最善手） */
 .arrows { position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: visible; }
@@ -463,7 +478,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .player { padding: 3px 8px; gap: 0 6px; }
   .player .sub { display: none; }
   .player .hand { min-height: 38px; }
-  .hp { width: 32px; height: 36px; }
+  .hp { width: 32px; height: 36px; flex-basis: 32px; }
   .board-frame { padding: 15px 18px 9px 8px; border-radius: 5px; }
   .coords-top { left: 8px; right: 18px; top: 0; font-size: 9px; }
   .coords-right { top: 15px; bottom: 9px; right: 3px; font-size: 9px; }
@@ -500,7 +515,7 @@ body.land .coords-top { left: 7px; right: 17px; top: 0; font-size: 9px; }
 body.land .coords-right { top: 14px; bottom: 8px; right: 3px; font-size: 9px; }
 body.land .player { padding: 2px 8px; }
 body.land .player .hand { min-height: 36px; }
-body.land .hp { width: 30px; height: 34px; }
+body.land .hp { width: 30px; height: 34px; flex-basis: 30px; }
 body.land .sqinfo { height: 34px; }
 body.land .evstrip { padding: 4px 10px; }
 body.land .controls .wide { display: none; }
@@ -516,7 +531,9 @@ body.wide .player { grid-template-columns: minmax(0, 1fr); align-content: start;
 body.wide .player .id { flex-wrap: wrap; row-gap: 0; }
 body.wide .player .hand { flex-wrap: wrap; overflow: visible; min-height: 132px; align-content: flex-start; padding: 2px 0; gap: 3px; }
 body.wide .player .st { justify-self: start; min-height: 18px; }
-body.wide .hp { width: 42px; height: 46px; }
+body.wide .hp { width: 42px; height: 46px; flex: none; }
+/* スマホ縦など（1列）: 盤まわりを画面の上下の真ん中に */
+@media (max-width: 979px) { body:not(.land) .board-col { height: 100%; justify-content: safe center; } }
 @media (prefers-reduced-motion: reduce) {
   .wr-bar .b, .evalbar .fill, .koma, .player, .evstrip .bar .b { transition: none; }
   .sq .mark.pending::after { animation: none; }
@@ -546,7 +563,7 @@ body.wide .hp { width: 42px; height: 46px; }
       <label class="switch"><input type="checkbox" id="set-arrow" checked> 最善手を矢印で表示</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 駒音</label>
-      <label class="switch"><input type="checkbox" id="set-anim" checked> 駒の動きをアニメーション</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
       <label class="switch"><input type="checkbox" id="set-reach" checked> 駒にマウスを乗せると利きを表示</label>
       <label class="switch"><input type="checkbox" id="set-analyze" checked> 自分の手番で形勢を読む</label>
     </div>
@@ -695,6 +712,16 @@ body.wide .hp { width: 42px; height: 46px; }
   </div>
 </div>
 
+<!-- 両者の持ち駒の一覧（駒台を押すと開く） -->
+<div class="overlay" id="dlg-hands" hidden>
+  <div class="dialog hands-dlg" role="dialog" aria-modal="true" aria-labelledby="hd-title">
+    <h2 id="hd-title">持ち駒</h2>
+    <div id="hd-body"></div>
+    <p class="hint" style="margin:10px 0 0">駒を長押しすると大きく見られます</p>
+    <div class="actions"><button class="btn primary" id="hd-close">閉じる</button></div>
+  </div>
+</div>
+
 <!-- 棋譜の読み込み -->
 <div class="overlay" id="dlg-import" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="im-title">
@@ -711,6 +738,7 @@ body.wide .hp { width: 42px; height: 46px; }
 </div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/shogi-core.js"></script>
 <script src="js/shogi-ai.js"></script>
 <script src="js/pieces.js"></script>
