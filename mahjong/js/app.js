@@ -145,16 +145,19 @@
   function afterChange(fresh) {
     const r = S.round;
     if (fresh) S.logPos = 0;
-    consumeLog(r, !fresh);
+    const evs = consumeLog(r, !fresh);
     S.analysis = null;
+    S.anim = { evs };   // 次の描き直しで牌を動かす（何が起きたか）
     render();
     saveGame();
     schedule();
   }
   function consumeLog(r, anim) {
     S.newDiscard = null;
+    const evs = [];
     for (; S.logPos < r.log.length; S.logPos++) {
       const ev = r.log[S.logPos];
+      evs.push(ev);
       if (!anim) continue;
       if (ev.e === 'discard') { S.newDiscard = ev.tile; sound('discard'); if (ev.riichi) callout(ev.s, 'リーチ'); }
       else if (ev.e === 'draw' && isHuman(ev.s)) sound('draw');
@@ -166,6 +169,7 @@
         else { callout(-1, { exhaust: '流局', nagashi: '流し満貫', kyuushu: '九種九牌', suufon: '四風連打', suucha: '四家立直', suukaikan: '四開槓', sancha: '三家和' }[res.reason] || '流局'); sound('draw-game'); }
       } else if (ev.e === 'kyuushu') callout(ev.s, '九種九牌');
     }
+    return evs;
   }
   function callout(s, text) {
     if (reduceMotion) return;
@@ -363,6 +367,9 @@
     return v.cache.r;
   };
   function render() {
+    // 局面が進んだとき（S.anim）と、牌が動いている途中の描き直しでは、描き直しの前の牌の場所を覚えておいて動かす
+    const anim = S.anim; S.anim = null;
+    const before = (anim || flying.size) && moving() && live() ? snapTiles() : null;
     fit();
     const r = shownRound();
     renderTable(r);
@@ -373,22 +380,142 @@
     renderCalls(r);
     renderLog(r);
     renderControls();
+    if (before) animateTiles(before, anim, r);
+    if (anim && r && live()) floatScores(r);
+    if (r) S.shownScores = { r, scores: r.scores.slice() };
+    S.drawnRound = r;
+    if (!$('dlg-discards').hidden) renderDiscards();
   }
+
+  // ------------------------------------------------------------------ 牌が動くようす（common/motion.js の TTMotion）
+  // 描き直しの前後で同じ data-key の牌（t + 牌の番号）を結んで滑らせる。新しく出た牌は、
+  // ツモ = 卓の真ん中（残り枚数）から、相手の打牌・副露 = その人の手牌（ツモ切りなら右端、手出しならどこか）から、つかんで離した牌 = 離した所から
+  // 相手の河・手牌は卓の向きに回した層の中にあるので、画面の上の動きをその層の向きに直してから動かす（TTMotion.fly は回った層を考えない）
+  // 動きを減らす設定・設定のオフ・裏のタブでは動かさない。進行（CPU の手・オンラインの同期）は動きを待たない
+  const TM = window.TTMotion || null;
+  const moving = () => !!(TM && TM.on);
+  const flying = new Set();
+  function endMotion() {
+    if (TM) TM.finish();
+    flying.forEach(a => { try { a.finish(); } catch (e) { a.cancel(); } });
+  }
+  function snapTiles() {
+    const root = $('view-play'), m = new Map();
+    root.querySelectorAll('[data-key]').forEach(el => m.set(el.dataset.key, el.getBoundingClientRect()));
+    root.querySelectorAll('.ohand[data-oh]').forEach(el => m.set('oh' + el.dataset.oh, el.getBoundingClientRect()));
+    const w = root.querySelector('.center .left');
+    if (w) m.set('wall', w.getBoundingClientRect());
+    m.round = S.drawnRound;
+    return m;
+  }
+  const seatOf = el => { const l = el.closest('.layer'); return l ? +l.dataset.p : 0; };
+  function animateTiles(before, anim, r) {
+    // 局が替わったら（配牌）、前の局の牌とは結ばない。手牌と相手の手は真ん中から少しずつずらして配る
+    const deal = !!anim && (before.round !== r || anim.evs.some(e => e.e === 'deal'));
+    const wall = before.get('wall');
+    const disc = anim ? anim.evs.filter(e => e.e === 'discard') : [];
+    const backs = p => { let n = 0; while (before.has(`b${p}-${n}`)) n++; return n; };
+    const jobs = [];
+    let nDeal = 0;
+    $('view-play').querySelectorAll('[data-key]').forEach(el => {
+      const k = el.dataset.key;
+      let from = deal ? null : before.get(k), o = {};
+      if (S.dropAt && S.dropAt.key === k && Date.now() - S.dropAt.t < 2000) { from = S.dropAt.rect; o.ms = 150; S.dropAt = null; }
+      else if (!anim) { if (!from) return; o.ms = 150; o.turn = false; }   // 動いている途中の描き直し: 今の場所から残りを短く
+      else if (deal) { if (!(k[0] === 'b' || el.closest('#hand'))) return; from = wall; o.delay = 14 * nDeal++; o.ms = 260; }
+      else if (!from) {
+        const p = seatOf(el), mine = !el.closest('.layer');
+        if (k[0] === 'b' || (mine && el.closest('#hand'))) from = wall;   // ツモ（自分の牌・相手の裏の牌）
+        else if (!mine && p > 0) {
+          // 相手が切った牌・鳴いた副露の牌は、その人の手牌から
+          const d = disc.find(e => `t${e.tile}` === k), n = backs(p);
+          const i = !n ? -1 : d && d.tsumogiri ? n - 1 : (Number(k.slice(1)) * 7) % Math.max(1, n - 1);
+          from = (i >= 0 && before.get(`b${p}-${i}`)) || before.get('oh' + p);
+        }
+      }
+      if (from) jobs.push([el, from, o]);
+    });
+    // 先に場所を全部読んでから動かす（読みと書きを交互にしない）
+    const rects = jobs.map(([el]) => el.getBoundingClientRect());
+    jobs.forEach(([el, from, o], i) => flyTile(el, from, rects[i], o));
+  }
+  // el を a（前の場所）から今の場所 b へ。横向きの牌（立直の宣言牌・鳴いた牌）は、縦から横に倒れながら
+  function flyTile(el, a, b, o) {
+    if (!a || !a.width || !b.width) return;
+    const dx = a.left + a.width / 2 - (b.left + b.width / 2), dy = a.top + a.height / 2 - (b.top + b.height / 2);
+    const k = Math.sqrt((a.width * a.height) / (b.width * b.height));
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(k - 1) < 0.02) return;
+    const layer = el.closest('.layer'), t = -(layer ? +layer.dataset.rot || 0 : 0) * Math.PI / 180;
+    const lx = dx * Math.cos(t) - dy * Math.sin(t), ly = dx * Math.sin(t) + dy * Math.cos(t);
+    const side = el.parentElement && el.parentElement.classList.contains('side') && o.turn !== false;
+    const ms = o.ms || Math.round(Math.min(380, 170 + Math.hypot(dx, dy) * 0.5));
+    const k0 = { translate: `${lx}px ${ly}px`, scale: `${k}` };
+    if (side) k0.rotate = '-90deg';
+    const z = el.style.zIndex, pos = el.style.position;
+    el.style.zIndex = '40';
+    if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    const an = el.animate([k0, { translate: '0px 0px', scale: '1', rotate: '0deg' }], { duration: ms, delay: o.delay || 0, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
+    flying.add(an);
+    const done = () => { flying.delete(an); el.style.zIndex = z; el.style.position = pos; };
+    an.finished.then(done, done);
+  }
+  // 点数が動いたら（立直の供託・局の精算）、卓の真ん中の点数の上にふわっと出す
+  function floatScores(r) {
+    const prev = S.shownScores;
+    if (!TM || !prev || prev.r !== r || !$('dlg-discards').hidden) return;
+    for (let s = 0; s < 4; s++) {
+      const d = r.scores[s] - prev.scores[s];
+      const at = d && $('tbl').querySelector(`.center .ps.p${rel(s)}`);
+      if (at) TM.float(`${d > 0 ? '+' : '−'}${Math.abs(d).toLocaleString()}`, at, { size: 16, color: d > 0 ? '#8ce6a8' : '#ff9a86', ms: 1200 });
+    }
+  }
+
+  // ------------------------------------------------------------------ 捨て牌と副露の一覧（卓の河・副露・真ん中をタップで開く。スマホで小さい牌を確かめる）
+  function riverList(r, s) {
+    const ds = r.discards[s];
+    let sidePending = false;
+    return ds.map((d, i) => {
+      const side = i === r.riichiAt[s] || (sidePending && !d.called);
+      if (i === r.riichiAt[s] && d.called) sidePending = true; else if (side) sidePending = false;
+      return side ? sideTile(d.tile, d.called ? 'called' : '') : tile(d.tile, d.called ? 'called' : '');
+    }).join('');
+  }
+  function renderDiscards() {
+    const r = shownRound();
+    if (!r) { $('dlg-discards').hidden = true; return; }
+    const dora = [];
+    for (let i = 0; i < r.doraCount; i++) dora.push(tile(r.wall[126 + i]));
+    $('dd-sub').innerHTML = `${esc(S.game ? S.game.roundName(r.roundWind, r.kyoku, r.honba) : '')}・残り ${r.liveLeft}・ドラ表示牌 ${dora.join('')}`;
+    const live1 = r.phase !== 'end';
+    $('dd-body').innerHTML = [0, 1, 2, 3].map(p => {
+      const s = (S.me + p) % 4, w = r.seatWind(s);
+      const turn = live1 && ((r.phase === 'turn' && r.cur === s) || (r.phase === 'react' && r.react && r.react.from === s));
+      const melds = r.melds[s].map(m => meldHTML(m, s)).join('');
+      return `<section class="dd-p${p === 0 ? ' me' : ''}${turn ? ' turn' : ''}">
+        <h3><span class="w${w === 0 ? ' dealer' : ''}">${WIND[w]}</span>${esc(S.online ? S.names[s] : shortName(s))}${r.riichi[s] ? '<span class="riichi-tag">立直</span>' : ''}<span class="sc">${r.scores[s].toLocaleString()}</span></h3>
+        <div class="dd-row">${riverList(r, s) || (melds ? '' : '<span class="none">捨て牌なし</span>')}${melds ? `<span class="dd-melds">${melds}</span>` : ''}</div>
+      </section>`;
+    }).join('');
+  }
+  function openDiscards() { if (!shownRound()) return; renderDiscards(); $('dlg-discards').hidden = false; }
   const isRedId = id => !!(S.game && S.game.rules.aka > 0 && (id === 16 || id === 52 || id === 88));
   // 見えない牌（オンラインの写しの仮の番号 1000+）は裏で
   const tile = (id, cls = '', extra = '') => (id >= 1000 ? TL.backHTML(cls) : TL.tileHTML(id >> 2, isRedId(id), cls, extra));
   const tileK = (k, cls = '') => TL.tileHTML(k, false, cls);
-  const sideTile = (id, cls = '') => `<span class="side">${tile(id, cls)}</span>`;
+  // 動き（下の「牌が動くようす」）のための目印。同じ牌は描き直しの前後で同じ data-key。見えない牌には番号を付けない
+  const kt = id => (id >= 1000 ? '' : ` data-key="t${id}"`);
+  const tileK2 = id => tile(id, '', kt(id));
+  const sideTile = (id, cls = '', extra = '') => `<span class="side">${tile(id, cls, extra)}</span>`;
   function meldHTML(m, owner) {
     // 鳴いた牌は、鳴いた相手の方向に横向き（上家 = 左、対面 = 真ん中、下家 = 右）
-    if (m.type === 'ankan') { const t = m.tiles; return `<span class="meld">${TL.backHTML()}${tile(t[1])}${tile(t[2])}${TL.backHTML()}</span>`; }
+    if (m.type === 'ankan') { const t = m.tiles; return `<span class="meld">${TL.backHTML()}${tileK2(t[1])}${tileK2(t[2])}${TL.backHTML()}</span>`; }
     const from = (m.from - owner + 4) % 4; // 1 下家 2 対面 3 上家
     const others = m.tiles.filter(x => x !== m.called && x !== m.added);
-    const calledHTML = m.type === 'kakan' ? `<span class="side stack">${tile(m.called)}${tile(m.added)}</span>` : sideTile(m.called);
+    const calledHTML = m.type === 'kakan' ? `<span class="side stack">${tileK2(m.called)}${tileK2(m.added)}</span>` : sideTile(m.called, '', kt(m.called));
     let parts;
-    if (m.type === 'chi') parts = [calledHTML, ...others.sort((a, b) => a - b).map(x => tile(x))];
+    if (m.type === 'chi') parts = [calledHTML, ...others.sort((a, b) => a - b).map(tileK2)];
     else {
-      const o = others.slice(0, m.type === 'minkan' ? 3 : 2).map(x => tile(x));
+      const o = others.slice(0, m.type === 'minkan' ? 3 : 2).map(tileK2);
       if (from === 3) parts = [calledHTML, ...o];
       else if (from === 2) parts = [o[0], calledHTML, ...o.slice(1)];
       else parts = [...o, calledHTML];
@@ -402,12 +529,13 @@
     const riichiIdx = r.riichiAt[s];
     let sidePending = false;
     ds.forEach((d, i) => {
-      const isNew = live() && d.tile === S.newDiscard && i === ds.length - 1;
+      const isNew = live() && d.tile === S.newDiscard && i === ds.length - 1 && !TM;
       const cls = (d.called ? 'called ' : '') + (isNew ? 'new ' : '') + (i === ds.length - 1 && r.react && r.react.from === s && r.phase === 'react' ? 'last' : '');
       // 立直の宣言牌は横に（鳴かれたら次の牌を横に）
       const side = i === riichiIdx || (sidePending && !d.called);
       if (i === riichiIdx && d.called) sidePending = true; else if (side) sidePending = false;
-      row += side ? sideTile(d.tile, cls) : tile(d.tile, cls);
+      const key = d.called ? '' : kt(d.tile);
+      row += side ? sideTile(d.tile, cls, key) : tile(d.tile, cls, key);
       n++;
       if ((rows < 2 && n === 6)) { flush(); n = 0; }
     });
@@ -424,15 +552,15 @@
     for (let p = 0; p < 4; p++) {
       const s = (S.me + p) % 4;
       const a = angle[p];
-      html += `<div class="layer" style="transform: translate(${cx}px, ${cy}px) rotate(${a}deg) translate(${-3.025 * rw}px, ${(g.C / 2 + g.gap) * rw}px)"><div class="river">${riverHTML(r, s)}</div></div>`;
+      html += `<div class="layer" data-p="${p}" data-rot="${a}" style="transform: translate(${cx}px, ${cy}px) rotate(${a}deg) translate(${-3.025 * rw}px, ${(g.C / 2 + g.gap) * rw}px)"><div class="river">${riverHTML(r, s)}</div></div>`;
       if (p > 0) {
         // 相手の手牌（裏）と副露。局の終わりに見せる手は表で
         const show = r.phase === 'end' && revealHand(r, s);
         const n = r.hands[s].length;
-        const handTiles = show ? r.hands[s].slice().sort((x, y) => x - y).map(id => tile(id)).join('') : Array.from({ length: n }, () => TL.backHTML()).join('');
+        const handTiles = show ? r.hands[s].slice().sort((x, y) => x - y).map(id => tile(id)).join('') : Array.from({ length: n }, (_, i) => TL.backHTML('', ` data-key="b${p}-${i}"`)).join('');
         const melds = r.melds[s].map(m => meldHTML(m, s)).join('');
         const dist = (g.C / 2 + g.gap + g.river + g.gap2) * rw;
-        html += `<div class="layer" style="transform: translate(${cx}px, ${cy}px) rotate(${a}deg) translate(0, ${dist}px)"><div class="ohand" style="transform: translateX(-50%)"><span class="open-hand" style="display:flex;gap:1px">${handTiles}</span><span class="melds">${melds}</span></div></div>`;
+        html += `<div class="layer" data-p="${p}" data-rot="${a}" style="transform: translate(${cx}px, ${cy}px) rotate(${a}deg) translate(0, ${dist}px)"><div class="ohand" data-oh="${p}" style="transform: translateX(-50%)"><span class="open-hand" style="display:flex;gap:1px">${handTiles}</span><span class="melds">${melds}</span></div></div>`;
       }
     }
     // 中央
@@ -519,7 +647,7 @@
       const isBest = best && best.tile >> 2 === id >> 2 && r.isRed(best.tile) === r.isRed(id) && (isDrawn || best.tile !== r.drawn || !rest.some(x => x === best.tile) ) && (S.hintOn || settings.showEval);
       const cls = ['ht', isDrawn ? 'drawn' : '', S.sel === id ? 'sel' : '', myTurn && !can ? 'off' : '', isBest && myTurn && !markedBest ? 'best' : ''].filter(Boolean).join(' ');
       if (isBest && myTurn) markedBest = true;
-      return `<button class="${cls}" data-id="${id}"${can ? '' : ' disabled'} aria-label="${MJ.kindJa(id >> 2)}${r.isRed(id) ? '（赤）' : ''}">${tile(id)}${evFor(id)}</button>`;
+      return `<button class="${cls}" data-id="${id}" data-key="t${id}"${can ? '' : ' disabled'} aria-label="${MJ.kindJa(id >> 2)}${r.isRed(id) ? '（赤）' : ''}">${tile(id)}${evFor(id)}</button>`;
     };
     let markedBest = false;
     // おすすめの印は「一番よい牌」の1枚だけ（同じ種類が複数あれば、ツモ切りならツモった牌に）
@@ -1102,7 +1230,51 @@
       const b = e.target.closest('button');
       if (b && b.dataset.act === 'live') backToLive();
     });
-    $('stage').addEventListener('click', () => { if (S.sel >= 0 && !S.riichiMode) { S.sel = -1; render(); } });
+    $('stage').addEventListener('click', e => {
+      if (S.sel >= 0 && !S.riichiMode) { S.sel = -1; render(); return; }
+      if (e.target.closest('.river, .ohand, .center')) openDiscards();
+    });
+    $('mymelds').addEventListener('click', openDiscards);
+    $('dlg-discards').addEventListener('click', e => { if (e.target === $('dlg-discards') || e.target.closest('[data-act="dd-close"]')) $('dlg-discards').hidden = true; });
+    // 牌が動いている途中に触ったら、今の動きをその場で終わらせる（次の操作を待たせない）
+    $('view-play').addEventListener('pointerdown', endMotion, true);
+    if (TM) {
+      // 手牌をつかんで河へ（タップ → タップ もそのまま使える）。卓の真ん中（河と相手）の、手牌より上で離せば切る
+      const myTurn = () => { const r = S.round; return !!r && live() && r.phase === 'turn' && r.cur === S.me && isHuman(S.me); };
+      TM.drag($('hand'), {
+        pick: t => (myTurn() ? t.closest('.ht:not([disabled])') : null),
+        start: el => {
+          S.sel = Number(el.dataset.id);
+          $('hand').querySelectorAll('.ht').forEach(b => b.classList.toggle('sel', b === el));
+          renderInfo(shownRound());
+          sound('draw');
+        },
+        target: (x, y) => {
+          const t = $('stage').getBoundingClientRect(), h = $('hand').getBoundingClientRect();
+          if (x < t.left || x > t.right || y < t.top || y > h.top) return null;
+          return $('tbl').querySelector('.layer[data-p="0"] .river');
+        },
+        drop: (el, to, at) => {
+          const r = S.round, a = { t: 'discard', tile: Number(el.dataset.id), riichi: !!S.riichiMode };
+          if (!myTurn() || !r.isLegalTurn(a)) return false;
+          S.dropAt = { key: 't' + a.tile, rect: at, t: Date.now() };
+          humanTurn(a);
+          return true;
+        },
+        cancel: () => { S.sel = -1; render(); },
+      });
+      // 長押しで大きく見る（手牌・河・副露・ドラ・一覧の牌）。離すと閉じる
+      const big = el => {
+        const d = el.cloneNode(true);
+        d.removeAttribute('data-key');
+        d.classList.remove('dim', 'hl', 'last', 'called', 'new');
+        d.style.setProperty('--w', el.getBoundingClientRect().width > el.getBoundingClientRect().height ? el.getBoundingClientRect().height + 'px' : el.getBoundingClientRect().width + 'px');
+        return d;
+      };
+      const pickTile = t => t.closest('.tile:not(.back)');
+      TM.peek($('view-play'), { pick: pickTile, show: big, scale: 5 });
+      TM.peek($('dlg-discards'), { pick: pickTile, show: big, scale: 4 });
+    }
     $('btn-ai').addEventListener('click', () => { const on = !aiOn(); settings.showEval = on; settings.showWaits = on; store.set('settings', settings); $('set-eval').checked = on; $('set-waits').checked = on; if (window.MJOnline) window.MJOnline.setAI(aiFlags()); render(); });
     $('btn-hint').addEventListener('click', hint);
     $('btn-hist').addEventListener('click', () => { if ($('sheet').classList.contains('open')) closeHist(); else openHist(); });
@@ -1162,11 +1334,13 @@
     [['set-eval', 'showEval'], ['set-waits', 'showWaits'], ['set-autowin', 'autowin'], ['set-nocall', 'nocall'], ['set-fast', 'fast'], ['set-sound', 'sound']].forEach(([id, k]) => {
       const el = $(id); el.checked = settings[k]; el.addEventListener('change', () => setSetting(k, el.checked));
     });
+    try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
+    $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); render(); });
     $('btn-online').addEventListener('click', () => { if (window.MJOnline) window.MJOnline.open(); });
     $('on-close').addEventListener('click', () => { $('dlg-online').hidden = true; });
     window.addEventListener('resize', fitSoon);
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeNew(); ['dlg-menu', 'dlg-online'].forEach(id => { $(id).hidden = true; }); closeHist(); $('settings').hidden = true; if (S.sel >= 0) { S.sel = -1; S.riichiMode = false; render(); } return; }
+      if (e.key === 'Escape') { closeNew(); ['dlg-menu', 'dlg-online', 'dlg-discards'].forEach(id => { $(id).hidden = true; }); closeHist(); $('settings').hidden = true; if (S.sel >= 0) { S.sel = -1; S.riichiMode = false; render(); } return; }
       if (e.target.closest('input, textarea, .dialog') || $('view-play').hidden) return;
       if (S.view) {
         if (e.key === 'ArrowLeft') { e.preventDefault(); viewRound(S.view.ri, S.view.step - 1); }

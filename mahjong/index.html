@@ -312,6 +312,30 @@ main { flex: 1 1 auto; min-height: 0; position: relative; }
 .navrow .tape button .who { font-size: 10px; color: var(--muted); }
 .navrow .tape button.cur .who { color: inherit; }
 
+/* ---------- 捨て牌と副露の一覧 ---------- */
+#dlg-discards .dialog { width: min(640px, 100%); padding-top: 12px; }
+.dd-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.dd-head h2 { margin: 0; flex: none; }
+.dd-head .hint { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; --w: 18px; }
+.dd-head .hint .tile { margin-bottom: 1px; }
+.dd-body { display: grid; gap: 8px; }
+.dd-p { border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px 6px; background: var(--surface-2); display: grid; gap: 4px; }
+.dd-p.me { border-color: var(--accent); }
+.dd-p.turn { box-shadow: 0 0 0 2px var(--accent-soft); }
+.dd-p h3 { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.dd-p h3 .w { font-family: var(--font-display); font-weight: 800; }
+.dd-p h3 .w.dealer { color: #c2521f; }
+.dd-p h3 .sc { margin-left: auto; font-variant-numeric: tabular-nums; }
+.dd-row { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 1px; --w: 27px; min-height: calc(var(--w) * 1.43); }
+.dd-row .tile, .dd-row .side { margin-bottom: calc(var(--w) * .09); }
+/* 副露は捨て牌の右（折り返したら右寄せ） */
+.dd-melds { display: flex; align-items: flex-end; gap: calc(var(--w) * .3); margin-left: auto; padding-left: calc(var(--w) * .5); }
+.dd-melds .meld { display: flex; align-items: flex-end; }
+.dd-row .tile.called { opacity: .38; }
+.dd-row .none { color: var(--muted); font-size: 12px; align-self: center; }
+/* 自分の河: つかんだ牌をここへ持ってくると光る */
+.river.tt-over { outline-offset: 3px !important; border-radius: 6px; }
+
 /* ---------- ダイアログ ---------- */
 .overlay { position: fixed; inset: 0; background: rgba(5, 8, 7, .55); display: grid; place-items: center; z-index: 80; padding: 14px; }
 .dialog { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); padding: 18px 20px; width: min(620px, 100%); max-height: 100%; overflow-y: auto; }
@@ -431,6 +455,8 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .dcard h3 { font-size: 17px; }
   .dcard p, .dcard li { font-size: 13px; }
   .winhand { --w: 22px; }
+  .dd-row { --w: 23px; }
+  .dd-body { gap: 6px; }
   .yakulist { font-size: 13px; }
   .pointline { font-size: 21px; }
   .callbtn { min-width: 58px; height: 38px; font-size: 16px; padding: 0 12px; }
@@ -465,6 +491,11 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   .result .deltas { margin-top: 6px; }
   .result .deltas div { padding: 3px 6px; }
   .result .dialog { width: min(760px, 100%); }
+  /* 捨て牌と副露の一覧は2列に */
+  #dlg-discards .dialog { width: min(780px, 100%); padding-top: 8px; }
+  .dd-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+  .dd-row { --w: 21px; }
+  .dd-p { padding: 4px 8px; gap: 2px; }
 }
 /* 狭い画面・背の低い横長: 上の丸いボタンは「● 対戦 3人」（数字だけにしない） */
 @media (max-width: 560px), (max-height: 480px) and (orientation: landscape) {
@@ -503,6 +534,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
       <label class="switch"><input type="checkbox" id="set-fast"> CPU を速く</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 音</label>
+      <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>
     </div>
   </div>
 </header>
@@ -552,6 +584,15 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 </div>
 
 <!-- メニュー -->
+<!-- 捨て牌と副露の一覧（卓の河・副露・真ん中をタップで開く） -->
+<div class="overlay" id="dlg-discards" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dd-title">
+    <div class="dd-head"><h2 id="dd-title">捨て牌と副露</h2><span class="hint" id="dd-sub"></span>
+      <button class="ibtn" data-act="dd-close" aria-label="閉じる"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="dd-body" id="dd-body"></div>
+  </div>
+</div>
+
 <div class="overlay" id="dlg-menu" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mn-title" style="width:min(420px,100%)">
     <h2 id="mn-title">メニュー</h2>
@@ -618,6 +659,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
 </div>
 
 <script src="../common/mute.js"></script>
+<script src="../common/motion.js"></script>
 <script src="js/mj-core.js"></script>
 <script src="js/nn-simd.js"></script>
 <script src="js/mj-ai.js"></script>

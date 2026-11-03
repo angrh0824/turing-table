@@ -112,6 +112,6 @@
     const sym = red ? `${k}r` : `${k}`;
     return `<span class="tile ${cls}" data-k="${k}"${extra}><svg viewBox="0 0 48 64" aria-hidden="true"><use href="#mjt-${sym}"/></svg></span>`;
   }
-  function backHTML(cls = '') { return `<span class="tile back ${cls}"><svg viewBox="0 0 48 64" aria-hidden="true"><use href="#mjt-back"/></svg></span>`; }
+  function backHTML(cls = '', extra = '') { return `<span class="tile back ${cls}"${extra}><svg viewBox="0 0 48 64" aria-hidden="true"><use href="#mjt-back"/></svg></span>`; }
   window.MJTiles = { inject, tileHTML, backHTML, face };
 })();
