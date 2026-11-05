@@ -48,14 +48,15 @@
 .ttj-move .tts-m .tts-n{animation:tts-pulse 1.6s ease-in-out infinite}
 @keyframes tts-pulse{50%{box-shadow:0 0 10px #ffb02e}}
 .tts-ring{position:fixed;pointer-events:none;z-index:2147483300;border-radius:12px;border:2px solid var(--tts-lv,#ffd45a)}
-.tts-vs{position:fixed;inset:0;z-index:2147483400;pointer-events:none;overflow:hidden;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:2vw;padding:0 4vw;color:#fff;
+.tts-vs{position:fixed;inset:0;z-index:2147483400;pointer-events:none;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:2vw;padding:0 4vw;color:#fff;
   font-family:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif}
 .tts-vs::before,.tts-vs::after{content:"";position:absolute;top:-10%;bottom:-10%;width:62%;z-index:-1}
 .tts-vs::before{left:-8%;transform:skewX(-12deg);background:linear-gradient(90deg,rgba(10,14,30,.92),color-mix(in srgb,var(--tts-me) 55%,rgba(10,14,30,.9)))}
 .tts-vs::after{right:-8%;transform:skewX(-12deg);background:linear-gradient(-90deg,rgba(30,8,8,.92),color-mix(in srgb,var(--tts-lv) 55%,rgba(30,8,8,.9)))}
 .tts-vs .tts-side{display:grid;justify-items:center;gap:6px;text-align:center}
-.tts-vs .tts-side b{font:800 clamp(20px,5.4vw,40px)/1.1 "Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.06em;text-shadow:0 3px 10px rgba(0,0,0,.6)}
-.tts-vs .tts-side small{font-size:clamp(11px,2.6vw,15px);font-weight:700;opacity:.85;letter-spacing:.1em}
+.tts-vs .tts-side b{font:800 clamp(22px,6.4vw,44px)/1.1 "Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.06em;text-shadow:0 3px 10px rgba(0,0,0,.6);white-space:nowrap}
+.tts-vs .tts-side .tts-k{font-size:clamp(11px,2.8vw,15px);font-weight:800;letter-spacing:.3em;opacity:.8;margin-bottom:-2px}
+.tts-vs .tts-side small{font-size:clamp(10px,2.6vw,15px);font-weight:700;opacity:.85;letter-spacing:.08em;white-space:nowrap}
 .tts-vs .tts-st{color:var(--tts-lv);font-size:clamp(14px,3.4vw,22px);letter-spacing:1px;text-shadow:0 0 10px var(--tts-lv)}
 .tts-vs .tts-vv{font:italic 900 clamp(54px,15vw,120px)/1 "Shippori Mincho B1",serif;color:transparent;-webkit-background-clip:text;background-clip:text;
   background-image:linear-gradient(180deg,#fff8d6,#ffd75e 45%,#df9612 55%,#ffe48a);filter:drop-shadow(0 4px 0 rgba(60,30,0,.6)) drop-shadow(0 0 18px rgba(255,190,50,.7))}
@@ -279,7 +280,7 @@
     v.style.setProperty('--tts-me', s ? s.rank.color : '#4d9fff');
     v.innerHTML = `<div class="tts-side tts-sl">${s && J ? J.badge(s.level) : ''}<b>あなた</b><small>${s ? `Lv ${s.level}・${esc(s.rank.name)}` : ''}</small></div>
       <div class="tts-vv">VS</div>
-      <div class="tts-side tts-sr"><span class="tts-st">${'★'.repeat(n)}</span><b>CPU ${esc(nameOf(b))}</b><small>${many ? '3人' : 'AI（自己対局で学習）'}</small></div>
+      <div class="tts-side tts-sr"><span class="tts-st">${'★'.repeat(n)}</span><small class="tts-k">CPU${many ? '×3' : ''}</small><b>${esc(nameOf(b))}</b><small>自己対局で学習</small></div>
       ${o ? `<div class="tts-vx">勝てば +${o.xp.toLocaleString()} XP</div>` : ''}`;
     document.body.appendChild(v);
     const L = v.querySelector('.tts-sl'), R = v.querySelector('.tts-sr'), V = v.querySelector('.tts-vv'), X = v.querySelector('.tts-vx');

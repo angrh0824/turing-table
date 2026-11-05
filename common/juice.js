@@ -843,7 +843,64 @@
       if (b && !b.disabled && motion()) anim(b, [{ scale: 1 }, { scale: 0.92, offset: 0.35 }, { scale: 1.03, offset: 0.75 }, { scale: 1 }], { duration: 260, easing: 'ease-out' });
     }, { capture: true, passive: true });
   }
-  function boot() { style(); sync(); watch(); }
+  // 狭い画面で、ゲーム名（.top の .brand h1）が右のタブの下にもぐらないよう、収まる大きさまで文字を詰めて小さくする
+  function fitTitle() {
+    const h = document.querySelector('.top .brand h1');
+    const brand = h && h.closest('.brand');
+    if (!brand) return;
+    let next = brand.nextElementSibling;
+    while (next && !next.getClientRects().length) next = next.nextElementSibling;
+    if (!next) return;
+    const tabs = [...document.querySelectorAll('.top .tabs button')];
+    // ゲームの CSS が !important で決めていることもあるので、こちらも important で上書きする
+    const set = (el, k, v) => (v == null ? el.style.removeProperty(k) : el.style.setProperty(k, v, 'important'));
+    set(h, 'font-size'); set(h, 'letter-spacing');
+    const m0 = brand.querySelector('.mark');
+    if (m0) set(m0, 'display');
+    tabs.forEach(b => { set(b, 'padding-left'); set(b, 'padding-right'); });
+    const rg = document.createRange();
+    const bar = brand.parentElement;
+    // ① 名前がタブにかぶっていない ② 見出しの行の右端の部品（設定の歯車など）が行の外へはみ出していない（はみ出すとページごと横にずれる）
+    const fits = () => {
+      rg.selectNodeContents(h);
+      const rs = [...rg.getClientRects()].filter(r => r.width > 0);
+      if (!rs.length) return true;
+      const right = Math.max(...rs.map(r => r.right)), top = Math.min(...rs.map(r => r.top)), bottom = Math.max(...rs.map(r => r.bottom));
+      const nr = next.getBoundingClientRect();
+      const titleOk = nr.top >= bottom || nr.bottom <= top || right <= nr.left - 4;   // 別の行にある・収まっている
+      const br = bar.getBoundingClientRect(), pr = br.right - parseFloat(getComputedStyle(bar).paddingRight);
+      const rowOk = [...bar.children].every(c => !c.getClientRects().length || c.getBoundingClientRect().right <= pr + 0.5);
+      return titleOk && rowOk;
+    };
+    const shrinkTo = min => {
+      for (let i = 0; i < 24 && !fits(); i++) { const fs = parseFloat(getComputedStyle(h).fontSize); if (fs <= min) return false; set(h, 'font-size', (fs - 1) + 'px'); }
+      return fits();
+    };
+    if (fits()) return;
+    if (parseFloat(getComputedStyle(h).letterSpacing) > 1) { set(h, 'letter-spacing', '.02em'); if (fits()) return; }
+    if (shrinkTo(17)) return;   // まず 17px まで
+    const mark = brand.querySelector('.mark');   // 名前の横の飾りの印は、狭いときは出さない
+    if (mark && mark.getClientRects().length) { set(mark, 'display', 'none'); if (fits()) return; }
+    for (const p of [9, 7, 5]) {   // 次にタブの左右の余白を詰める
+      tabs.forEach(b => { if (parseFloat(getComputedStyle(b).paddingLeft) > p) { set(b, 'padding-left', p + 'px'); set(b, 'padding-right', p + 'px'); } });
+      if (fits()) return;
+    }
+    shrinkTo(13);
+  }
+  let fitT = 0;
+  const fitLater = () => { clearTimeout(fitT); fitT = setTimeout(fitTitle, 120); };
+  function boot() {
+    style(); sync(); watch();
+    fitTitle();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitle);
+    window.addEventListener('resize', fitLater);
+    window.addEventListener('orientationchange', fitLater);
+    // 右の部品（オンラインの人数など）の幅が変わったときも測り直す
+    const top = document.querySelector('.top');
+    // ゲーム名の字（Web フォント）があとから読み込まれて幅が変わったときも
+    if (top && window.ResizeObserver) { const ro = new ResizeObserver(fitLater); [...top.children].forEach(c => { if (!c.classList.contains('brand')) ro.observe(c); }); const h = top.querySelector('.brand h1'); if (h) ro.observe(h); }
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', fitLater);
+  }
   if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot);
 
   function state() {
