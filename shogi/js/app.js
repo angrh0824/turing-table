@@ -186,6 +186,7 @@
   function loadGame(g) {
     AI.cancel(); clearTimeout(S.timer);
     S.handicap = HANDICAPS[g.handicap] ? g.handicap : 'hirate'; S.seats = g.seats; S.online = g.online || null;
+    S.gid = g.gid || Math.random().toString(36).slice(2, 12);   // 対局ごとの印（待った・ここからで終局をやり直しても、ごほうびは1局1回）
     S.pos = Position.initial(S.handicap);
     S.moves = []; S.texts = []; S.evals = g.evals ? g.evals.slice() : [];
     for (const m of g.moves) { S.texts.push(S.pos.moveText(m)); S.pos.make(m); S.moves.push(m); }
@@ -197,7 +198,7 @@
 
   function saveGame() {
     const online = S.online ? { gid: S.online.gid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
-    store.set('game', { handicap: S.handicap, seats: S.seats, moves: S.moves, result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
+    store.set('game', { gid: S.gid, handicap: S.handicap, seats: S.seats, moves: S.moves, result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
   }
 
   function rebuild(n) {
@@ -952,7 +953,7 @@
     $('rs-again').textContent = S.online ? 'もう一局（先後交代）' : 'もう一局';
     // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
     const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
-    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, id: S.gid });
     if (!$('dlg-new').hidden) return; // オンラインの途中で「新しい対局」を押して投了したとき: 選ぶ画面の上に結果を重ねない
     $('dlg-result').hidden = false;
     $('rs-again').focus();

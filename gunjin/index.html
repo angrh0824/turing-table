@@ -91,6 +91,7 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .player .st:hover { background: var(--accent-soft); }
 .player .st b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .player .lost { display: flex; gap: 2px; overflow: hidden; min-width: 0; flex: 0 1 auto; justify-content: flex-end; }
+.player .lost.more { -webkit-mask-image: linear-gradient(90deg, transparent, #000 22px); mask-image: linear-gradient(90deg, transparent, #000 22px); } /* 入りきらない駒が左にある（タップで一覧） */
 .mini { display: inline-grid; place-items: center; height: 20px; min-width: 20px; padding: 0 3px; border-radius: 4px; font: 900 11px/1 var(--font-koma); flex: none; letter-spacing: -.02em; }
 .mini.b { background: var(--pc-b); color: var(--pc-b-ink); border: 1px solid var(--pc-b-edge); }
 .mini.w { background: var(--pc-w); color: var(--pc-w-ink); border: 1px solid var(--pc-w-edge); }

@@ -466,6 +466,9 @@
       const think = S.thinking && stm() === c ? '<span class="think"><i></i>考え中</span>' : '';
       const on = S.mode === 'online' && c !== S.online.me ? aiTagHTML(S.online.opp.ai, S.online.opp.hints) + (S.online.oppPresent === false && !S.result ? '<span class="aitag on" title="相手の接続が切れています">切断中</span>' : '') : S.mode === 'online' ? aiTagHTML(aiFlags(), S.online.myHints) : '';
       el.innerHTML = `<span class="mk ${c ? 'w' : 'b'}">${MARK[c]}</span><span class="name">${name}</span>${on}${think}<button type="button" class="st" data-act="caps" aria-label="${SIDE[c]}が失った駒 ${L.length}枚・残り ${alive}枚（押すと一覧）"><span class="lost">${lostHTML}</span><span>残り <b>${alive}</b></span></button>`;
+      // 入りきらずに左が切れているときは、左の端をうすくして「まだある（押すと一覧）」とわかるように
+      const lo = el.querySelector('.lost'), f = lo && lo.firstElementChild;
+      if (f) lo.classList.toggle('more', f.getBoundingClientRect().left < lo.getBoundingClientRect().left - 0.5);
     };
     const lost = lostPieces(live() ? S.log.length : S.view);
     card($('player-top'), bottomColor() ^ 1);
@@ -797,6 +800,7 @@
     S.view = p >= S.log.length ? null : p;
     S.sel = -1; S.inspect = -1;
     render(); schedule();
+    if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, 350); }   // 見返している間に終わった対局は、最新に戻ったところで結果を出す
   }
   function undo() {
     if (S.mode !== 'cpu' || !S.log.length) return;
@@ -1059,8 +1063,9 @@
     document.addEventListener('keydown', e => {
       if (e.target.closest('input, textarea')) return;
       if (e.key === 'Escape') { if (!$('dlg-new').hidden) closeNew(); else { $('dlg-result').hidden = true; $('dlg-online').hidden = true; $('dlg-caps').hidden = true; closeSheet(); clearSel(); } }
-      else if (e.key === 'ArrowLeft' && $('dlg-new').hidden) viewPly((live() ? S.log.length : S.view) - 1);
-      else if (e.key === 'ArrowRight' && $('dlg-new').hidden) viewPly((live() ? S.log.length : S.view) + 1);
+      else if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden) || document.querySelector('.ttj-ov, .ttj-tour')) return;   // 上に画面が出ている間は、裏の棋譜を動かさない
+      else if (e.key === 'ArrowLeft') viewPly((live() ? S.log.length : S.view) - 1);
+      else if (e.key === 'ArrowRight') viewPly((live() ? S.log.length : S.view) + 1);
     });
   }
   function again() {

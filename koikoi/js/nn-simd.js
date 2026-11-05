@@ -64,7 +64,7 @@
     ]);
   }
 
-  // bytes 以上のメモリを持つ部品を作る。{ mem: ArrayBuffer を返す関数, axpy, layer }
+  // bytes 以上のメモリを持つ部品を作る。{ memory: WebAssembly.Memory, axpy, layer }
   function create(bytes) {
     try {
       if (typeof WebAssembly !== 'object') return null;

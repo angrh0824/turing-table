@@ -1256,6 +1256,7 @@
     document.addEventListener('keydown', e => {
       if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
       if (!$('dlg-new').hidden || !$('dlg-online').hidden) return;
+      if (document.querySelector('.tts-resume, .ttj-ov, .ttj-tour')) return;   // 続きの確認・ごほうび・案内が上にあるときは、裏の卓を動かさない
       const k = e.key.toLowerCase();
       if (k === 'f' && !$('btn-fold').disabled) onFold();
       else if ((k === 'c' || k === ' ') && !$('btn-call').disabled) { e.preventDefault(); onCall(); }

@@ -539,7 +539,7 @@
     } else if (paused()) {
       txt = '新しい対局を選んでいます（いまの対局は止めています）';
     } else {
-      const k = seatOf(g.cur).kind, who = esc(nameOf(g.cur));
+      const k = seatOf(g.cur).kind, who = S.mode === 'watch' ? `「${esc(nameOf(g.cur))}」` : esc(nameOf(g.cur));   // 観戦では名前が強さ（「つよい」など）なので、かぎかっこで名前とわかるように
       const round = `<span class="hint">第${g.round + 1}/12回</span>`;
       if (myInput() || (S.online ? g.cur === S.online.me : k === 'me' || k === 'human')) {
         const you = humanCount() > 1 && !S.online ? `<b>${who}</b>の番` : 'あなたの番';
@@ -916,7 +916,7 @@
         if (S && S.pend >= 0) { S.pend = -1; renderAll(); }
         return;
       }
-      if ($('view-play').hidden || !$('dlg-new').hidden || !$('dlg-online').hidden) return;
+      if ($('view-play').hidden || [...document.querySelectorAll('.overlay')].some(o => !o.hidden) || document.querySelector('.ttj-ov, .ttj-tour')) return;   // 新しい対局・結果・オンライン・ごほうびの画面が上にあるときは振らない
       if (e.key === ' ' || e.key === 'Enter') { if (e.target.closest && e.target.closest('button')) return; e.preventDefault(); onRoll(); }
       else if (/^[1-5]$/.test(e.key)) onDie(+e.key - 1);
     });

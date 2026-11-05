@@ -25,7 +25,8 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('koikoi-' + k)); return v == null ? d : v; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('koikoi-' + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
   };
-  const settings = Object.assign({ sound: true, anim: true, wp: true, best: true, tag: true, near: true, fast: false }, store.get('settings', {}));
+  // AI補助（wp・best）は、さいしょはオフ（「AI補助」を押すと出る。common/setup.js の AIK と同じ項目）
+  const settings = Object.assign({ sound: true, wp: false, best: false, tag: true, near: true, fast: false }, store.get('settings', {}));
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', months: 12, rules: {} }, store.get('cfg', {}));
   cfg.rules = K.normRules(cfg.rules);
   if (!CPU[cfg.cpu]) cfg.cpu = 'normal';
@@ -49,6 +50,8 @@
     token: 0,           // 対局ごとの番号（古い処理を捨てる）
   };
   const R = () => S.round;
+  // 何か月目の局か（0 から）。月が終わると monthIndex は次へ進むので、局が覚えている idx を使う
+  const monthOf = r => (r && r.idx != null ? r.idx : S.match.monthIndex - (r && S.roundEnded === r ? 1 : 0));
   const opp = () => S.me ^ 1;
   const isCPU = p => !!CPU[S.seats[p]];
   const isHuman = p => S.seats[p] === 'human';
@@ -63,54 +66,39 @@
   const humanTurn = () => { const r = R(); return r && r.phase !== 'end' && isHuman(r.turn) && !S.busy && S.view == null && !(S.online && S.online.waiting != null); };
 
   // ------------------------------------------------------------------ CPU（Web Worker）
-  const THREADS = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+  // どの強さもネットの見込みだけで打つ（読みを足しても強くならなかった。README）。計算は1つのワーカーで、使えなければこの画面の中で
   let mainNet = null;
   const getMainNet = () => {
     if (!mainNet) mainNet = new AI.Net(window.KOIKOI_WEIGHTS ? AI.unpackWeights(window.KOIKOI_WEIGHTS) : AI.randomWeights(256, 128, 64, K.makeRng(1)));
     return mainNet;
   };
   const AIW = {
-    pool: [], id: 0, broken: false, searching: false,
-    ensure(n) {
-      while (!this.broken && this.pool.length < n) {
-        try { this.pool.push(new Worker('js/ai-worker.js')); } catch (e) { this.broken = true; }
-      }
-      return this.pool.length;
+    worker: null, id: 0, broken: false, wait: new Map(),
+    ensure() {
+      if (this.worker || this.broken) return this.worker;
+      try {
+        const w = new Worker('js/ai-worker.js');
+        w.onmessage = e => { const f = this.wait.get(e.data.id); if (f) { this.wait.delete(e.data.id); f(e.data.id === this.id ? e.data.list : null); } };
+        // 次からはこの画面の中で考える（待っている頼みは null で返す。呼んだ側が打ち直す）
+        w.onerror = () => { this.broken = true; w.terminate(); this.worker = null; this.flush(); };
+        this.worker = w;
+      } catch (e) { this.broken = true; }
+      return this.worker;
     },
-    // 局面を（見えない札を隠して）読ませる。search なら n 個のワーカーで手分けして合わせる
-    run(round, p, ctx, opts) {
+    // 局面を（見えない札を隠して）見積もらせる → [{a, win, pts}]。古くなった頼みは null
+    run(round, p, ctx) {
       const id = ++this.id;
       const pub = hide(round, p);
-      const n = opts.search ? this.ensure(THREADS) : this.ensure(1);
+      const w = this.ensure();
       return new Promise(resolve => {
-        if (!n) {
-          setTimeout(() => {
-            if (id !== this.id) return resolve(null);
-            const net = getMainNet();
-            const o2 = { timeMs: Math.min(opts.timeMs, 1200), prior: 3 };
-            const list = opts.search === 'look' ? AI.lookaheadEval(net, pub, ctx, o2) : opts.search ? AI.searchEval(net, pub, ctx, o2) : AI.evaluate(net, pub, ctx);
-            resolve(list);
-          }, 20);
-          return;
-        }
-        const parts = [];
-        if (opts.search) this.searching = true;
-        this.pool.slice(0, n).forEach((w, i) => {
-          w.onmessage = e => {
-            if (e.data.id !== this.id) return;
-            parts.push(e.data.list);
-            if (parts.length === n) { if (opts.search) this.searching = false; resolve(merge(parts)); }
-          };
-          w.onerror = () => { this.broken = true; this.pool.forEach(x => x.terminate()); this.pool = []; resolve(null); }; // 次からはこの画面の中で考える
-          w.postMessage({ id, round: pub, ctx, search: opts.search || false, timeMs: opts.timeMs || 0, seed: (Math.random() * 1e9) | 0 });
-        });
+        if (!w) { setTimeout(() => resolve(id === this.id ? AI.evaluate(getMainNet(), pub, ctx) : null), 20); return; }
+        this.wait.set(id, resolve);
+        w.postMessage({ id, round: pub, ctx, search: false, timeMs: 0, seed: 0 });
       });
     },
-    // 読みの途中なら止める（ワーカーは途中で止められないので作り直す）
-    cancel() {
-      this.id++;
-      if (this.searching) { this.pool.forEach(w => w.terminate()); this.pool = []; this.searching = false; }
-    },
+    flush() { this.wait.forEach(f => f(null)); this.wait.clear(); },
+    // 前の頼みの答えを捨てる
+    cancel() { this.id++; this.flush(); },
   };
   // 見えない札を -1 にする（p から見た局面）
   function hide(round, p) {
@@ -120,20 +108,6 @@
     r.deck = r.deck.map(() => -1);
     r.log = [];
     return r;
-  }
-  function merge(parts) {
-    const base = parts[0].map(e => Object.assign({}, e));
-    if (parts.length === 1 && base.every(e => e.n == null)) return base;
-    const prior = 3;
-    base.forEach((e, i) => {
-      if (e.exact) return;
-      let sum = 0, n = 0;
-      for (const p of parts) { const x = p[i]; if (x.n) { sum += x.mean * x.n; n += x.n; } }
-      e.n = n; e.mean = n ? sum / n : e.netWin;
-      e.win = (sum + prior * e.netWin) / (n + prior);
-    });
-    base.forEach(e => { if (!Number.isFinite(e.win)) e.win = Number.isFinite(e.netWin) ? e.netWin : 0.5; });
-    return base;
   }
   const bestOf = list => list.reduce((b, e) => (AI.score(e) > AI.score(b) ? e : b), list[0]);
   function pickWithTemp(list, temp) {
@@ -222,7 +196,7 @@
       const conn = S.online && p !== S.me && !S.online.oppPresent && S.online.lostAt ? '<span class="think" style="color:#ffb4a4">接続切れ</span>' : '';
       const tag = S.online ? aiTagHTML(p === S.me ? aiFlags() : S.online.opp.ai, p === S.me ? S.hints : S.online.opp.hints) : '';
       return `${r.dealer === p ? '<span class="oya" title="親（先に打つ）">親</span>' : ''}<span class="nm">${nameOf(p)}</span>${tag}` +
-        `<span class="tot">合計 <b>${m.totals[p]}</b>点</span>${r.koi[p] ? `<span class="koi">こいこい${r.koi[p] > 1 ? '×' + r.koi[p] : ''}</span>` : ''}${think || conn}`;
+        `<span class="tot"><span class="tl">合計 </span><b>${m.totals[p]}</b>点</span>${r.koi[p] ? `<span class="koi">こいこい${r.koi[p] > 1 ? '×' + r.koi[p] : ''}</span>` : ''}${think || conn}`;
     };
     $('pbar-opp').innerHTML = bar(opp());
     $('pbar-me').innerHTML = bar(S.me);
@@ -331,8 +305,8 @@
     }
     $('field').innerHTML = h;
     $('fieldwrap').classList.toggle('placeable', mt.ghost && !ghostDone); // 空きがなければ場全体をタップで置く
-    // 山札とめくった札
-    const mo = S.match.monthIndex;
+    // 山札とめくった札（月は卓に出ている月。終わった月の卓では、もう次の月に進んだ monthIndex ではなく）
+    const mo = monthOf(r);
     let d = `<div class="pile">${f.deck > 0 ? backHTML('deck2') + backHTML('deck1') + backHTML('deck') : ''}</div>`;
     d += `<span class="mon">${MONTH_NUM[(mo) % 12]}</span><span class="cnt">${mo + 1}/${S.match.months}・残り${f.deck}</span>`;
     if (f.float >= 0) d += `<div class="float">${cardHTML(f.float, r.phase === 'pick' ? 'sel' : '')}</div>`;
@@ -448,7 +422,7 @@
       const h = m.history[i];
       const cur = i === m.monthIndex && !m.over;
       const cell = p => (h ? (h.winner === p ? `<td class="w">${h.points}</td>` : '<td>·</td>') : `<td${cur ? ' class="cur"' : ''}></td>`);
-      rows += `<tr><th>${compact ? MONTHS[i % 12] : MONTH_NUM[i % 12]}${h && h.dealer === me ? '' : ''}</th>${cell(me)}${cell(o)}</tr>`;
+      rows += `<tr><th>${compact ? MONTHS[i % 12] : MONTH_NUM[i % 12]}</th>${cell(me)}${cell(o)}</tr>`;
     }
     return `<table class="months"><thead><tr><th></th><th>${shortName(me)}</th><th>${shortName(o)}</th></tr></thead><tbody>${rows}<tr class="sum"><td>計</td><td>${m.totals[me]}</td><td>${m.totals[o]}</td></tr></tbody></table>`;
   }
@@ -530,6 +504,9 @@
     AIW.cancel();
     S.token++;
     if (!opts.online) { leaveOnline(); cfg = c; store.set('cfg', cfg); }
+    // 前の対局の保存は消す（新しい対局は1枚打ったら残す。オンラインは相手との状態で戻るので残さない）。
+    // common/setup.js の「前回の続き」が、終わった対局や配っただけの対局を聞かないように
+    store.set('game', null);
     const rules = K.normRules(Object.assign({}, c.rules, { months: c.months }));
     if (opts.online) { S.seats = opts.seats; S.me = opts.me; S.reveal = false; }
     else if (c.mode === 'watch') { S.seats = [c.cpu, c.cpu2 || c.cpu]; S.me = 0; S.reveal = true; }
@@ -543,6 +520,8 @@
       opts.dealer = better(draw[0], draw[1]) ? 0 : 1;
     }
     S.match = new K.Match({ rules, dealer: opts.dealer });
+    // ごほうび（XP）を2度数えないための対局ごとの印（オンラインは対局の番号）
+    S.match.uid = opts.online && S.online ? 'on' + S.online.mid : Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
     S.hints = 0;
     closeSheet();
     $('dlg-result').hidden = true;
@@ -651,11 +630,11 @@
     const lg = r.legal();
     let a = lg[0];
     if (lg.length > 1) {
-      const job = lvl.search ? { search: lvl.mode || true, timeMs: settings.fast ? 900 : lvl.search } : {};
-      let list = await AIW.run(r, p, ctxOf(p), job);
-      if (!list && AIW.broken && token === S.token && key === decisionKey()) list = await AIW.run(r, p, ctxOf(p), job); // ワーカーが使えなければこの画面の中で
+      let list = await AIW.run(r, p, ctxOf(p));
+      // 答えが来なかった（ワーカーが使えなくなった・ほかの頼みに追い越された）ときは、同じ局面のままなら頼み直す
+      for (let i = 0; i < 2 && !list && token === S.token && key === decisionKey(); i++) list = await AIW.run(r, p, ctxOf(p));
       if (token !== S.token || key !== decisionKey()) return;
-      if (list) a = pickWithTemp(list, lvl.temp || 0).a;
+      if (list) a = pickWithTemp(list, lvl.temp).a;
     }
     const rest = (r.phase === 'koi' ? 550 : lg.length > 1 ? 380 : 200) * speed() - (Date.now() - t0);
     if (rest > 0) await sleep(rest);
@@ -741,12 +720,12 @@
       <div class="pts">役の合計<b>${y.total}</b>点</div>
       <div class="choose" id="koi-choose"></div><div class="advice" id="koi-advice"></div></div>`;
     // 取り札の中の役の札を光らせ、役の名前と点をふわっと出す
+    const box = $(p === S.me ? 'caps-me' : 'caps-opp');
     if (TM) {
-      const box = $(p === S.me ? 'caps-me' : 'caps-opp');
-      box.querySelectorAll('.card[data-c]').forEach(el => { if (cards.includes(+el.dataset.c)) TM.pop(el, 'glow'); });
+      box.querySelectorAll('.ctile[data-c]').forEach(el => { if (cards.includes(+el.dataset.c)) TM.pop(el, 'glow'); });
       TM.float(`${names.join('・')} ${y.total}点`, box, { size: 19, color: '#ffe08a', ms: 1100 });
-      if (window.TTJuice && p === S.me && isHuman(p)) TTJuice.hype('', box, { tier: y.total >= 10 ? 3 : y.total >= 5 ? 2 : 1, quiet: !settings.sound });   // 役ができた光と音（共通）
     }
+    if (window.TTJuice && p === S.me && isHuman(p)) TTJuice.hype('', box, { tier: y.total >= 10 ? 3 : y.total >= 5 ? 2 : 1, quiet: !settings.sound });   // 役ができた光と音（共通）
     if (!isHuman(p) || r.phase !== 'koi') { await wait(1100 * speed()); if (S.stage && S.stage.kind === 'yaku') clearStage(); }
   }
   function yakuCards(list, has) {
@@ -816,7 +795,8 @@
   function showResult() {
     const r = R(), res = r.result, m = S.match;
     if (!r || r.phase !== 'end') return;
-    const sub = `${MONTH_NUM[(m.monthIndex - 1 + 12) % 12]}（${m.monthIndex}/${m.months}）${S.online ? '・オンライン' : ''}`;
+    const mi = monthOf(r);
+    const sub = `${MONTH_NUM[mi % 12]}（${mi + 1}/${m.months}）${S.online ? '・オンライン' : ''}`;
     let title, body = '';
     if (res.winner < 0) title = '流れ';
     else title = `${nameOf(res.winner)}が ${res.points}点`;
@@ -843,17 +823,17 @@
       title = w < 0 ? '引き分け' : `${S.reveal ? nameOf(w) : w === S.me ? 'あなた' : nameOf(w)}の勝ち`;
       body = `<p class="hint" style="margin:0">${m.months}か月の合計</p>` + body.replace(/<ul class="rlist">[\s\S]*<\/ul>/, '') + `<div style="margin-top:8px">${monthsTable(false)}</div>`;
       actions += S.online ? '<button class="btn" data-act="lobby">ロビーへ</button><button class="btn primary" data-act="rematch">もう一局</button>' : '<button class="btn" data-act="settings-new">設定を変える</button><button class="btn primary" data-act="again">もう一局</button>';
-      if (!S.reveal) { if (w === S.me) SND.win(); }
     } else actions += '<button class="btn primary" data-act="next">次の月へ</button>';
     $('rs-sub').textContent = sub;
     $('rs-title').textContent = title;
     $('rs-body').innerHTML = body;
     $('rs-actions').innerHTML = actions;
     // 共通のごほうび（common/juice.js）: あなたと CPU、またはオンラインの対局だけ。勝った月は小さく、勝負がついたら大きく
+    // 「結果」を押し直しても・読み込み直しても2度数えない（ref はこの画面の中、id は対局ごとの印 m.uid と月）
     if (window.TTJuice && !S.reveal && (S.online || isCPU(opp()))) {
       const stars = S.online ? 0 : CPU[S.seats[opp()]].stars;
-      if (m.over) { const w = m.winner(); TTJuice.result({ outcome: w < 0 ? 'draw' : w === S.me ? 'win' : 'lose', stars, online: !!S.online, ref: m, id: `${m.months}:${m.totals.join(',')}:${body.length}`, quiet: !settings.sound }); }
-      else if (res.winner === S.me) TTJuice.result({ round: true, outcome: 'win', label: `この月 ${res.points}点`, stars, online: !!S.online, ref: res, quiet: !settings.sound });
+      if (m.over) { const w = m.winner(); TTJuice.result({ outcome: w < 0 ? 'draw' : w === S.me ? 'win' : 'lose', stars, online: !!S.online, ref: m, id: m.uid, quiet: !settings.sound }); }
+      else if (res.winner === S.me) TTJuice.result({ round: true, outcome: 'win', label: `この月 ${res.points}点`, stars, online: !!S.online, ref: res, id: `${m.uid}:${m.monthIndex}`, quiet: !settings.sound });
     }
     $('dlg-result').hidden = false;
     const pb = $('rs-actions').querySelector('.primary');
@@ -967,8 +947,9 @@
     const key = decisionKey();
     if (S.assist && S.assist.key === key && !force) { renderAssist(); return; }
     const p = r.turn;
-    // まずネットの見込み（すぐ）、続けて読み（約1秒）で確かめる
-    const quick = await AIW.run(r, p, ctxOf(p), {});
+    // 最強の CPU と同じネットの見込み（すぐ出る）
+    let quick = await AIW.run(r, p, ctxOf(p));
+    if (!quick && AIW.broken && key === decisionKey()) quick = await AIW.run(r, p, ctxOf(p));
     if (!quick || key !== decisionKey()) return;
     S.assist = { key, list: quick, best: bestOf(quick), win: bestOf(quick).win, note: '最強の CPU と同じネットの見込み' };
     renderAssist();
@@ -1196,7 +1177,7 @@
         return;
       }
       const r = R();
-      if (!humanTurn() || !$('dlg-new').hidden || !$('dlg-result').hidden) return;
+      if (!humanTurn() || [...document.querySelectorAll('.overlay')].some(o => !o.hidden)) return;   // ダイアログ（共通部品のものも）が出ている間は打たない
       if (/^[1-8]$/.test(e.key) && r.phase === 'play') { const hs = S.frame.hands[S.me].slice().sort((a, b) => a - b); const c = hs[+e.key - 1]; if (c != null) onHandTap(c); }
       if (r.phase === 'koi' && (e.key === 'k' || e.key === 'K')) userAct(KOI);
       if (r.phase === 'koi' && (e.key === 's' || e.key === 'S')) userAct(STOP);
@@ -1246,7 +1227,7 @@
   function toggleAI() {
     const v = !aiOn();
     settings.wp = v; settings.best = v; saveSettings();
-    if (v) requestAssist(); else { S.assist = null; AIW.cancel(); }
+    if (v) requestAssist(); else S.assist = null;
     render();
     if (NETC) NETC.setAI(aiFlags());
     if (OL) OL.renderLobby();
@@ -1304,13 +1285,12 @@
         const ow = clamp(cw * 0.48, 14, 30);
         // 横長: 取り札は左の列（上が相手・下が自分）。自分の取り札は手札と同じ高さの枠に、高さがあれば 2×2、なければ1列
         const handH0 = cw * 1.78, two = handH0 >= 150;
-        // 取り札の小さな札（幅 tw、高さ 1.28tw）。横長は左の列の幅に合わせる
-        const tw = land ? clamp(Math.min(two ? (handH0 - 52) / 2 / 1.28 : (handH0 - 34) / 1.28, capw / 7), 16, 30) : clamp(cw * 0.6, 18, 30);
-        const mw = tw;
+        // 取り札の小さな札（幅 tile、高さ 1.28 倍）。横長は左の列の幅に合わせる
+        const tile = land ? clamp(Math.min(two ? (handH0 - 52) / 2 / 1.28 : (handH0 - 34) / 1.28, capw / 7), 16, 30) : clamp(cw * 0.6, 18, 30);
         const obarH = Math.max(26, ow * 1.6);
-        const capsH = land ? 0 : 2 * (tw * 1.28 + 15) + 22 + gap; // 取り札2段と自分の帯
+        const capsH = land ? 0 : 2 * (tile * 1.28 + 15) + 22 + gap; // 取り札2段と自分の帯
         // 横長: 自分の取り札は手札と同じ行。取り札の方が高ければ、その分だけ行が高くなる
-        const mcapsH = land ? (two ? 2 * (tw * 1.28 + 15) : tw * 1.28 + 15) + 22 : 0;
+        const mcapsH = land ? (two ? 2 * (tile * 1.28 + 15) : tile * 1.28 + 15) + 22 : 0;
         const handH = Math.max(cw * 1.78, mcapsH);
         const rest = th - obarH - capsH - infoH - handH - gap * (land ? 3 : 5);
         const fwH = rest / (rows * 1.6 + (rows - 1) * 0.14);
@@ -1318,15 +1298,14 @@
         if (fw < cw * 0.85) continue;
         // 大きいほどよい。重ねた手札・場の札が手札より極端に大きいのは少し減点
         const score = Math.min(fw, cw * 1.3) + cw * 1.15 + (hov < 0 ? hov * cw * 1.2 : 0) - (rows - 2) * 2;
-        if (!best || score > best.score) best = { cw, fw, rows, cols, hov, mw, ow, score, two, tw };
+        if (!best || score > best.score) best = { cw, fw, rows, cols, hov, ow, score, two, tile };
       }
     }
-    if (!best) best = { cw: 26, fw: 26, rows: 3, cols: Math.ceil(nslots / 3), hov: -0.3, mw: 16, ow: 14 };
+    if (!best) best = { cw: 26, fw: 26, rows: 3, cols: Math.ceil(nslots / 3), hov: -0.3, ow: 14, two: false, tile: 16 };
     const root = document.documentElement.style;
     root.setProperty('--cw', Math.floor(best.cw) + 'px');
     root.setProperty('--fw', Math.floor(best.fw) + 'px');
-    root.setProperty('--mw', Math.floor(best.mw) + 'px');
-    root.setProperty('--tw', Math.floor(best.tw || 20) + 'px');
+    root.setProperty('--tw', Math.floor(best.tile) + 'px');
     root.setProperty('--ow', Math.floor(best.ow) + 'px');
     root.setProperty('--hov', best.hov.toFixed(3));
     table.style.setProperty('--fcols', best.cols);
@@ -1445,16 +1424,18 @@
     if (!S.match || !S.round) return;
     if (S.online) return; // オンラインは相手との状態で戻る
     const r = S.round;
+    // まだ1枚も打っていない対局は残さない（common/setup.js の「前回の続き」が、配っただけの対局を聞かないように）
+    if (!S.match.history.length && !r.plays && r.phase !== 'end') { store.set('game', null); return; }
     store.set('game', {
       cfg, seats: S.seats, me: S.me, reveal: S.reveal,
-      match: { rules: S.match.rules, months: S.match.months, totals: S.match.totals, history: S.match.history, dealer: S.match.dealer, firstDealer: S.match.firstDealer },
-      round: { dealer: r.dealer, hands: r.hands, field: r.field, deck: r.deck, caps: r.caps, turn: r.turn, phase: r.phase, pending: r.pending, koi: r.koi, score: r.score, decided: r.decided, result: r.result, plays: r.plays, log: r.log },
+      match: { uid: S.match.uid, rules: S.match.rules, months: S.match.months, totals: S.match.totals, history: S.match.history, dealer: S.match.dealer, firstDealer: S.match.firstDealer },
+      round: { idx: r.idx, dealer: r.dealer, hands: r.hands, field: r.field, deck: r.deck, caps: r.caps, turn: r.turn, phase: r.phase, pending: r.pending, koi: r.koi, score: r.score, decided: r.decided, result: r.result, plays: r.plays, log: r.log },
       slots: S.slots, log: S.log.map(e => Object.assign({}, e, { f: undefined })), snap0: S.snap0, ended: S.roundEnded === r,
     });
   }
   function loadGame(g) {
     const m = new K.Match({ rules: g.match.rules, dealer: g.match.firstDealer });
-    Object.assign(m, { totals: g.match.totals, history: g.match.history, dealer: g.match.dealer });
+    Object.assign(m, { totals: g.match.totals, history: g.match.history, dealer: g.match.dealer, uid: g.match.uid || 'r' + Date.now().toString(36) });
     const r = new K.Round({ rules: g.match.rules, dealer: g.round.dealer });
     Object.assign(r, g.round);
     r.has = [new Uint8Array(48), new Uint8Array(48)];
@@ -1516,5 +1497,5 @@
   else if (saved && saved.round && saved.match) { try { loadGame(saved); } catch (e) { console.error(e); newMatch(cfg); } }
   else { newMatch(cfg); openNew(); }
   if (roomCode && OL) OL.open();
-  fitSoon();
+  fit();   // 最初の1回はすぐ（次の描画を待たない。裏のタブで開いたときも寸法が決まっているように）
 })();

@@ -404,6 +404,14 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .navrow .ibtn { width: 32px; }
   .sqinfo { height: 38px; font-size: 12.5px; }
 }
+/* スマホの縦（狭い）: 見出しの行に名前・タブ・オンライン・設定が並ぶよう、すき間と「・待ち」を詰める（リバーシと同じ） */
+@media (max-width: 420px) {
+  .top { gap: 6px; }
+  .brand { gap: 4px; }
+  .brand .home { font-size: 22px; }
+  .onbtn small { display: none; }
+  .tabs button { padding: 5px 9px; }
+}
 @media (max-width: 360px) { .controls .btn { padding: 6px 8px; font-size: 12px; } .brand h1 .seal { display: none; } }
 /* 横向きの低い画面: 盤を左、そのほかを右 */
 @media (orientation: landscape) and (max-height: 560px) and (max-width: 979px) {

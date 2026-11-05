@@ -678,6 +678,7 @@
     S.view = p >= S.moves.length ? null : p;
     S.info = null; S.hover = -1;
     render();
+    if (S.result && !S.resultShown && live()) { S.resultShown = true; setTimeout(showResult, 350); }   // 見返している間に終わった対局は、最新に戻ったところで結果を出す
     if (live()) schedule(); else { AI.cancel(); S.thinking = false; analyze(); }
   }
 
@@ -1097,6 +1098,7 @@
         return;
       }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
+      if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden) || document.querySelector('.ttj-ov, .ttj-tour')) return;   // 上に画面が出ている間は、裏の棋譜を動かさない
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }
       if (e.key === 'Home') { e.preventDefault(); viewPly(0); }

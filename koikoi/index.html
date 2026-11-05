@@ -40,7 +40,6 @@
   --radius: 12px;
   --cw: 44px;     /* 手札の札の幅（app.js が画面に合わせて決める） */
   --fw: 44px;     /* 場の札の幅 */
-  --mw: 24px;     /* 取り札の札の幅 */
   --ow: 22px;     /* 相手の手札（裏）の幅 */
 }
 @media (prefers-color-scheme: dark) {
@@ -82,7 +81,8 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2
 .brand a { color: var(--muted); font-size: 11px; letter-spacing: .14em; white-space: nowrap; text-decoration: none; }
 .brand a:hover { color: var(--accent); }
 /* トップへ戻る「‹」（ほかのゲームと同じ。スマホでも出す） */
-.brand .home { align-self: center; color: var(--muted); font-size: 26px; letter-spacing: 0; line-height: 1; padding: 0 2px 3px; border-radius: 6px; }
+.brand .home { position: relative; align-self: center; color: var(--muted); font-size: 26px; letter-spacing: 0; line-height: 1; padding: 0 2px 3px; border-radius: 6px; }
+.brand .home::before { content: ""; position: absolute; inset: -6px -8px -6px -10px; }   /* 指で押しやすく（見た目と並びはそのまま） */
 .brand .home:hover, .brand .home:focus-visible { color: var(--ink); }
 .tabs { display: flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 999px; }
 .tabs button { border: 0; background: transparent; padding: 5px 13px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 500; white-space: nowrap; }
@@ -137,6 +137,7 @@ body.land .table {
   column-gap: 12px;
 }
 body.land .mbar { align-self: end; }
+body.land .mbar .tot .tl { display: none; }   /* 左の細い列では「合計」を省く（名前が切れないように。合計は右の得点表にも出る） */
 body.land .ocaps { align-self: start; }
 body.land .mcaps { align-self: end; }
 
@@ -188,19 +189,14 @@ body.land .mcaps { align-content: end; }
 .cgroup { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cgroup .lab { font-size: 10.5px; color: var(--mat-muted); letter-spacing: .06em; line-height: 1.2; white-space: nowrap; }
 .cgroup .lab b { color: var(--mat-ink); font-weight: 700; margin-left: 2px; }
-.cgroup .pile { display: flex; height: calc(var(--mw) * 1.6); }
-.cgroup .pile .card { width: var(--mw); margin-left: calc(var(--mw) * var(--ov, -0.62)); }
-.cgroup .pile .card:first-child { margin-left: 0; }
-.cgroup.empty .pile { width: var(--mw); border: 1px dashed var(--mat-line); border-radius: 3px; }
 .cgroup.kasu { flex: 1 1 auto; }
-body.land .cgroup .pile, body.land .cgroup .tiles { overflow: hidden; }
+body.land .cgroup .tiles { overflow: hidden; }
 .yaku { display: flex; flex-wrap: wrap; gap: 3px 4px; align-content: flex-end; margin-left: auto; justify-content: flex-end; max-width: 46%; }
 body.land .yaku { max-width: none; grid-column: 1 / -1; justify-content: flex-start; margin-left: 0; min-height: 18px; }
 body.land .mcaps .yaku { order: -1; }
 .ychip { font: 700 11px/1.5 var(--font-body); padding: 0 7px; border-radius: 999px; background: rgba(242, 193, 78, .92); color: #2a1e10; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .ychip i { font-style: normal; margin-left: 5px; padding-left: 5px; border-left: 1px solid rgba(42, 30, 16, .35); }
 .ychip.near { background: transparent; color: var(--mat-muted); border: 1px solid var(--mat-line); font-weight: 500; }
-.ychip.sum { background: var(--accent); color: #fff; }
 
 /* 場と山札 */
 .fieldwrap { display: flex; align-items: center; justify-content: center; gap: calc(var(--fw) * .28); min-height: 0; }
@@ -468,6 +464,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
 .stat b { display: block; font-family: var(--font-display); font-size: 28px; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .stat span { color: var(--muted); font-size: 12px; }
 @media (max-width: 560px) {
+  .doctabs button { padding: 7px 10px; }
   .dcard { padding: 10px 12px; }
   .dcard h3 { font-size: 17px; }
   .dcard p, .dcard li { font-size: 13px; line-height: 1.55; }
@@ -478,7 +475,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
 
 @media (max-width: 560px) {
   .top { gap: 6px; padding-block: 7px 6px; }
-  .brand h1 { font-size: 19px; letter-spacing: .04em; }
+  .brand h1 { font-size: 17px; letter-spacing: .04em; }
   .brand h1 small { display: block; font-size: 10px; letter-spacing: .3em; margin: 0 0 1px; }
   .brand a:not(.home) { display: none; }
   .brand .home { font-size: 24px; }
@@ -487,7 +484,6 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
   .onbtn .lbl { display: none; }
   .onbtn small { display: none; }
-  .brand h1 { font-size: 17px; }
   .onbtn[data-st="off"] .cnt::before, .onbtn[data-st="error"] .cnt::before, .onbtn[data-st="unavailable"] .cnt::before { content: "対戦"; }
   .onbtn[data-st="on"] .cnt::before, .onbtn[data-st="connecting"] .cnt::before { content: "対戦 "; }
   .controls { gap: 6px; flex-wrap: nowrap; }
@@ -499,7 +495,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
 /* 横長の小さな画面（スマホを横に） */
 body.land.short .top { padding-block: 4px 4px; }
 body.land.short .brand h1 { font-size: 18px; }
-body.land.short .brand a { display: none; }
+body.land.short .brand a:not(.home) { display: none; }
 body.land.short .tabs button { padding: 3px 9px; font-size: 12.5px; }
 body.land.short .iconbtn, body.land.short .onbtn { height: 30px; }
 body.land.short .iconbtn { width: 30px; }
@@ -529,8 +525,8 @@ body.land.short .play { grid-template-columns: minmax(0, 1fr) 132px; gap: 6px; }
     </button>
     <div class="popover" id="settings" hidden>
       <span class="hint" style="margin-bottom:-4px">AI補助（下の「AI補助」でまとめて切り替え）</span>
-      <label class="switch"><input type="checkbox" id="set-wp" checked> 勝ちの見込みを表示</label>
-      <label class="switch"><input type="checkbox" id="set-best" checked> おすすめの一手を表示</label>
+      <label class="switch"><input type="checkbox" id="set-wp"> 勝ちの見込みを表示</label>
+      <label class="switch"><input type="checkbox" id="set-best"> おすすめの一手を表示</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-tag" checked> 札に月と種類の印をつける</label>
       <label class="switch"><input type="checkbox" id="set-near" checked> もう少しでできる役を表示</label>
@@ -559,7 +555,7 @@ body.land.short .play { grid-template-columns: minmax(0, 1fr) 132px; gap: 6px; }
     <div class="controls" id="controls">
       <button class="btn primary" id="btn-new">新しい対局</button>
       <button class="btn" id="btn-hint">ヒント</button>
-      <button class="btn aibtn" id="btn-ai" aria-pressed="true" title="勝ちの見込みとおすすめの一手をまとめて出し入れ"><span class="led"></span>AI補助</button>
+      <button class="btn aibtn" id="btn-ai" aria-pressed="false" title="勝ちの見込みとおすすめの一手をまとめて出し入れ"><span class="led"></span>AI補助</button>
       <button class="btn wide" id="btn-log">記録</button>
       <div class="side-score" id="side-score"></div>
       <div class="more-wrap">

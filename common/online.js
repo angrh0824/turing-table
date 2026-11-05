@@ -102,7 +102,8 @@
         timersOn = true;
         setInterval(publishMe, BEAT);
         setInterval(() => { call('onPresence', list()); checkOpp(); }, 10000);
-        window.addEventListener('pagehide', () => { try { client.publish(T(`p/${me.id}`), '', { retain: true, qos: 0 }); client.end(true); } catch (e) { /* 無視 */ } });
+        // ページを離れるとき: 在席を消してから閉じる（送り終わる前に閉じると、console に WebSocket のエラーが出る）。閉じきれなくても遺言で消える
+        window.addEventListener('pagehide', () => { const c = client; if (!c) return; try { if (c.connected) c.publish(T(`p/${me.id}`), '', { retain: true, qos: 0 }, () => { try { c.end(true); } catch (e) { /* 無視 */ } }); else c.end(true); } catch (e) { /* 無視 */ } });
         // 戻るボタンでページがそのまま戻ってきたとき（bfcache）は、上で閉じた接続をつなぎ直す（在席・対局の続きもここから戻る）
         window.addEventListener('pageshow', e => { if (e.persisted && client) { client = null; connect(); } });
       }
