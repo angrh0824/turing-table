@@ -53,9 +53,50 @@ h1 small { display: block; font-family: var(--font-body); font-weight: 500; font
 .tile {
   position: relative; display: grid; grid-template-rows: auto 1fr auto; gap: 4px; padding: 14px 16px; border-radius: 16px; min-height: 0; overflow: hidden;
   background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 8%), var(--surface));
-  border: 1px solid var(--line); color: inherit; text-decoration: none; transition: transform .16s, border-color .16s, box-shadow .16s;
+  border: 1px solid var(--line); color: inherit; text-decoration: none; transition: transform .2s cubic-bezier(.2,.8,.2,1), border-color .16s, box-shadow .16s;
+  transform: perspective(800px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(var(--ty, 0px));
 }
-a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); border-color: var(--accent); box-shadow: 0 10px 28px -14px var(--accent); outline: none; }
+a.tile:hover, a.tile:focus-visible { --ty: -3px; border-color: var(--accent); box-shadow: 0 14px 30px -14px var(--accent); outline: none; }
+/* 指した所に光（マウスのとき） */
+a.tile::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .2s;
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--accent) 24%, transparent), transparent 62%); }
+a.tile:hover::before { opacity: 1; }
+/* 本日のピックアップ（XP×1.5）と、最強に勝ったゲームの王冠。.ttj-move は common/juice.js が付ける（動きオンのとき） */
+.tile.pick { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 0 22px -6px var(--gold-2); }
+.ttj-move .tile.pick { animation: pick 2.4s ease-in-out infinite; }
+@keyframes pick { 50% { box-shadow: 0 0 0 1px var(--gold), 0 0 32px -2px var(--gold-2); } }
+.chip.hot { border-color: var(--gold); color: var(--ink); background: linear-gradient(90deg, color-mix(in srgb, #ffd45a 45%, transparent), color-mix(in srgb, #ff9a3c 35%, transparent)); font-weight: 700; }
+.chip.won { color: var(--ink); }
+.tile .cr { position: absolute; top: 10px; right: 12px; width: 20px; height: 20px; color: var(--gold-2); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--gold-2) 70%, transparent)); }
+.tile .cr svg { width: 100%; height: 100%; display: block; }
+.tile .cr.u { color: #ff6584; }
+.ttj-move .tile .cr.u { animation: hue 3s linear infinite; }
+@keyframes hue { to { filter: hue-rotate(360deg) drop-shadow(0 0 6px #ff6584); } }
+.ttj-move .grid.intro .tile { animation: tin .55s cubic-bezier(.2,.8,.2,1) backwards; animation-delay: calc(var(--i) * 38ms); }
+@keyframes tin { from { opacity: 0; transform: translateY(16px) scale(.95); } }
+/* ゆっくり動く光（背景） */
+body::before { content: ""; position: fixed; inset: -20%; pointer-events: none; z-index: -1;
+  background: radial-gradient(38% 30% at 22% 28%, var(--glow), transparent 70%), radial-gradient(34% 28% at 78% 72%, color-mix(in srgb, var(--gold-2) 12%, transparent), transparent 70%); }
+.ttj-move body::before { animation: drift 20s ease-in-out infinite alternate; }
+@keyframes drift { to { transform: translate(5%, -4%) rotate(10deg); } }
+/* あなたのレベル・連勝・実績・毎日のボーナス（common/juice.js の記録。この端末だけ） */
+.me { display: flex; align-items: center; gap: 8px; }
+.prof { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 5px 14px 5px 6px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.prof:hover, .prof:focus-visible { border-color: var(--gold); outline: none; }
+.prof .ttj-badge { width: 38px; height: 42px; font-size: 15px; }
+.pm { flex: 1; min-width: 0; display: grid; gap: 5px; }
+.pt { display: flex; align-items: baseline; gap: 10px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.pt .rk { font-weight: 800; letter-spacing: .1em; font-size: 12px; color: color-mix(in srgb, var(--rk) 70%, var(--ink)); }
+.pt .xp { margin-left: auto; font-variant-numeric: tabular-nums; }
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 700 12px var(--font-body); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pill:hover, .pill:focus-visible { border-color: var(--gold); outline: none; }
+.pill[hidden] { display: none; }
+.pill svg { width: 16px; height: 16px; flex: none; }
+.pill.fire { cursor: default; color: #e2541b; border-color: color-mix(in srgb, #ff7a2e 50%, var(--line)); }
+.pill.gift { color: var(--muted); }
+.pill.gift.ready { color: #2b1700; border-color: #ffcf5a; background: linear-gradient(135deg, #ffe07a, #ff9a3c); box-shadow: 0 0 18px -4px #ffb02e; }
+.ttj-move .pill.gift.ready svg { animation: wob 1.8s ease-in-out infinite; transform-origin: 50% 80%; }
+@keyframes wob { 0%, 55%, 100% { rotate: 0deg; } 62% { rotate: -14deg; } 70% { rotate: 12deg; } 78% { rotate: -6deg; } 86% { rotate: 3deg; } }
 .tile .em { position: absolute; right: -6px; bottom: -18px; font-family: var(--font-display); font-weight: 800; font-size: clamp(64px, 11vh, 110px); line-height: 1; color: var(--accent); opacity: .16; pointer-events: none; }
 .tile .nm { font-family: var(--font-display); font-weight: 800; font-size: clamp(17px, 2.4vh, 22px); line-height: 1.2; }
 .tile .nm .n-s { display: none; }
@@ -112,6 +153,16 @@ footer a { color: inherit; }
   h1 small, .kicker { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
+@media (max-width: 560px) {
+  .me { gap: 6px; }
+  .prof { padding: 4px 10px 4px 4px; gap: 8px; }
+  .prof .ttj-badge { width: 32px; height: 35px; font-size: 13px; }
+  .pt .nx { display: none; }
+  .pill { padding: 7px 9px; }
+  .pill .t { display: none; }
+  .tile .cr { top: 6px; right: 6px; width: 16px; height: 16px; }
+}
+@media (max-height: 520px) and (orientation: landscape) { .pt .nx { display: none; } }
 </style>
 </head>
 <body>
@@ -122,6 +173,12 @@ footer a { color: inherit; }
     <h1>チューリング・テーブル<small>TURING TABLE</small></h1>
     <p class="lead">AI が作った AI に、<em>人類は勝てるか。</em></p>
   </header>
+  <div class="me" id="me">
+    <button class="prof" id="prof" type="button" aria-label="実績と記録を見る"><span class="ttj-badge"></span><span class="pm"><span class="pt"><span class="rk"></span><span class="nx"></span><span class="xp" id="xp"></span></span><span class="ttj-bar"><i></i></span></span></button>
+    <span class="pill fire" id="streak" hidden title="連勝中（勝つたびに XP が増えます）"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c1 4 5 5.5 5 11a5 5 0 0 1-10 0c0-2.5 1.2-4 2.5-5 .2 2 1 3 2 3.3C11 8 12 5 12 2z"/></svg><b id="n-streak"></b><span class="t">連勝</span></span>
+    <button class="pill" id="ach" type="button" title="実績と記録"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 3h10v2h3v3a5 5 0 0 1-4.6 5A5 5 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A5 5 0 0 1 8.6 13 5 5 0 0 1 4 8V5h3zm0 4H6v1a3 3 0 0 0 1.2 2.4A7 7 0 0 1 7 9zm10 0v2a7 7 0 0 1-.2 1.4A3 3 0 0 0 18 8V7z"/></svg><span id="n-ach"></span></button>
+    <button class="pill gift" id="gift" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11h16v10H4zM3 7h18v4H3zM12 7v14M12 7c-1.5-3-5-4-5-1.5S10 7 12 7zm0 0c1.5-3 5-4 5-1.5S14 7 12 7z"/></svg><span class="t" id="gift-t"></span></button>
+  </div>
   <div class="live" id="live" data-st="off"><span><span class="dot"></span><b id="n-on">—</b>人がオンライン</span><span><b id="n-wait">—</b>人が対戦待ち</span><span><b id="n-play">—</b>人が対局中</span></div>
   <main class="grid" id="grid" aria-label="ゲーム"></main>
   <footer>
@@ -130,49 +187,83 @@ footer a { color: inherit; }
   </footer>
 </div>
 <script src="common/mute.js"></script>
+<script src="common/juice.js"></script>
 <script src="common/online.js"></script>
 <script>
 (function () {
   'use strict';
-  // 並び順・紋章の文字・色。名前と説明と状態は各ゲームの manifest.json から読む。status が ready のものだけ遊べる（無ければ「近日公開」）
-  const GAMES = [
-    { slug: 'gungi', em: '軍', accent: '#b8862b', name: '軍儀', en: 'Gungi' },
-    { slug: 'reversi', em: '石', accent: '#2f4f9a', name: 'リバーシ', en: 'Reversi' },
-    { slug: 'renju', em: '五', accent: '#8a5a2b', name: '連珠', en: 'Renju' },
-    { slug: 'koikoi', em: '花', accent: '#b0343c', name: '花札こいこい', short: 'こいこい', en: 'Koi-Koi' },
-    { slug: 'holdem', em: '♠', accent: '#1f7a55', name: 'ホールデム', en: "Texas Hold'em" },
-    { slug: 'shogi', em: '将', accent: '#9a6b2f', name: '将棋', en: 'Shogi' },
-    { slug: 'chess', em: '♞', accent: '#4b4f5c', name: 'チェス', en: 'Chess' },
-    { slug: 'mahjong', em: '麻', accent: '#1d6a5a', name: '麻雀', en: 'Mahjong' },
-    { slug: 'go', em: '碁', accent: '#3a3a3a', name: '囲碁', en: 'Go' },
-    { slug: 'backgammon', em: '賽', accent: '#8a4b2e', name: 'バックギャモン', short: 'ギャモン', en: 'Backgammon' },
-    { slug: 'daifugo', em: '富', accent: '#6b3fa0', name: '大富豪', en: 'Daifugo' },
-    { slug: 'xiangqi', em: '帥', accent: '#b0302a', name: 'シャンチー', en: 'Xiangqi' },
-    { slug: 'yacht', em: '骰', accent: '#c0622a', name: 'ヨット', en: 'Yacht' },
-    { slug: 'amazons', em: '矢', accent: '#3d7a46', name: 'アマゾンズ', en: 'Amazons' },
-    { slug: 'gunjin', em: '兵', accent: '#5e6640', name: '軍人将棋', en: 'Gunjin Shogi' },
-  ];
+  // 並び順・紋章の文字・色は common/juice.js の一覧（実績と共通）。名前と説明と状態は各ゲームの manifest.json から読む。status が ready のものだけ遊べる（無ければ「近日公開」）
+  const J = window.TTJuice;
+  const GAMES = J.GAMES.map(g => Object.assign({}, g));
   const $ = id => document.getElementById(id);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const playersText = p => (p === '2' ? '2人' : p ? `${String(p).replace('-', '〜')}人` : '');
-  let counts = null, loaded = false;
+  let counts = null, loaded = false, intro = true;
+  const CROWN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/></svg>';
+  const ICON_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  const ICON_GIFT = $('gift').querySelector('svg').outerHTML;
 
   function render() {
     if (!loaded) return;
-    $('grid').innerHTML = GAMES.map(g => {
+    const st = J.state();
+    $('grid').innerHTML = GAMES.map((g, i) => {
       const ready = g.status === 'ready';
       const c = counts && counts.byGame[g.slug];
       const live = c && (c.wait || c.play) ? `${c.wait ? `<span class="chip wait">待ち${c.wait}</span>` : ''}${c.play ? `<span class="chip">対局中${c.play}</span>` : ''}` : '';
-      const inner = `
+      const me = st.games[g.slug] || {}, pick = ready && st.pickup === g.slug;
+      const mine = `${pick ? '<span class="chip hot">本日 XP×1.5</span>' : ''}${me.w ? `<span class="chip won">${me.w}勝</span>` : ''}`;
+      const crown = me.top >= 4 ? `<span class="cr${me.top >= 5 ? ' u' : ''}" title="${me.top >= 5 ? '超最強' : '最強'}に勝った">${CROWN}</span>` : '';
+      const inner = `${crown}
         <span class="em" aria-hidden="true">${esc(g.em)}</span>
         <span class="nm"><span class="n-l">${esc(g.name)}</span><span class="n-s">${esc(g.short || g.name)}</span><small>${esc(g.en || '')}</small></span>
         <span class="tg">${esc(g.tagline || '')}</span>
-        <span class="ft">${g.players ? `<span class="chip pl">${playersText(g.players)}</span>` : ''}${live}</span>`;
+        <span class="ft">${mine}${g.players ? `<span class="chip pl">${playersText(g.players)}</span>` : ''}${live}</span>`;
       return ready
-        ? `<a class="tile" href="${g.slug}/" style="--accent:${g.accent}" aria-label="${esc(g.name)}で遊ぶ">${inner}</a>`
-        : `<div class="tile soon" style="--accent:${g.accent}" aria-label="${esc(g.name)}（近日公開）">${inner}</div>`;
+        ? `<a class="tile ttj-btn${pick ? ' pick' : ''}" href="${g.slug}/" style="--accent:${g.accent};--i:${i}" aria-label="${esc(g.name)}で遊ぶ${pick ? '（本日のピックアップ）' : ''}">${inner}</a>`
+        : `<div class="tile soon" style="--accent:${g.accent};--i:${i}" aria-label="${esc(g.name)}（近日公開）">${inner}</div>`;
     }).join('');
+    if (intro) { intro = false; $('grid').classList.add('intro'); setTimeout(() => $('grid').classList.remove('intro'), 1400); }
   }
+
+  // あなたのレベル・連勝・実績・毎日のボーナス
+  function renderMe() {
+    const st = J.state();
+    J.paint($('prof'), st.level, st.cur / st.need, st.need - st.cur);
+    $('xp').textContent = `${st.xp.toLocaleString()} XP`;
+    $('streak').hidden = st.streak < 2;
+    $('n-streak').textContent = st.streak;
+    $('n-ach').textContent = `${st.achDone}/${st.achTotal}`;
+    const h = Math.max(1, Math.ceil((new Date().setHours(24, 0, 0, 0) - Date.now()) / 3600000));
+    $('gift').classList.toggle('ready', st.daily);
+    $('gift-t').textContent = st.daily ? 'デイリーボーナス' : `あと${h}時間`;
+    $('gift').title = st.daily ? '今日のボーナスを受け取る' : `次のボーナスまで あと${h}時間`;
+  }
+  $('prof').addEventListener('click', () => J.openAchievements());
+  $('ach').addEventListener('click', () => J.openAchievements());
+  $('gift').addEventListener('click', () => {
+    if (J.state().daily) J.daily();
+    else J.toast(`<span class="ic">${ICON_CLOCK}</span><span><span class="k">デイリーボーナス</span><span class="n">今日はもう受け取りました。また明日！</span></span><span></span>`);
+  });
+  J.on(() => { renderMe(); render(); });
+  renderMe();
+  setInterval(renderMe, 60000);
+  if (J.state().daily) setTimeout(() => J.toast(`<span class="ic">${ICON_GIFT}</span><span><span class="k">デイリーボーナス</span><span class="n">今日のボーナスを受け取れます</span></span><span class="x">最大1,000 XP</span>`, { ms: 4200 }), 900);
+
+  // 傾くタイル（マウスのとき。指した所に光）
+  $('grid').addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse' || !J.motion) return;
+    const t = e.target.closest && e.target.closest('a.tile');
+    if (!t) return;
+    const r = t.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    t.style.setProperty('--rx', ((0.5 - y) * 9).toFixed(2) + 'deg');
+    t.style.setProperty('--ry', ((x - 0.5) * 11).toFixed(2) + 'deg');
+    t.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+    t.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+  });
+  $('grid').addEventListener('pointerout', e => {
+    const t = e.target.closest && e.target.closest('a.tile');
+    if (t && !t.contains(e.relatedTarget)) { t.style.removeProperty('--rx'); t.style.removeProperty('--ry'); }
+  });
 
   // 音の元栓（全ゲーム共通。common/mute.js が localStorage に覚え、ゲームのページで効く）
   function showSnd() {

@@ -565,6 +565,12 @@
     $('rs-body').innerHTML = `${esc(winner)}が<b>${esc(kindText(st))}</b>で <b>${st.points}点</b>（キューブ ${st.cube}）。<br>` +
       (BG.isMoney(S.cfg) ? `通算: ${SIDE[0]} ${sc[0]} − ${SIDE[1]} ${sc[1]}` : `スコア: ${SIDE[0]} ${sc[0]} − ${SIDE[1]} ${sc[1]}（${S.cfg.len}点先取）${done ? '' : '。次の局へ進めます'}`);
     $('rs-again').textContent = done ? 'もう一局' : '次の局へ';
+    // 共通のごほうび（common/juice.js）: CPU かオンラインの相手と打っていたときだけ
+    if (window.TTJuice && (S.mode === 'cpu' || S.online)) {
+      const o = { stars: S.online ? 0 : (CPU[S.seats[you ^ 1]] || {}).stars, online: !!S.online, ref: st, quiet: !settings.sound };
+      if (BG.isMoney(S.cfg) || done) TTJuice.result(Object.assign(o, { outcome: (BG.isMoney(S.cfg) ? st.winner === you : sc[you] >= S.cfg.len) ? 'win' : 'lose' }));
+      else TTJuice.result(Object.assign(o, { round: true, outcome: st.winner === you ? 'win' : 'lose', label: `第${S.gi + 1}局 ${st.points}点` }));
+    }
     $('dlg-result').hidden = false;
   }
 

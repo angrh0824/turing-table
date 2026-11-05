@@ -563,9 +563,9 @@
     const out = { h1: p.h1, h2: p.h2, h3: p.h3, layers: {} };
     for (const [k] of paramSizes(p.h1, p.h2, p.h3)) {
       const a = p[k];
-      // 行（出力の並び）ごとではなく層ごとの1つの倍率（W1 だけは行ごと: 特徴ごとに大きさが違うため）
-      if (k === 'W1' || k === 'Wa') {
-        const H = k === 'W1' ? p.h1 : p.h2, rows = a.length / H;
+      // 重みの行列は行（入力のユニット・特徴）ごとの倍率（特徴やユニットごとに大きさが違うため。読むほうは層ごとの倍率の形も読める）
+      if (k[0] === 'W') {
+        const H = { W1: p.h1, Wa: p.h2, W2: p.h2, W3: p.h3, W4: 2 }[k], rows = a.length / H;
         const sc = new Float32Array(rows), q = new Int8Array(a.length);
         for (let i = 0; i < rows; i++) {
           let m = 0;

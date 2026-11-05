@@ -759,6 +759,9 @@
       : humans.length === 1 ? `相手は CPU（${CPU[S.seats[humans[0] ^ 1]].label}）でした。` : '';
     $('rs-body').innerHTML = `${r.resigned ? esc(r.reason) + '。' : ''}${opp}`;
     $('rs-again').textContent = S.online ? 'もう一局（黒白を交代）' : 'もう一局';
+    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
+    const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }

@@ -165,6 +165,7 @@
       else if (ev.e === 'riichi') sound('riichi');
       else if (ev.e === 'end') {
         const res = ev.result;
+        if (res.type === 'agari' && window.TTJuice) for (const w of res.wins) if (isHuman(w.seat)) TTJuice.hype(w.yakuman ? '役満' : w.limit || '和了', null, { tier: w.yakuman ? 3 : w.han >= 6 ? 2 : 1, quiet: !settings.sound });   // あなたの和了（共通の光と音）
         if (res.type === 'agari') { for (const w of res.wins) callout(w.seat, w.tsumo ? 'ツモ' : 'ロン'); sound('win'); }
         else { callout(-1, { exhaust: '流局', nagashi: '流し満貫', kyuushu: '九種九牌', suufon: '四風連打', suucha: '四家立直', suukaikan: '四開槓', sancha: '三家和' }[res.reason] || '流局'); sound('draw-game'); }
       } else if (ev.e === 'kyuushu') callout(ev.s, '九種九牌');
@@ -886,6 +887,8 @@
     if (S.online) html += '<p class="hint" id="rs-audit" style="margin:8px 0 0">局のあとの検査をしています（山・混ぜ方・手順）…</p>';
     $('rs-body').innerHTML = html;
     if (S.online && window.MJOnline) window.MJOnline.auditLine();
+    // 共通のごほうび（common/juice.js）: あなたが和了った局は小さく
+    if (window.TTJuice && res.type === 'agari' && isHuman(S.me) && res.wins.some(w => w.seat === S.me)) { const w = res.wins.find(x => x.seat === S.me); TTJuice.result({ round: true, outcome: 'win', label: `和了 ${w.yakuman ? '役満' : w.limit || w.han + '翻'}`, stars: S.online ? 0 : (CPU[S.seats[(S.me + 1) % 4]] || {}).stars, online: !!S.online, ref: res, quiet: !settings.sound }); }
     const willEnd = predictEnd();
     $('rs-next').textContent = willEnd ? '結果を見る' : '次の局へ';
     $('dlg-result').hidden = false;
@@ -922,6 +925,8 @@
     $('fn-sub').textContent = `${g.rules.length === 'tonpu' ? '東風戦' : '東南戦'}・${g.rounds.length}局`;
     $('fn-title').textContent = S.online ? '対局の結果' : mine ? `${mine.rank + 1}位` : '対局の結果';
     $('fn-ranks').innerHTML = fs.map(f => `<li class="${f.seat === S.me ? 'me' : ''}"><b>${f.rank + 1}位</b><span>${esc(S.online ? S.names[f.seat] : shortName(f.seat))}</span><span class="num">${f.score.toLocaleString()}</span><span class="pt ${f.point > 0 ? 'plus' : f.point < 0 ? 'minus' : ''}">${f.point > 0 ? '+' : ''}${f.point.toFixed(1)}</span></li>`).join('');
+    // 共通のごほうび（common/juice.js）: 終局の順位（あなたが打っていたときだけ）
+    if (window.TTJuice && mine && isHuman(S.me)) TTJuice.result({ place: mine.rank + 1, of: 4, stars: S.online ? 0 : (CPU[S.seats[(S.me + 1) % 4]] || {}).stars, online: !!S.online, ref: g.final, id: g.final.map(f => f.score).join(',') + ':' + g.rounds.length, into: '#dlg-final', quiet: !settings.sound });
     $('dlg-final').hidden = false;
     if (!S.online && mine && !g.recorded) {
       g.recorded = true;

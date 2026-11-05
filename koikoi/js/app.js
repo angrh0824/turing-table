@@ -745,6 +745,7 @@
       const box = $(p === S.me ? 'caps-me' : 'caps-opp');
       box.querySelectorAll('.card[data-c]').forEach(el => { if (cards.includes(+el.dataset.c)) TM.pop(el, 'glow'); });
       TM.float(`${names.join('・')} ${y.total}点`, box, { size: 19, color: '#ffe08a', ms: 1100 });
+      if (window.TTJuice && p === S.me && isHuman(p)) TTJuice.hype('', box, { tier: y.total >= 10 ? 3 : y.total >= 5 ? 2 : 1, quiet: !settings.sound });   // 役ができた光と音（共通）
     }
     if (!isHuman(p) || r.phase !== 'koi') { await wait(1100 * speed()); if (S.stage && S.stage.kind === 'yaku') clearStage(); }
   }
@@ -848,6 +849,12 @@
     $('rs-title').textContent = title;
     $('rs-body').innerHTML = body;
     $('rs-actions').innerHTML = actions;
+    // 共通のごほうび（common/juice.js）: あなたと CPU、またはオンラインの対局だけ。勝った月は小さく、勝負がついたら大きく
+    if (window.TTJuice && !S.reveal && (S.online || isCPU(opp()))) {
+      const stars = S.online ? 0 : CPU[S.seats[opp()]].stars;
+      if (m.over) { const w = m.winner(); TTJuice.result({ outcome: w < 0 ? 'draw' : w === S.me ? 'win' : 'lose', stars, online: !!S.online, ref: m, id: `${m.months}:${m.totals.join(',')}:${body.length}`, quiet: !settings.sound }); }
+      else if (res.winner === S.me) TTJuice.result({ round: true, outcome: 'win', label: `この月 ${res.points}点`, stars, online: !!S.online, ref: res, quiet: !settings.sound });
+    }
     $('dlg-result').hidden = false;
     const pb = $('rs-actions').querySelector('.primary');
     if (pb) pb.focus();

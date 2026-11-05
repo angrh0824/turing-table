@@ -1130,6 +1130,9 @@
       : hs.length === 1 ? `相手は CPU（${CPU[S.seats[3 - hs[0]]].label}）でした。` : '';
     $('rs-body').innerHTML = (r.score != null ? '盤上の石と、囲んだ地を数えます（中国ルール）。' : '') + esc(opp);
     $('rs-again').textContent = S.online ? 'もう一局（白黒交代）' : 'もう一局';
+    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
+    const me = S.online ? S.online.myColor : hs.length === 1 ? hs[0] : -1;
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: !r.winner ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[3 - me]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }

@@ -432,6 +432,7 @@
     if (c === Y.YACHT && pts) {
       M.float('ヨット！', $('dice'), { color: 'var(--sel-ring)', size: 30, ms: 1300 });
       dieEls.forEach((el, i) => setTimeout(() => M.pop(el._cube, 'glow'), i * 60));
+      if (window.TTJuice && S.seats[p] && S.seats[p].kind !== 'cpu') TTJuice.hype('', $('dice'), { tier: 3, quiet: !settings.sound });   // ヨット！（共通の光と音）
     }
     if (upBefore < Y.BONUS_AT && s.up >= Y.BONUS_AT) {
       const sub = sh.querySelector(`[data-sub="${p}"]`);
@@ -678,6 +679,12 @@
     $('rs-body').textContent = body.trim();
     $('rs-again').textContent = S.online ? (S.online.isHost ? '卓でもう一局' : '閉じる') : 'もう一局';
     $('rs-new').hidden = !!S.online;
+    // 共通のごほうび（common/juice.js）: あなたが入っていて、みんなで（1台）ではないとき
+    if (window.TTJuice && me >= 0 && (S.online || S.mode !== 'local')) {
+      const cpu = S.seats.find(x => x.kind === 'cpu');
+      TTJuice.result(g.n === 1 ? { outcome: S.newBest ? 'win' : 'draw', title: S.newBest ? '自己ベスト' : `${t[0]}点`, ref: g, quiet: !settings.sound }
+        : { place: rk[me], of: g.n, outcome: rk[me] === 1 ? 'win' : 'lose', stars: cpu && !S.online ? (LV[cpu.level] || {}).stars : 0, online: !!S.online, ref: g, quiet: !settings.sound });
+    }
     $('dlg-result').hidden = false;
   }
 

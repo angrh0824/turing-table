@@ -543,7 +543,7 @@
     const panel = s => (s === S.me ? $('me') : $(`opp-${pos(s)}`));
     for (const e of ev) {
       if (e.t === 'pass') { SND.play('pass'); bubble(e.p, 'パス'); }
-      else if (e.t === 'rev') { st(e.on ? '革命' : '革命返し'); SND.play('rev'); flash(); glow($('felt')); if (TM) TM.pop($('pile'), 'shake'); }
+      else if (e.t === 'rev') { st(e.on ? '革命' : '革命返し'); SND.play('rev'); flash(); if (window.TTJuice) TTJuice.hype('', $('felt'), { tier: 2, quiet: !settings.sound }); glow($('felt')); if (TM) TM.pop($('pile'), 'shake'); }
       else if (e.t === 'jback') { st('11バック', true); SND.play('skip'); glow($('chips')); }
       else if (e.t === 'eight') { st('8切り'); SND.play('eight'); glow($('felt')); }
       else if (e.t === 'sp3') { st('スペ3返し'); SND.play('eight'); glow($('felt')); }
@@ -1019,6 +1019,13 @@
       $('rs-next').textContent = '次の回へ';
     }
     $('rs-next').hidden = !!(S.online && !S.online.isHost);
+    // 共通のごほうび（common/juice.js）: あなたが打っていたときだけ
+    if (window.TTJuice && !watching()) {
+      const o = { stars: S.online ? 0 : (CPU[S.cpuCfg] || {}).stars, online: !!S.online, quiet: !settings.sound };
+      if (S.ended) { const tot = [0, 1, 2, 3].sort((a, b) => S.scores[b] - S.scores[a]); TTJuice.result(Object.assign(o, { place: tot.findIndex(s => S.scores[s] === S.scores[S.me]) + 1, of: 4, ref: g, id: `${S.games}:${S.scores.join(',')}:${S.round}` })); }
+      else if (S.games) TTJuice.result(Object.assign(o, { round: true, outcome: meR === 0 ? 'win' : meR === 3 ? 'lose' : 'draw', label: TITLE[meR], ref: g }));
+      else TTJuice.result(Object.assign(o, { place: meR + 1, of: 4, title: TITLE[meR], ref: g }));
+    }
     $('dlg-result').hidden = false;
     $('rs-next').focus();
   }

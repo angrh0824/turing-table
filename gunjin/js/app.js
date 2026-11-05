@@ -840,6 +840,8 @@
     $('rs-body').textContent = `${REASON[r.reason] ? REASON[r.reason](r.winner) : ''}。${opp}「盤を見返す」で両方の配置を確かめられます。`;
     renderVerify();
     $('rs-again').textContent = S.mode === 'online' ? 'もう一局（先後交代）' : 'もう一局';
+    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
+    if (window.TTJuice && hc >= 0 && (S.mode === 'cpu' || S.mode === 'online')) TTJuice.result({ outcome: r.winner < 0 ? 'draw' : r.winner === hc ? 'win' : 'lose', stars: S.mode === 'cpu' ? CPU[S.seats[hc ^ 1]].stars : 0, online: S.mode === 'online', ref: r, quiet: !settings.sound });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }

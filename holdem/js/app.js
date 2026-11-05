@@ -961,6 +961,8 @@
     $('rs-ranks').innerHTML = ranks.map(r => `<li class="${r.i === T.mySeat ? 'me' : ''}"><span>${r.place}位</span><span>${esc(r.name)}</span><span class="num">${r.stack > 0 ? fmt(r.stack) : ''}</span></li>`).join('');
     $('rs-again').textContent = 'もう一度';
     $('rs-watch').hidden = won || alive().length <= 1;
+    // 共通のごほうび（common/juice.js）
+    if (window.TTJuice && !T.watching) { const cpu = T.seats.find(x => x.kind === 'cpu'); TTJuice.result({ place: me.place || T.seats.length, of: T.seats.length, outcome: won ? 'win' : 'lose', stars: cpu ? (CPU[cpu.level] || {}).stars : 0, ref: T, id: `${T.handNo}:${T.seats.map(x => x.stack).join(',')}`, quiet: !settings.sound }); }
     $('dlg-result').hidden = false;
     if (won) SFX.win();
     saveTable();

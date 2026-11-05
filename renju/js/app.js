@@ -801,6 +801,9 @@
     $('rs-body').textContent = `${r.reason}。${opp}${tally ? '\n' + tally : ''}`;
     $('rs-body').style.whiteSpace = 'pre-line';
     $('rs-again').textContent = S.online ? 'もう一局（黒白を交代）' : 'もう一局';
+    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
+    const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: !r.winner ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[3 - me]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }
