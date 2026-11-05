@@ -223,7 +223,6 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .probtxt b { color: var(--ink); }
 .best { font-size: 12px; font-weight: 700; color: var(--good); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 .best .mc { width: 17px; }
-.aistrip .more { grid-column: 1 / -1; font-size: 12px; }
 .cands { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; }
 .cands li { display: grid; grid-template-columns: minmax(0, 1fr) 54px 64px; gap: 6px; align-items: center; padding: 2px 4px; border-radius: 6px; }
 .cands li.top { background: color-mix(in srgb, var(--good) 12%, transparent); }
@@ -270,7 +269,6 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .btn:hover:not([disabled]) { border-color: var(--accent); }
 .btn[disabled] { opacity: .42; cursor: default; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
-.btn.gold { background: var(--gold); color: #fff; border-color: var(--gold); font-weight: 700; }
 .btn.small { padding: 4px 10px; font-size: 12px; }
 .btn.big { min-height: 44px; font-size: 15px; padding: 8px 18px; }
 .controls .grow { flex: 1; }
@@ -308,7 +306,7 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .seengrid span.h { background: transparent; color: var(--muted); font-weight: 500; }
 .seengrid span.out { background: transparent; color: var(--muted); opacity: .35; text-decoration: line-through; font-weight: 500; }
 .seengrid span.mine { background: color-mix(in srgb, var(--sel) 22%, var(--surface-2)); }
-.seengrid span.r { color: var(--card-s1, #c62736); } .seengrid span.d { color: var(--card-s2, #c62736); } .seengrid span.c { color: var(--card-s3, #1b1e27); }
+.seengrid span.r { color: var(--card-s1, #c62736); } .seengrid span.d { color: var(--card-s2, #c62736); } .seengrid span.c { color: var(--card-s3, var(--ink)); }   /* ♣ は地の色の上（ダークでも読める） */
 .scoretbl { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .scoretbl th, .scoretbl td { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 .scoretbl td.n { text-align: right; }
@@ -322,6 +320,7 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .side .card h2 { margin-bottom: 6px; }
   .side .aicard .cands li:nth-child(n+6) { display: none; }
   .side .aicard .hint, .side .scorecard .hint { display: none; }
+  .ai-off .side .aicard { display: none; }   /* AI補助を隠している間は、右の欄にも出さない */
   .side .logcard .loglist { flex: 1; }
   .navrow .sheet-btn { display: none; }
   .table { grid-template-columns: 170px minmax(0, 1fr) 170px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "left top right" "left felt right"; }
@@ -388,7 +387,6 @@ main { width: 100%; max-width: 1320px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .cnt { font-size: 16px; }
   .info { height: 38px; font-size: 12.5px; padding-left: 10px; }
   .controls .btn { padding: 6px 10px; font-size: 13px; }
-  .controls .wide { display: none; }
 }
 
 /* ---------- ダイアログ ---------- */
@@ -461,7 +459,7 @@ input.text { width: 100%; font: inherit; padding: 8px 10px; border-radius: 9px; 
 .seats .st b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 
 /* ---------- ルール / AI（タブで1枚ずつ） ---------- */
-.doc { max-width: 960px; margin: 0 auto; display: grid; gap: 12px; align-content: start; }
+.doc { max-width: 960px; margin: 0 auto; display: grid; gap: 12px; align-content: start; grid-auto-rows: max-content; }   /* 中身が画面より長いときも、上のタブの行をつぶさない */
 .doctabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 2px; padding: 3px; background: var(--surface-2); border-radius: 999px; overflow-x: auto; scrollbar-width: none; box-shadow: 0 6px 10px -8px rgba(0,0,0,.25); }
 .doctabs::-webkit-scrollbar { display: none; }
 .doctabs button { flex: 1 0 auto; border: 0; background: transparent; padding: 7px 14px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700; white-space: nowrap; }
@@ -471,6 +469,7 @@ input.text { width: 100%; font: inherit; padding: 8px 10px; border-radius: 9px; 
 .doc .card ul { padding-left: 20px; margin: 6px 0; }
 table.lv { border-collapse: collapse; width: 100%; font-size: 13px; }
 table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+table.lv th, table.lv .n { white-space: nowrap; }   /* 見出し・短い欄・数字は1字ずつ折り返さない（スマホ） */
 .tbl { overflow-x: auto; }
 .stat-row { display: flex; gap: 26px; flex-wrap: wrap; }
 .stat b { display: block; font-family: var(--font-display); font-size: 28px; font-variant-numeric: tabular-nums; line-height: 1.2; }
@@ -561,8 +560,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
     </button>
     <div class="popover" id="settings" hidden>
       <span class="hint">AI補助（下の「AI補助」でまとめて切り替え）</span>
-      <label class="switch"><input type="checkbox" id="set-prob" checked> 勝ちの見込み（順位の見込み）</label>
-      <label class="switch"><input type="checkbox" id="set-best" checked> おすすめの出し方</label>
+      <label class="switch"><input type="checkbox" id="set-prob"> 勝ちの見込み（順位の見込み）</label>
+      <label class="switch"><input type="checkbox" id="set-best"> おすすめの出し方</label>
       <span class="hint">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 音</label>
       <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲーム共通）</label>

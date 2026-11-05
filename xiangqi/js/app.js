@@ -40,8 +40,8 @@
   };
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', side: 'red', cpuR: 'strong', cpuB: 'strong', start: 'std', fen: '' }, store.get('cfg', {}));
   if (!CPU[cfg.cpu]) cfg.cpu = 'normal';
-  // AI補助: showEval = 形勢、arrow = 最善手の矢印。notation: 'cn' 中国式 / 'iccs' 座標
-  const settings = Object.assign({ sound: true, anim: true, moves: true, reach: true, analyze: true, showEval: true, arrow: true, coords: true, notation: 'cn' }, store.get('settings', {}));
+  // AI補助: showEval = 形勢、arrow = 最善手の矢印（さいしょはオフ。「AI補助」で出す）。notation: 'cn' 中国式 / 'iccs' 座標
+  const settings = Object.assign({ sound: true, anim: true, moves: true, reach: true, analyze: true, showEval: false, arrow: false, coords: true, notation: 'cn' }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.arrow;
   // 動き: 全ゲーム共通の部品と設定（common/motion.js。オフ・動きを減らす設定・裏のタブでは一瞬で終わる）
   const MO = window.TTMotion || null;
@@ -52,6 +52,7 @@
     seats: ['human', 'normal'], startFen: START_FEN, pos: Position.start(), start0: Position.start(), moves: [], cn: [], ic: [], evals: [], view: null, dpos: null, result: null,
     legal: [], sel: -1, targets: new Map(), inspect: -1, hover: -1,
     info: null, cpuInfo: null, thinking: false, timer: 0, resultShown: false, flip: false, paused: false, // paused: 「新しい対局」を選んでいる間
+    reported: false, // この対局の結果をごほうび（TTJuice.result）に渡したか。待った・ここから指すで終局をやり直しても2度は数えない
     online: null, // { mid, myColor, opp: {name, ai, hints}, myHints, oppPresent, lostAt, myRe, oppRe, drawOffer: 0|1(相手から)|2(自分から) }
   };
   const live = () => S.view === null;
@@ -206,12 +207,13 @@
     }
     S.view = null; S.dpos = null; S.result = g.result || null; S.info = null; S.cpuInfo = null;
     S.resultShown = !!g.result;
+    S.reported = !!(g.reported || g.result);
     S.flip = g.flip != null ? g.flip : (S.seats[RED] !== 'human' && S.seats[BLACK] === 'human');
     afterChange();
   }
   function saveGame() {
     const online = S.online ? { mid: S.online.mid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
-    store.set('game', { seats: S.seats, startFen: S.startFen, moves: S.ic.slice(), result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
+    store.set('game', { seats: S.seats, startFen: S.startFen, moves: S.ic.slice(), result: S.result, reported: S.reported, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
   }
   function rebuild(n) {
     S.moves.length = n; S.cn.length = n; S.ic.length = n; S.evals.length = Math.min(S.evals.length, n + 1);
@@ -328,81 +330,32 @@
   // つかんで置く（common/motion.js の drag。マウス・指どちらでも）: 動かせる駒を少し動かすとつかみ、行き先が光る。
   // 行き先で離すとそこへ指し、ほかで離すと元へ戻る。動かさずに離せばふつうのタップ（タップ → タップ はそのまま）。
   // 盤は 2本指で拡大できる（touch-action を none にしない）
-  let drag = null, suppressClick = false, noAnimOnce = false;
   function bindDrag() {
-    if (MO) {
-      let from = -1;
-      MO.drag($('grid'), {
-        pick(target) {
-          const el = target.closest && target.closest('.sq');
-          if (!el || !humanTurn()) return null;
-          const sq = Number(el.dataset.sq), p = S.pos.b[sq];
-          if (!p || (p >> 3) !== S.pos.stm || !canMoveFrom(sq)) return null;
-          from = sq;
-          return el.querySelector('.piece');
-        },
-        start() { if (humanTurn() && S.sel !== from) select(from); },
-        target(x, y) {
-          const hit = document.elementFromPoint(x, y), el = hit && hit.closest && hit.closest('#grid .sq');
-          return el && S.targets.has(Number(el.dataset.sq)) ? el : null;
-        },
-        drop(el, to, at) {
-          const m = humanTurn() && S.targets.get(Number(to.dataset.sq));
-          if (!m) return false;
-          dropAt = at; // 離した所から行き先へ吸い付かせる
-          play(m);
-          return true;
-        },
-        cancel() { clearSel(); },
-      });
-      return;
-    }
-    // motion.js が読めないとき（ふつうはない）の、自前のつかんで置く
-    const grid = $('grid');
-    grid.addEventListener('pointerdown', e => {
-      if (e.button !== 0) return;
-      const el = e.target.closest('.sq');
-      if (!el || !humanTurn()) return;
-      const sq = Number(el.dataset.sq), p = S.pos.b[sq];
-      if (!p || (p >> 3) !== S.pos.stm || !canMoveFrom(sq)) return;
-      drag = { sq, x: e.clientX, y: e.clientY, active: false, id: e.pointerId, ghost: null };
+    if (!MO) return;
+    let from = -1;
+    MO.drag($('grid'), {
+      pick(target) {
+        const el = target.closest && target.closest('.sq');
+        if (!el || !humanTurn()) return null;
+        const sq = Number(el.dataset.sq), p = S.pos.b[sq];
+        if (!p || (p >> 3) !== S.pos.stm || !canMoveFrom(sq)) return null;
+        from = sq;
+        return el.querySelector('.piece');
+      },
+      start() { if (humanTurn() && S.sel !== from) select(from); },
+      target(x, y) {
+        const hit = document.elementFromPoint(x, y), el = hit && hit.closest && hit.closest('#grid .sq');
+        return el && S.targets.has(Number(el.dataset.sq)) ? el : null;
+      },
+      drop(el, to, at) {
+        const m = humanTurn() && S.targets.get(Number(to.dataset.sq));
+        if (!m) return false;
+        dropAt = at; // 離した所から行き先へ吸い付かせる
+        play(m);
+        return true;
+      },
+      cancel() { clearSel(); },
     });
-    window.addEventListener('pointermove', e => {
-      if (!drag || e.pointerId !== drag.id) return;
-      if (!drag.active) {
-        if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
-        drag.active = true;
-        if (S.sel !== drag.sq) select(drag.sq);
-        const p = S.pos.b[drag.sq];
-        const g = document.createElement('div');
-        g.innerHTML = P.svg(p >> 3, p & 7, 'dragpiece');
-        drag.ghost = g.firstChild;
-        document.body.appendChild(drag.ghost);
-        const pc = sqEl(drag.sq).querySelector('.piece');
-        if (pc) pc.style.opacity = '.3';
-      }
-      drag.ghost.style.left = e.clientX + 'px'; drag.ghost.style.top = e.clientY + 'px';
-      const over = document.elementFromPoint(e.clientX, e.clientY);
-      const sqx = over && over.closest && over.closest('.sq');
-      document.querySelectorAll('.sq.drop-hover').forEach(x => x.classList.remove('drop-hover'));
-      if (sqx && S.targets.has(Number(sqx.dataset.sq))) sqx.classList.add('drop-hover');
-    });
-    const end = e => {
-      if (!drag || e.pointerId !== drag.id) return;
-      const d = drag; drag = null;
-      if (!d.active) return;
-      suppressClick = true; setTimeout(() => { suppressClick = false; }, 50);
-      if (d.ghost) d.ghost.remove();
-      document.querySelectorAll('.sq.drop-hover').forEach(x => x.classList.remove('drop-hover'));
-      const pc = sqEl(d.sq).querySelector('.piece');
-      if (pc) pc.style.opacity = '';
-      const over = e.type === 'pointerup' ? document.elementFromPoint(e.clientX, e.clientY) : null;
-      const sqx = over && over.closest && over.closest('.sq');
-      const to = sqx ? Number(sqx.dataset.sq) : -1;
-      if (to >= 0 && S.targets.has(to)) { noAnimOnce = true; moveTo(to); } else renderBoard();
-    };
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
   }
 
   // ------------------------------------------------------------------ 盤の線（自作の SVG）
@@ -506,8 +459,8 @@
       const b = document.createElement('button');
       b.className = 'sq';
       b.innerHTML = '<span class="tint"></span><span class="pc"></span><span class="mark"></span>';
-      b.addEventListener('click', e => { e.stopPropagation(); if (suppressClick) return; onSquare(Number(b.dataset.sq)); });
-      b.addEventListener('mouseenter', () => { if (pointerType === 'mouse' && !drag) onHover(Number(b.dataset.sq)); });
+      b.addEventListener('click', e => { e.stopPropagation(); onSquare(Number(b.dataset.sq)); });
+      b.addEventListener('mouseenter', () => { if (pointerType === 'mouse') onHover(Number(b.dataset.sq)); });
       b.addEventListener('mouseleave', () => { if (S.hover >= 0) onHover(-1); });
       grid.appendChild(b);
     }
@@ -519,6 +472,7 @@
     const lm = ply ? S.moves[ply - 1] : 0;
     const lastFrom = lm ? C.mvFrom(lm) : -1, lastTo = lm ? C.mvTo(lm) : -1;
     const checkSq = pos.inCheck() ? pos.king[pos.stm] : -1;
+    const am = humanTurn() ? arrowMove() : 0, amTo = am ? C.mvTo(am) : -1; // 矢印の行き先（タップで指せる）
     for (let i = 0; i < 90; i++) {
       const sq = dispToSq(i), b = grid.children[i];
       b.dataset.sq = sq;
@@ -530,6 +484,7 @@
       if (sq === checkSq) cls += ' check';
       if (humanTurn() && pos.b[sq] && (pos.b[sq] >> 3) === pos.stm && canMoveFrom(sq)) cls += ' can';
       else if (live() && S.targets.has(sq)) cls += ' can';
+      if (sq === amTo) cls += ' arrowto';
       if (b.className !== cls) b.className = cls;
       const p = pos.b[sq], pc = b.children[1];
       const key = String(p);
@@ -541,7 +496,7 @@
     }
     renderMarks();
     renderCoords();
-    $('board').classList.toggle('noanim', !settings.anim || reduceMotion);
+    $('board').classList.toggle('noanim', !(MO ? MO.on : settings.anim && !reduceMotion));
     renderEndmark();
     if (anim) runAnim(anim);
   }
@@ -868,9 +823,8 @@
   function animOrigin(m) {
     const at = dropAt;
     dropAt = null;
-    if (!live() || !(MO ? MO.on : settings.anim && !reduceMotion)) return null;
-    if (noAnimOnce) { noAnimOnce = false; return null; }
-    if (MO) MO.finish(); // 前の動きはその場で終わらせてから測る
+    if (!live() || !MO || !MO.on) return null;
+    MO.finish(); // 前の動きはその場で終わらせてから測る
     const from = sqEl(C.mvFrom(m)).querySelector('.piece'), to = C.mvTo(m);
     const capEl = C.mvCap(m) ? sqEl(to).querySelector('.piece') : null;
     return {
@@ -880,23 +834,11 @@
   }
   function runAnim(a) {
     const el = sqEl(a.to).querySelector('.piece');
-    if (MO) {
-      if (el && a.from) MO.fly(el, a.from);
-      if (a.cap) {
-        const icon = cardOf(a.cap.by).querySelector(`.caps svg[data-t="${a.cap.t}"]`);
-        if (icon) MO.fly(icon, a.cap.rect, { arc: true, ms: 380 });
-      }
-      return;
+    if (el && a.from) MO.fly(el, a.from);
+    if (a.cap) {
+      const icon = cardOf(a.cap.by).querySelector(`.caps svg[data-t="${a.cap.t}"]`);
+      if (icon) MO.fly(icon, a.cap.rect, { arc: true, ms: 380 });
     }
-    if (!el || !a.from) return;
-    const r = el.getBoundingClientRect();
-    const dx = a.from.left - r.left, dy = a.from.top - r.top;
-    el.style.transition = 'none';
-    el.style.transform = `translate(${dx}px, ${dy}px)`;
-    el.getBoundingClientRect();
-    el.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)';
-    el.style.transform = '';
-    setTimeout(() => { el.style.transition = ''; }, 230);
   }
 
   // ------------------------------------------------------------------ 棋譜・操作
@@ -1017,7 +959,10 @@
     $('rs-again').textContent = S.online ? 'もう一局（赤黒交代）' : 'もう一局';
     // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
     const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
-    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    if (window.TTJuice && me >= 0 && !S.reported) {
+      S.reported = true; saveGame();
+      TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    }
     $('dlg-result').hidden = false;
     $('rs-again').focus({ preventScroll: true });
   }
@@ -1119,7 +1064,8 @@
           <li>指せる手がなくなったら、将軍されていなくても<b>負け</b>（<b>困毙</b>）。チェスと違って引き分けにはなりません。</li>
           <li>相手の駒のいる点に動くとその駒を<b>取れます</b>。取った駒は使えません（将棋と違うところ）。</li>
           <li>盤の真ん中の<b>河</b>（楚河・漢界）と、両側の<b>九宮</b>（斜めの線のある 3×3）が特別な場所です。</li>
-          <li>このアプリでは、駒をタップ（またはドラッグ）すると行き先に印が出ます。相手の駒をタップするとその駒の利きが見られます。</li>
+          <li>このアプリでは、駒をタップすると行き先に印が出て、行き先をタップで指します（駒をつかんで行き先まで動かしても指せます）。相手の駒をタップするとその駒の利きが見られます。AI補助やヒントの矢印は、矢印の先をタップするだけでその手を指せます。</li>
+          <li>駒を<b>長押し</b>すると大きく見られます。盤は2本指で拡大できます。取った駒は対局者の欄にいつも出ていて、タップすると2人分を大きく見比べられます。</li>
         </ul>
         <div class="figs">
           <figure>${miniBoard(startCells)}<figcaption>はじめの並べ方（下が赤）</figcaption></figure>
@@ -1202,6 +1148,12 @@
       </svg>`;
     }
     const ms = (w.measures || []).slice(-30);
+    // 直接の対戦（6世代あいだを空けた測定）を新しい方からつないだ伸び: 例 第25←第19←第13←第7←第1世代
+    let chainElo = 0, chainErr2 = 0, chainTo = 0, chainFrom = 0;
+    for (let m = ms[ms.length - 1]; m; m = ms.find(x => x.gen === m.anchorGen)) {
+      if (!chainTo) chainTo = m.gen;
+      chainElo += m.elo; chainErr2 += (m.eloErr || 0) ** 2; chainFrom = m.anchorGen;
+    }
     const rows = h.slice(-12).reverse().map(e => `<tr><td>第${e.gen}世代</td><td>${e.accepted ? '採用' : '不採用'}</td><td>${e.elo >= 0 ? '+' : ''}${e.elo}±${e.err}</td><td>${(e.score * 100).toFixed(1)}%（${e.games}局）</td><td>${(e.selfplay || 0).toLocaleString()}局</td></tr>`).join('');
     const lv = w.levels;
     const levelRows = lv && lv.rows ? lv.rows.map(r => `<tr><td>${esc(r.a)} vs ${esc(r.b)}</td><td>${(r.score * 100).toFixed(1)}%</td><td>${r.elo >= 0 ? '+' : ''}${r.elo}±${r.err}</td><td>${r.games}局</td></tr>`).join('') : '';
@@ -1214,10 +1166,10 @@
           <div class="stat"><b>${gen}</b><span>学習の世代（採用された版）</span></div>
           <div class="stat"><b>${(w.totalGames || 0).toLocaleString()}</b><span>自己対局（累計局数）</span></div>
           <div class="stat"><b>${(w.totalPositions || 0).toLocaleString()}</b><span>学んだ局面（累計）</span></div>
-          <div class="stat"><b>+${cum}</b><span>第0世代（何も知らない版）からの Elo（各世代の「新 vs 旧」の積み上げ）</span></div>
+          ${chainTo ? `<div class="stat"><b>${chainElo >= 0 ? '+' : ''}${chainElo}</b><span>第${chainFrom}世代→第${chainTo}世代の伸び（6世代あいだを空けた直接の対戦をつないだ Elo・±${Math.round(Math.sqrt(chainErr2))}）。第1世代は何も知らない第0世代に 400戦全勝</span></div>` : ''}
           ${ms.length ? `<div class="stat"><b>${ms[ms.length - 1].elo >= 0 ? '+' : ''}${ms[ms.length - 1].elo}</b><span>${esc(ms[ms.length - 1].anchor)}との直接対戦（第${ms[ms.length - 1].gen}世代・${ms[ms.length - 1].games}局・±${ms[ms.length - 1].eloErr}）</span></div>` : ''}
         </div>
-        ${chart ? `<p class="hint" style="margin:14px 0 6px">世代ごとの検定: 「学習した新しい版 vs それまでの版」を、同じランダムな序盤から先後を入れ替えて対戦（1手の読みの量を固定）。勝ち越したら採用（緑）。線はその Elo の積み上げ。</p>${chart}` : ''}
+        ${chart ? `<p class="hint" style="margin:14px 0 6px">世代ごとの検定: 「学習した新しい版 vs それまでの版」を、同じランダムな序盤から先後を入れ替えて対戦（1手の読みの量を固定）。勝ち越したら採用（緑）。線はその Elo の積み上げ（第1世代は全勝のため上限の値。偶然のわずかな勝ち越しも積み上がるので、本当の伸びは上の「直接の対戦をつないだ値」で見ます）。</p>${chart}` : ''}
         ${rows ? `<div class="tbl wide-only" style="margin-top:10px"><table class="lv"><thead><tr><th>世代</th><th>検定</th><th>前の版との Elo</th><th>勝率</th><th>自己対局</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       </div>
       <div class="card" data-tab="しくみ">
@@ -1415,7 +1367,8 @@
     $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') { closeSheet(); if (!$('dlg-new').hidden) closeNew(); ['dlg-result', 'dlg-import', 'dlg-online', 'dlg-caps'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel >= 0 || S.inspect >= 0) clearSel(); return; }
-      if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
+      if ((e.target.closest && e.target.closest('input, textarea, .dialog')) || !$('view-play').offsetParent) return;
+      if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden)) return; // ダイアログ（結果・取った駒・オンラインなど）が出ている間は、裏の棋譜を動かさない
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }
       if (e.key === 'Home') { e.preventDefault(); viewPly(0); }

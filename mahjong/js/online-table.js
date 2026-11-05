@@ -16,7 +16,7 @@
   let PID = null, myName = '';
   const lobby = { len: 'hanchan', aka: 3, cpu: 'strong', msg: '' };
   let esc, $;
-  let lastNo = -1, lastPhase = '', voidShown = -1, reactKey = '', afkTimer = 0, finalShown = false;
+  let lastNo = -1, voidShown = -1, reactKey = '', afkTimer = 0, finalShown = false;
 
   window.MJOnline = {
     init(a) {
@@ -247,7 +247,7 @@
     S.names = s.seats.map((x, i) => (i === my ? `${x.n}（あなた）` : x.k === 'h' ? x.n : 'CPU'));
     const R = s.R, r = tc.rep;
     if (r && (!S.round || S.round !== r)) { S.round = r; S.logPos = 0; S.resultShown = false; S.sel = -1; S.riichiMode = false; S.pending = null; reactKey = ''; S.notice = ''; }
-    if (R && R.no !== lastNo) { lastNo = R.no; lastPhase = ''; }
+    if (R && R.no !== lastNo) lastNo = R.no;
     if (R && R.phase === 'void' && voidShown !== R.no) {
       voidShown = R.no;
       const why = { left: '参加者が抜けた', lost: 'つながらない人がいた', host: 'ホストが替わった', broken: '手順が合わない' }[R.why] || (String(R.why || '').startsWith('audit') ? '局のあとの検査で食い違いが見つかった（不正の可能性）' : R.why);

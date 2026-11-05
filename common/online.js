@@ -103,6 +103,8 @@
         setInterval(publishMe, BEAT);
         setInterval(() => { call('onPresence', list()); checkOpp(); }, 10000);
         window.addEventListener('pagehide', () => { try { client.publish(T(`p/${me.id}`), '', { retain: true, qos: 0 }); client.end(true); } catch (e) { /* 無視 */ } });
+        // 戻るボタンでページがそのまま戻ってきたとき（bfcache）は、上で閉じた接続をつなぎ直す（在席・対局の続きもここから戻る）
+        window.addEventListener('pageshow', e => { if (e.persisted && client) { client = null; connect(); } });
       }
     }
 

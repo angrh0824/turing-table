@@ -10,9 +10,6 @@
   })();
   const $ = id => document.getElementById(id);
   const COLOR = { 1: '黒', 2: '白' };
-  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let pointerType = 'mouse';
-  document.addEventListener('pointerdown', e => { pointerType = e.pointerType || 'mouse'; }, true);
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
   // ------------------------------------------------------------------ CPU の強さ
@@ -27,6 +24,8 @@
   };
   const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   const ULTRA_NOTE = '超最強は、最強と同じ AI で考える時間を5倍にしたものです。ブラウザと同じ読み方で 1手8000回 vs 1600回（5倍）を64局対戦させると、長く読む側の42勝2敗20分（勝率81%・Elo +255±39）でした。';
+  // いまの CPU（第190世代）の伸び: 学習の天井で、古い版と直接打たせて測った値（README の「天井」）。差し替えの判定の対戦をつなぐと大きく出すぎるので、こちらを出す
+  const CEIL = { gen: 190, text: 'いまの CPU（第190世代）は、10/31 に出していた第130世代に 101勝70敗29分（Elo +54±23）、11/01 の第136世代とはほぼ互角でした（1手32回読みで直接対戦、200〜320局）。毎日の確かめで、これ以上はっきり強くならなかったので学習を止めました。' };
   const ANALYZE_MS = 10000, HINT_MS = 2500; // 人の番に読む時間（電池を使いすぎないよう、10秒で止める）
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -164,7 +163,7 @@
           if (done.every(Boolean)) { this.busy = false; this.id++; onDone(merged); }
           else if (onInfo && merged) onInfo(merged);
         };
-        w.postMessage(i ? Object.assign({}, msg, { seed: i }) : msg);
+        w.postMessage(msg); // ワーカーごとに評価の対称をでたらめに選ぶので、同じ局面でも別の木になる
       });
     },
     // Worker が使えない環境: メインスレッドで少しだけ読む
@@ -254,10 +253,14 @@
     loadGame({ size: cfg.size, komi: ha ? 0.5 : 7, handicap: ha, seats, moves: [] });
   }
 
+  // 席: 中では { 1: 黒, 2: 白 }、保存では [黒, 白]（common/setup.js の lastGame() が、盤のゲームの seats を配列として読む）
+  const seatsOf = s => (Array.isArray(s) ? { 1: s[0], 2: s[1] } : s);
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   function loadGame(g) {
     AI.cancel(); clearTimeout(S.timer);
     S.size = g.size; S.komi = g.komi; S.handicap = g.handicap || 0; S.setup = g.setup || null; S.first = g.first || (S.handicap >= 2 ? WHITE : BLACK);
-    S.seats = g.seats; S.online = g.online || null;
+    S.seats = seatsOf(g.seats); S.online = g.online || null;
+    S.id = g.id || newId(); // 対局の印（ごほうびを同じ対局で2度数えないため。待ったで戻して勝ち直しても1回）
     S.board = newBoard();
     for (const m of g.moves) S.board.play(m);
     S.evals = g.evals ? g.evals.slice() : [];
@@ -277,7 +280,7 @@
     const online = S.online ? { gid: S.online.gid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
     // オンライン対局の「自分の側」はタブごとにも残す（同じブラウザで2つのタブから対局しても、再読み込みで相手の側に入れ替わらないように）
     try { if (online) sessionStorage.setItem('go-online', JSON.stringify({ online, seats: S.seats })); else sessionStorage.removeItem('go-online'); } catch (e) { /* なくても動く */ }
-    store.set('game', { size: S.size, komi: S.komi, handicap: S.handicap, setup: S.setup, first: S.first, seats: S.seats, moves: S.board.moves, result: S.result,
+    store.set('game', { id: S.id, size: S.size, komi: S.komi, handicap: S.handicap, setup: S.setup, first: S.first, seats: [S.seats[1], S.seats[2]], moves: S.board.moves, result: S.result,
       phase: S.phase, dead: S.phase === 'mark' ? [...S.dead] : null, evals: S.evals.map(e => (e ? { wr: +e.wr.toFixed(3), sc: +e.sc.toFixed(1) } : null)), online });
   }
 
@@ -318,7 +321,7 @@
     const c = S.board.toPlay;
     if (isRemote(c)) { AI.cancel(); renderEval(); return; }
     if (!isCPU(c)) { analyze(); return; }
-    if (!AI.ok) { renderAll(); return; }
+    if (!AI.ok) { render(); return; }
     const cpu = CPU[S.seats[c]], ply = S.board.moves.length;
     S.thinking = true;
     renderPlayers();
@@ -487,7 +490,7 @@
   }
   function onUp(e) {
     const p = pointAt(e.clientX, e.clientY);
-    if (S.phase === 'mark' && live() && !S.result) { if (p >= 0 && S.markReady && (!S.online || !S.online.myAgree || true)) toggleDead(p); return; }
+    if (S.phase === 'mark' && live() && !S.result) { if (p >= 0 && S.markReady) toggleDead(p); return; } // 切り替えると同意はやり直し
     if (aim && e.pointerId === aim.id) {
       const start = aim.start;
       aim = null;
@@ -578,7 +581,6 @@
     renderPlayers(); renderBoard(); renderControls(); renderKifu(); renderTape(); renderEval(); renderGraph(); renderSqInfo();
     fitBoardSoon();
   }
-  const renderAll = render;
 
   // 盤の大きさ: 盤・情報の行・対局者・ボタンが画面の高さに収まる大きさにする（ページはスクロールしない）
   let fitPending = 0;
@@ -709,7 +711,7 @@
     if (S.boardKey !== key) {
       S.boardKey = key;
       svg.setAttribute('viewBox', `${V.x} ${V.x} ${V.w} ${V.w}`);
-      svg.innerHTML = defsHTML() + `<g id="bcontent"><g id="b-base">${boardBaseHTML()}</g><g id="b-own"></g><g id="b-stones"></g><g id="b-marks"></g></g>`;
+      svg.innerHTML = defsHTML() + `<g id="b-base">${boardBaseHTML()}</g><g id="b-own"></g><g id="b-stones"></g><g id="b-marks"></g>`;
       svg.setAttribute('aria-label', `${S.size}路の碁盤`);
     }
     // 石
@@ -867,7 +869,7 @@
       else { html = `<span class="txt"><b>${head}</b></span>`; tools = btn('rematch', 'もう一局', ' primary') + btn('lobby', 'ロビーへ'); }
     } else if (S.result) {
       cls += ' result';
-      html = `<span class="txt"><b>${resultHead(S.result)}</b>${S.result.score != null ? `<span class="muted">　黒${S.result.black} 白${S.result.white}${S.result.white !== null ? '' : ''}</span>` : ''}</span>`;
+      html = `<span class="txt"><b>${resultHead(S.result)}</b>${S.result.score != null ? `<span class="muted">　黒${S.result.black} 白${S.result.white}</span>` : ''}</span>`;
       tools = btn('review', '振り返る') + btn('again', 'もう一局', ' primary');
     } else if (S.online && NET && NET.status !== 'on') {
       cls += ' alert';
@@ -1075,7 +1077,10 @@
     const r = G.parseSGF(text);
     const b = r.board;
     if (![9, 13, 19].includes(b.n)) throw new Error(`${b.n}路の盤は、このアプリでは打てません（9路・13路・19路だけ）`);
-    const setup = b.setup.length && !(b.handicap >= 2 && b.setup.length === b.handicap && b.setup.every(([p, c]) => c === BLACK)) ? b.setup.slice() : null;
+    // 置き石が標準の星の位置（handicapPoints）なら置き碁として開く。自由に置いた置き石や AB/AW の局面は、その石の並びから始める
+    const std = new Set(G.handicapPoints(b.n, b.handicap).map(([x, y]) => b.pt(x, y)));
+    const standard = b.handicap >= 2 && b.setup.length === b.handicap && std.size === b.handicap && b.setup.every(([p, c]) => c === BLACK && std.has(p));
+    const setup = b.setup.length && !standard ? b.setup.slice() : null;
     leaveOnline();
     loadGame({ size: b.n, komi: b.komi, handicap: setup ? 0 : b.handicap, setup, first: b.firstColor, seats: { 1: 'human', 2: 'human' }, moves: r.moves });
   }
@@ -1126,13 +1131,13 @@
     $('rs-sub').textContent = `${S.size}路・${S.board.moves.length}手${S.online ? '・オンライン' : ''}　${resultHead(r)}`;
     $('rs-title').textContent = title;
     $('rs-count').innerHTML = r.score != null ? `<div><span class="stone b"></span>黒 <b>${r.black}</b></div><div><span class="stone w"></span>白 <b>${r.white}</b><span class="hint">＋コミ${S.komi}${S.handicap >= 2 ? `＋${S.handicap}` : ''}</span></div>` : '';
-    const opp = S.online ? `相手は ${esc(S.online.opp.name)} さん（${aiText(S.online.opp.ai)}${S.online.opp.hints ? `・ヒント${S.online.opp.hints}回` : ''}）でした。`
+    const opp = S.online ? `相手は ${S.online.opp.name} さん（${aiText(S.online.opp.ai)}${S.online.opp.hints ? `・ヒント${S.online.opp.hints}回` : ''}）でした。`
       : hs.length === 1 ? `相手は CPU（${CPU[S.seats[3 - hs[0]]].label}）でした。` : '';
-    $('rs-body').innerHTML = (r.score != null ? '盤上の石と、囲んだ地を数えます（中国ルール）。' : '') + esc(opp);
+    $('rs-body').textContent = (r.score != null ? '盤上の石と、囲んだ地を数えます（中国ルール）。' : '') + opp;
     $('rs-again').textContent = S.online ? 'もう一局（白黒交代）' : 'もう一局';
-    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
+    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ。持碁は draw。id で同じ対局を2度数えない
     const me = S.online ? S.online.myColor : hs.length === 1 ? hs[0] : -1;
-    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: !r.winner ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[3 - me]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: !r.winner ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[3 - me]].stars, online: !!S.online, ref: r, id: S.online ? 'on-' + S.online.gid : S.id, quiet: !settings.sound });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }
@@ -1188,7 +1193,7 @@
         <h3>このアプリの操作</h3>
         <ul>
           <li><b>パソコン</b>：点にマウスを乗せると薄い石が出ます。クリックで打ちます。</li>
-          <li><b>スマホ</b>：指を置くと、指の上に<b>拡大鏡</b>が出ます。指を動かして位置を合わせ、離すと仮置き（十字の線）。もう一度タップするか「打つ」で確定します（設定で1回のタップにもできます）。</li>
+          <li><b>スマホ</b>：タップすると仮置き（十字の線）。もう一度タップするか「打つ」で確定します（設定で1回のタップにもできます）。盤に指を置いて少し動かすと、指の少し上に石が出て<b>つかんで置けます</b>（その石の下の点に打ちます）。盤は<b>2本指で拡大</b>できます。</li>
           <li>終局のあとは、AI が死に石を提案します。石をタップすると生き死にが切り替わります。「数える」で結果、「再開」で対局に戻ります。</li>
           <li>「AI補助」で形勢（勝率・目数）と最善手の候補（盤の上の数字＝その手の勝率）を出し入れ。⋯メニューから地の見込みも出せます。</li>
           <li>盤の下の棋譜テープで、好きな手の局面に戻れます。SGF の書き出し・読み込みは⋯メニューから。</li>
@@ -1256,8 +1261,9 @@
           <div class="stat"><b>${totalGames ? totalGames.toLocaleString() : '—'}</b><span>自己対局（累計局数）</span></div>
           <div class="stat"><b>${W.blocks}×${W.ch}</b><span>ネットの大きさ（ブロック×チャンネル）</span></div>
         </div>${W.note ? `<p class="hint" style="margin:8px 0 0">いまのネット: ${esc(W.note)}${W.exported ? `（${esc(W.exported)}）` : ''}</p>` : ''}` : '<p>AI のネット（js/weights.js）がまだありません。</p>'}
-        ${chart ? `<p class="hint" style="margin:14px 0 6px">第1世代からの強さの伸び（Elo）。世代どうしを先後入れ替えで対戦させた差を、古い順につないで足したもの（となりを測っていない世代は飛ばす。目安）。縦線は誤差の目安。</p>${chart}` : '<p class="hint">世代どうしの対戦の記録は、学習が進むとここに出ます。</p>'}
-        ${rowsElo ? `<div class="tbl wide-only" style="margin-top:8px"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>勝率</th><th>Elo</th></tr></thead><tbody>${rowsElo}</tbody></table></div>` : ''}
+        ${chart ? `<p class="hint" style="margin:14px 0 6px">第1世代からの強さの伸び（Elo）。世代どうしを先後入れ替えで対戦させた差を、古い順につないで足したもの（となりを測っていない世代は飛ばす。目安）。縦線は誤差の目安。</p>${chart}` : ''}
+        ${W && W.gen === CEIL.gen ? `<p class="hint" style="margin:12px 0 0">${CEIL.text}</p>` : ''}
+        ${rowsElo ? `<p class="hint" style="margin:12px 0 4px">${chart ? '世代どうしの対戦（新しいもの）' : '差し替えの判定に使った対戦（新しい世代 vs そのときの CPU。1手32回読み・100局。その時点の相手には勝ち越しても、つないで足すと大きく出すぎるので、伸びは上の直接の対戦で見る）'}</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>勝率</th><th>Elo</th></tr></thead><tbody>${rowsElo}</tbody></table></div>` : chart ? '' : '<p class="hint">世代どうしの対戦の記録はまだありません。</p>'}
         ${rowsLv ? `<p class="hint" style="margin:12px 0 4px">CPU の強さの段の差（すぐ下の段と対戦）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>Elo</th></tr></thead><tbody>${rowsLv}</tbody></table></div>` : ''}
         <p class="hint" style="margin-top:10px">${ULTRA_NOTE}</p>
         <p class="hint">人間に勝てるかどうかは、オンライン対戦の成績で見ていきます。</p>
@@ -1268,7 +1274,7 @@
           <li><b>人の知識はゼロ</b>：棋譜・定石・既存の囲碁ソフトは一切使っていません。知っているのはルールだけ。最初はでたらめに打つネットが、自分自身との対局（自己対局）だけで強くなりました。</li>
           <li><b>ネット</b>：盤の形（石・呼吸点の数・コウ・最近の手・コミ）を読んで、「次の一手の確率」「勝ち・持碁・負けの確率」「最後の目数の差」「点ごとにどちらの地になるか」を同時に答える残差ネット（${W ? `${W.blocks}ブロック×${W.ch}チャンネル` : '—'}）。</li>
           <li><b>木探索</b>：ネットの答えを手がかりに、有望な手を何手も先まで読みます（PUCT。AlphaZero と同じ形）。学習の自己対局では少ない回数でも確実に良くなる Gumbel 版を使いました。</li>
-          <li><b>学習</b>：自己対局の結果（勝ち負け・目数・地）と、読んだ結果の手の確率をネットに覚えさせ、それをくり返します。学習は Google Colab の TPU、ブラウザでは学習したネットを int8 にして WebAssembly（SIMD）で計算します。</li>
+          <li><b>学習</b>：自己対局の結果（勝ち負け・目数・地）と、読んだ結果の手の確率をネットに覚えさせ、それをくり返します。学習は Google Colab の TPU で始め、その続きを手元の PC の GPU で育てました。ブラウザでは、学習したネットを int8 にして WebAssembly（SIMD）で計算します。</li>
           <li><b>13路・19路</b>：9路で学んだネットをそのまま使います（盤の大きさによらない作りにしてあります）。9路より弱いです。</li>
         </ul>
         <table class="lv wide-only" style="margin-top:8px"><thead><tr><th>CPU の強さ</th><th>読み方</th></tr></thead><tbody>
@@ -1691,7 +1697,8 @@
     try {
       let mine = null;
       try { mine = JSON.parse(sessionStorage.getItem('go-online') || 'null'); } catch (e) { /* なくても動く */ }
-      if (mine && saved.online && mine.online && mine.online.gid === saved.online.gid) { saved.online = mine.online; saved.seats = mine.seats; }
+      saved.seats = seatsOf(saved.seats);
+      if (mine && saved.online && mine.online && mine.online.gid === saved.online.gid) { saved.online = mine.online; saved.seats = seatsOf(mine.seats); }
       // 終わったオンライン対局や、オンラインにつなげない場所では、ふつうの対局（ふたりで対局）として開く
       if (saved.online && (!ONLINE_OK || saved.result)) { saved.online = null; for (const c of [1, 2]) if (saved.seats[c] === 'remote') saved.seats[c] = 'human'; }
       if (saved.online) saved.online = Object.assign({ myHints: 0 }, saved.online, { oppPresent: true, lostAt: 0, myRe: false, oppRe: false, myAgree: false, oppAgree: false });

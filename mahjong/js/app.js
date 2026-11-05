@@ -12,7 +12,8 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('mahjong-' + k)); return v == null ? d : v; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('mahjong-' + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
   };
-  const settings = Object.assign({ showEval: true, showWaits: true, autowin: false, nocall: false, fast: false, sound: true }, store.get('settings', {}));
+  // AI補助（showEval・showWaits）は、さいしょはオフ（CONVENTIONS §3。common/setup.js の AIK と同じ項目）
+  const settings = Object.assign({ showEval: false, showWaits: false, autowin: false, nocall: false, fast: false, sound: true }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.showWaits;
   let cfg = Object.assign({ cpu: 'normal', length: 'hanchan', aka: 3, seat: 'random' }, store.get('cfg', {}));
 
@@ -191,7 +192,8 @@
     if (S.online && window.MJOnline && window.MJOnline.drives()) { window.MJOnline.schedule(); return; }
     if (paused()) return;
     if (r.phase === 'end') {
-      if (!S.resultShown) { S.resultShown = true; S.timer = setTimeout(showResult, delay('end')); }
+      // 局の結果は少し待ってから出す。待っている間にまた schedule が呼ばれたら（上で止めたので）数え直す
+      if (!S.resultShown) S.timer = setTimeout(() => { if (S.round !== r || !live() || paused()) return; S.resultShown = true; showResult(); }, delay('end'));
       return;
     }
     if (r.phase === 'turn') {
@@ -650,10 +652,8 @@
       if (isBest && myTurn) markedBest = true;
       return `<button class="${cls}" data-id="${id}" data-key="t${id}"${can ? '' : ' disabled'} aria-label="${MJ.kindJa(id >> 2)}${r.isRed(id) ? '（赤）' : ''}">${tile(id)}${evFor(id)}</button>`;
     };
-    let markedBest = false;
     // おすすめの印は「一番よい牌」の1枚だけ（同じ種類が複数あれば、ツモ切りならツモった牌に）
-    const order = drawn >= 0 && best && best.tile === drawn ? [drawn] : [];
-    void order;
+    let markedBest = false;
     let html = rest.map(id => btn(id, false)).join('');
     if (drawn >= 0) html += btn(drawn, true);
     el.innerHTML = html;
@@ -714,7 +714,12 @@
       return;
     }
     const s = S.me;
-    if (r.phase === 'end') { txt.innerHTML = `${esc(S.game.roundName(r.roundWind, r.kyoku, r.honba))} 終了`; return; }
+    if (r.phase === 'end') {
+      txt.innerHTML = `${esc(S.game.roundName(r.roundWind, r.kyoku, r.honba))} 終了`;
+      // 結果の画面を背景のタップで閉じて卓を見ているとき: もう一度開いて次の局へ進めるように
+      if (S.resultShown && $('dlg-result').hidden) tools.innerHTML = '<button class="btn small" data-act="result">結果・次の局へ</button>';
+      return;
+    }
     if (r.phase === 'turn' && r.cur === s && isHuman(s)) {
       bar.classList.add('turn');
       if (S.riichiMode) { txt.innerHTML = '<b>リーチ</b>: 切る牌を選んでください（もう一度「リーチ」で取り消し）'; return; }
@@ -888,9 +893,10 @@
     $('rs-body').innerHTML = html;
     if (S.online && window.MJOnline) window.MJOnline.auditLine();
     // 共通のごほうび（common/juice.js）: あなたが和了った局は小さく
-    if (window.TTJuice && res.type === 'agari' && isHuman(S.me) && res.wins.some(w => w.seat === S.me)) { const w = res.wins.find(x => x.seat === S.me); TTJuice.result({ round: true, outcome: 'win', label: `和了 ${w.yakuman ? '役満' : w.limit || w.han + '翻'}`, stars: S.online ? 0 : (CPU[S.seats[(S.me + 1) % 4]] || {}).stars, online: !!S.online, ref: res, quiet: !settings.sound }); }
+    if (window.TTJuice && res.type === 'agari' && isHuman(S.me) && res.wins.some(w => w.seat === S.me)) { const w = res.wins.find(x => x.seat === S.me); TTJuice.result({ round: true, outcome: 'win', label: `和了 ${w.yakuman ? '役満' : w.limit || w.han + '翻'}`, stars: S.online ? 0 : (CPU[S.seats[(S.me + 1) % 4]] || {}).stars, online: !!S.online, ref: res, id: 'r:' + r.wall.slice(0, 16).join('.'), quiet: !settings.sound }); }   // id: 読み込み直して同じ局の結果を出し直しても2度数えない
     const willEnd = predictEnd();
     $('rs-next').textContent = willEnd ? '結果を見る' : '次の局へ';
+    endMotion();   // 局の精算の点数（卓の上にふわっと出したもの）が、結果の画面の上に残らないように
     $('dlg-result').hidden = false;
   }
   function predictEnd() {
@@ -1076,11 +1082,12 @@
         <p>4人で、山から1枚ツモって1枚切るをくり返し、<b>4つの面子（順子 = 続きの3枚・刻子 = 同じ3枚）と雀頭（同じ2枚）</b>をそろえて和了ります。和了るには<b>役</b>が1つ以上必要です。</p>
         <div class="tilesrow">${ex('123m456p789s111z99s')}</div>
         <ul>
-          <li>手牌をタップすると浮き上がり、もう一度タップで切ります。ポン・チー・カン・ロン・ツモ・リーチのボタンは、できるときだけ出ます</li>
+          <li>手牌をタップすると浮き上がり、もう一度タップで切ります（手牌を河へ引っぱって離しても切れます）。ポン・チー・カン・ロン・ツモ・リーチのボタンは、できるときだけ出ます</li>
+          <li>卓の河・副露・真ん中をタップすると、4人の捨て牌と副露の一覧が大きく開きます。牌を長押しすると、その牌が大きく出ます</li>
           <li><b>ポン</b>: だれかの捨て牌で刻子を作る。<b>チー</b>: 上家（左の人）の捨て牌で順子を作る。<b>カン</b>: 同じ牌4枚。鳴くと「門前」でなくなり、使えない役があります</li>
           <li><b>立直</b>: 門前で聴牌したら、1000点を出して宣言できます（1翻。裏ドラ・一発のチャンス）。持ち点1000点以上・山の残り4枚以上のとき</li>
           <li><b>フリテン</b>: 自分の待ちの牌を自分で捨てている・待ちの牌を見逃した（次に自分が切るまで。立直中はこの局ずっと）ときはロンできません（ツモは和了れます）</li>
-          <li>AI補助: 手牌の下の棒が「その牌を切ったときの評価」（長いほどよい）、緑の点がおすすめ。待ちと残り枚数も出ます</li>
+          <li>AI補助（下の「AI補助」ボタンで出し入れ）: 手牌の上の細い棒が「その牌を切ったときの評価」（長いほどよい）、緑の点がおすすめ。待ちと残り枚数も出ます</li>
         </ul>
       </div>
       <div class="dcard" data-tab="役">
@@ -1139,7 +1146,7 @@
         <ul>
           <li><b>人の知識を使わない</b>: 人の牌譜・既存の麻雀 AI・人が作った評価の数値は一切使っていません。知っているのはルールだけで、強さは自分どうしで何十万局も打って（自己対局）身につけました</li>
           <li><b>見るもの</b>: 自分の手牌・全員の河と副露・見えていない牌の枚数・ドラ・立直や鳴きの状況・点数と順位と点差・局と残りの山。そこに、ルールから計算できること（その牌を切ったときの向聴数・受け入れの枚数・聴牌なら待ちの枚数と和了ったときの点・フリテン・相手ごとにルール上ロンされない牌）を足します</li>
-          <li><b>学ぶもの</b>: 「この局面でこの行動（打牌・立直・ポン・チー・カン・見送り）をしたら、半荘の最後にどれだけの順位点になるか」の見込み。ネットは全結合 ${AI.S_BITS}＋${AI.A_BITS} → 256 → 128 → 64 → 2</li>
+          <li><b>学ぶもの</b>: 「この局面でこの行動（打牌・立直・ポン・チー・カン・見送り）をしたら、半荘の最後にどれだけの順位点になるか」の見込み。ネットは全結合 ${AI.S_BITS}＋${AI.A_BITS} → ${(window.MJ_WEIGHTS && window.MJ_WEIGHTS.h || [256, 128, 64]).join(' → ')} → 2</li>
           <li><b>局の終わりの価値</b>: 局のあとの点数の状況から「この半荘の最終の順位点の見込み」を出す小さなネット（これも自己対局の半荘の結果から学ぶ）で、オーラスの点差の勝負どころも学びます</li>
           <li><b>学び方</b>: 局が終わったら、自分の手を後ろからたどり、「局の終わりの値」と「次の手番での一番よい手の見込み」を混ぜたものを、その手の目標にします（TD(λ)）。ときどき わざと違う手（でたらめな手や、立直か黙聴か・鳴くか見送るかを逆にした手）を試して、選ばなかった手の値も学びます</li>
           <li><b>強さの段</b>: やさしい = ネットの値にゆらぎ（温度 0.005: 値の差 ÷ 0.005 の exp に比例して選ぶ）、ふつう = 牌効率だけ（基準の AI）、つよい・最強 = ネットの一番の手。測った強さの順（「強さ」の表）。考える時間を延ばした5段目「超最強」は置いていません: 見えない牌を何通りも決めて先を読む方法を 16 → 64 通りに増やしても、つよい と互角（平均順位 2.51・2.49）で強くならなかったため</li>
@@ -1202,13 +1209,6 @@
         else humanTurn({ t: 'discard', tile: id, riichi: false });
       } else { S.sel = id; render(); }
     });
-    // マウスでは2回押さなくてもよいよう、ダブルクリックでもすぐ切る
-    $('hand').addEventListener('dblclick', e => {
-      const b = e.target.closest('.ht');
-      if (!b || b.disabled) return;
-      const id = Number(b.dataset.id);
-      if (S.sel !== id) return;
-    });
     $('calls').addEventListener('click', e => {
       const b = e.target.closest('button');
       if (!b) return;
@@ -1234,6 +1234,7 @@
     $('infobar').addEventListener('click', e => {
       const b = e.target.closest('button');
       if (b && b.dataset.act === 'live') backToLive();
+      if (b && b.dataset.act === 'result' && S.round && S.round.phase === 'end') showResult();
     });
     $('stage').addEventListener('click', e => {
       if (S.sel >= 0 && !S.riichiMode) { S.sel = -1; render(); return; }
@@ -1330,7 +1331,7 @@
     $('ng-start').addEventListener('click', () => { $('dlg-new').hidden = true; startGame(draft); });
     $('rs-next').addEventListener('click', nextRound);
     $('rs-review').addEventListener('click', () => { $('dlg-result').hidden = true; if (S.online) { openHist(); return; } viewRound(-1, 0); openHist(); });
-    $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) $('dlg-result').hidden = true; });
+    $('dlg-result').addEventListener('click', e => { if (e.target === $('dlg-result')) { $('dlg-result').hidden = true; renderInfo(shownRound()); } });
     $('fn-again').addEventListener('click', () => { $('dlg-final').hidden = true; if (S.online && window.MJOnline) window.MJOnline.again(); else startGame(cfg); });
     $('fn-new').addEventListener('click', () => { $('dlg-final').hidden = true; openNew(); });
     $('fn-hist').addEventListener('click', () => { $('dlg-final').hidden = true; openHist(); });
@@ -1356,13 +1357,12 @@
 
   // オンラインの卓の部品（online-table.js）に渡すもの
   window.MJApp = {
-    S, store, settings, aiFlags, render, afterChange, schedule, startRoundFrom: null, makeAgent, NET, CPU, showResult, showFinal, shortName, esc, tile, $,
+    S, store, settings, aiFlags, render, afterChange, schedule, makeAgent, NET, CPU, showResult, showFinal, shortName, esc, tile, $,
     setOnline(o) { S.online = o; clearTimeout(S.timer); if (o) S.agents = [null, null, null, null]; },
     callout,
     // 動作確認用: 自分の席も CPU に打たせる（おまかせ）
     autoplay(level) { if (!S.game) return; S.seats[S.me] = level || 'human'; S.agents[S.me] = level ? makeAgent(level) : null; S.pending = null; schedule(); },
     fast(on) { settings.fast = !!on; },
-    loadOnlineGame(state) { /* online-table.js が局を作って S.game / S.round に入れたあと呼ぶ */ S.view = null; S.sel = -1; S.riichiMode = false; S.pending = null; S.logPos = 0; fit(); render(); },
   };
 
   bind();

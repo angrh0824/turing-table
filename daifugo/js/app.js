@@ -18,7 +18,9 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('daifugo-' + k)); return v == null ? d : v; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('daifugo-' + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
   };
-  const settings = Object.assign({ sound: true, anim: true, fast: false, autopass: true, four: false, showProb: true, showBest: true, sortRev: false }, store.get('settings', {}));
+  // AI補助（見込み・おすすめ）は、さいしょは出さない（「AI補助」ボタンで出す。CONVENTIONS.md 3）。アニメーションは全ゲーム共通の設定（common/motion.js）
+  const settings = Object.assign({ sound: true, fast: false, autopass: true, four: false, showProb: false, showBest: false, sortRev: false }, store.get('settings', {}));
+  delete settings.anim;   // 前の版の「アニメーション」（いまは tt-motion）
   const aiOn = () => settings.showProb || settings.showBest;
   let cfg = Object.assign({ cpu: 'normal', games: 5 }, store.get('cfg', {}));
   cfg.rules = D.normRules(cfg.rules);
@@ -30,14 +32,16 @@
 
   // ------------------------------------------------------------------ 対局の状態
   const S = {
-    online: null,          // オンラインの卓（online-table.js が入れる）: { send(mv), myHints, seatsInfo }
+    online: null,          // オンラインの卓（online-table.js が入れる）: { isHost, canAct(), submit(mv), useHint(), setAI(f), next(), onRoundEnd(), alert, waiting, got }
     me: 0,                 // 自分の席（画面ではいつも下）
     seats: [],             // [{ kind: 'human'|'cpu'|'remote', name, level, ai, hints }]
     rules: cfg.rules, games: cfg.games, round: 0, scores: [0, 0, 0, 0], history: [], prev: null,
     g: null, hands0: null, moves: [], snaps: [], recs: [],
-    view: null, sel: new Set(), busy: false, timer: 0, thinking: -1,
+    view: null, sel: new Set(), timer: 0, thinking: -1,
     analysis: null, lastAnalysis: null, hint: null, got: [], reviewAll: false, bad: {}, revAn: {},
     pile: null, bubbles: {}, resultShown: false, cpuCfg: cfg.cpu, ended: false,
+    holdUntil: 0, holdThen: null, holdT: 0,   // 流れた場を見せている間（CPU はそのあいだ出さない）
+    dropAt: null, dragging: false,            // つかんで場へ出したとき: 離した場所（札ごと）・つかんでいる最中
   };
   const live = () => S.view === null;
   const shownG = () => (live() ? S.g : S.snaps[S.view]);
@@ -51,7 +55,7 @@
   };
   const watching = () => !!(S.seats[S.me] && S.seats[S.me].kind === 'cpu');
   const shortName = seat => (seat === S.me ? (watching() ? '手前' : 'あなた') : S.seats[seat] && S.seats[seat].kind === 'remote' ? esc(S.seats[seat].name) : POS[pos(seat)]);
-  const isHumanTurn = () => live() && S.g && S.g.phase !== 'done' && S.g.actor === S.me && !S.busy && S.seats[S.me] && S.seats[S.me].kind === 'human'
+  const isHumanTurn = () => live() && S.g && S.g.phase !== 'done' && S.g.actor === S.me && S.seats[S.me] && S.seats[S.me].kind === 'human'
     && (!S.online || (S.online.canAct() && !S.g.hands[S.me].some(c => c < 0)));
 
   // ------------------------------------------------------------------ CPU と AI補助（Web Worker）
@@ -107,10 +111,12 @@
     const start = S.prev ? (S.prev.indexOf(3) + 1) & 3 : Math.floor(rnd() * 4);
     const hands = D.deal(S.rules, rnd, start);
     loadRound({ hands0: hands, moves: [], prev: S.prev });
+    saveGame();   // 配ったところで残す（すぐ読み込み直しても、前の対局に戻らない）
     animateDeal();
   }
   // 配った手と手順から、その回を作り直す（再読み込み・保存から）
   function loadRound(r) {
+    endHold(true);   // 前の回の「流れた場を見せる間」を残さない
     S.hands0 = r.hands0.map(h => h.slice());
     S.g = new D.Game(S.rules, { hands: S.hands0, prev: r.prev, leader: r.leader, auto: r.auto });
     S.moves = []; S.snaps = [S.g.clone()]; S.recs = [];
@@ -120,7 +126,6 @@
     // 交換で決まりどおりに移った札（XFER）を記録に
     for (const e of S.g.log) if (e.k === XFER) { S.recs.push({ p: e.p, to: e.to, kind: 'xfer', cards: e.cards, snap: 0 }); if (e.to === S.me) S.got.push(...e.cards); }
     for (const mv of r.moves || []) applyQuiet(mv);
-    if (S.online) S.online.got = S.got;
   }
   function applyQuiet(mv) {
     const g = S.g, p = g.actor, pendBefore = g.pend ? Object.assign({}, g.pend) : null;
@@ -144,7 +149,7 @@
   // ------------------------------------------------------------------ 進行
   // 「新しい対局」を開いている間は裏の卓を進めない（CPU も観戦も止める）。閉じたら止めたところから。オンラインの卓は止めない
   const paused = () => !S.online && !$('dlg-new').hidden;
-  function resume() { if (!paused() && S.g && live() && !S.busy) schedule(); }
+  function resume() { if (!paused() && S.g && live()) schedule(); }
   function schedule() {
     clearTimeout(S.timer);
     const g = S.g;
@@ -154,12 +159,11 @@
     if (!live()) { renderAll(); return; }
     if (g.phase === 'done') { renderAll(); finishRound(); return; }
     const p = g.actor, st = S.seats[p];
-    if (S.busy) return;
     if (st.kind === 'human' && p === S.me) {
       const L = g.legal();
       renderAll();
       if (!g.pend && settings.autopass && L.length === 1 && L[0].k === PASS) {
-        S.timer = setTimeout(() => { if (isHumanTurn() && S.g === g && !paused()) submit(L[0], true); }, settings.fast ? 450 : 900);
+        S.timer = setTimeout(() => { if (isHumanTurn() && S.g === g && !paused()) submit(L[0]); }, settings.fast ? 450 : 900);
         return;
       }
       if (aiOn()) analyze();
@@ -184,9 +188,9 @@
   }
 
   // 手を出す（オンラインならホストへ送る。ホストと1人のときはその場で）
-  function submit(mv, auto) {
+  function submit(mv) {
     if (S.online) { S.online.submit(mv); S.sel.clear(); renderAll(); return; } // 手はホストが並べてから、みんなの画面に届く
-    applyMove(mv, { auto });
+    applyMove(mv);
   }
 
   // 交換で決まりどおりに札が移る（オンライン: ホストの手順から）
@@ -206,7 +210,7 @@
     flyGive(from, to, cards, fromR, before);
   }
   // 手を進める: 局面をすぐ進めて描き直し、札はもとの場所から飛ばす（動きを待たずに次へ。動いている途中でも次の操作を受け付ける）
-  function applyMove(mv, opt = {}) {
+  function applyMove(mv) {
     if (TM) TM.finish();
     endHold(true);
     const g = S.g, p = g.actor;
@@ -226,16 +230,14 @@
     const cleared = ev.some(e => e.t === 'clear');
     if (mv.k === GROUP || mv.k === SEQ) S.pile = cleared ? trickBefore.concat([{ p, mv }]) : null;
     renderAll();
-    if (opt.anim !== false) {
-      if (mv.k === GROUP || mv.k === SEQ) flyPlay(p, mv, before, fromR, dropAt);
-      else if (mv.k === PICK && pendBefore) {
-        const src = dropAt ? new Map([...before, ...dropAt]) : before;
-        if (pendBefore.kind === 'discard10') flyTemp(mv.cards[0], p === S.me ? (src.get(mv.cards[0]) || fromR) : fromR, $('btn-seen').getBoundingClientRect(), true);
-        else flyGive(p, pendBefore.to, mv.cards, fromR, src);
-      }
-      reflowHand(before);
+    if (mv.k === GROUP || mv.k === SEQ) flyPlay(p, mv, before, fromR, dropAt);
+    else if (mv.k === PICK && pendBefore) {
+      const src = dropAt ? new Map([...before, ...dropAt]) : before;
+      if (pendBefore.kind === 'discard10') flyTemp(mv.cards[0], p === S.me ? (src.get(mv.cards[0]) || fromR) : fromR, $('btn-seen').getBoundingClientRect(), true);
+      else flyGive(p, pendBefore.to, mv.cards, fromR, src);
     }
-    playEvents(p, mv, ev, pendBefore);
+    reflowHand(before);
+    playEvents(p, mv, ev);
     saveGame();
     // 流れたときは、最後の札を少し見せてから場の札をまとめて消す（そのあいだ CPU は待つ。人はすぐ出せる）
     if (cleared) hold(settings.fast ? 450 : 800, () => clearPile());
@@ -267,6 +269,7 @@
     S.prev = rk;
     if (S.games && S.round >= S.games) S.ended = true;
     saveGame();
+    renderAll();   // 点数の表・情報の行（「次の回へ」か「もう一度」）を、この回の点数で描き直す
     const meR = rk[S.me];
     if (!watching()) SND.play(meR <= 1 ? 'win' : 'lose', 0.2);
     setTimeout(showResult, settings.fast ? 300 : 900);
@@ -367,8 +370,8 @@
       const t0 = Date.now();
       const step = () => {
         if (!cards.length) return;
-        // 前の札の動きが終わるのを待つ（オンラインでは、ホストが前の札を手順に入れて次の番が来るのを待つ）
-        if (S.busy || (S.online && !isHumanTurn() && Date.now() - t0 < 15000)) { setTimeout(step, 100); return; }
+        // 1枚ずつ渡す・捨てる（札が1枚ずつ飛ぶ）。オンラインでは、ホストが前の札を手順に入れて次の番が来るのを待つ
+        if (S.online && !isHumanTurn() && Date.now() - t0 < 15000) { setTimeout(step, 100); return; }
         if (!isHumanTurn() || !S.g.pend) return;
         const c = cards.shift();
         const mv = S.g.legal().find(m => m.cards[0] === c);
@@ -405,8 +408,8 @@
 
   // ------------------------------------------------------------------ AI補助
   let anId = 0;
-  function analyze(force) {
-    if (!HAS_NET || !isHumanTurn() || (!aiOn() && !force)) return;
+  function analyze() {
+    if (!HAS_NET || !isHumanTurn() || !aiOn()) return;   // AI補助を隠している間は裏で読まない
     const g = S.g, n = S.moves.length, id = ++anId;
     AI.ask({ type: 'analyze', game: g.toJSON() }).then(r => {
       if (id !== anId || S.g !== g || S.moves.length !== n || !r || !r.res) return;
@@ -533,7 +536,7 @@
     renderOpponents(); renderMeHead();
     setTimeout(() => { if (S.bubbles[seat] && Date.now() - S.bubbles[seat].t >= 1100) { delete S.bubbles[seat]; renderOpponents(); renderMeHead(); } }, 1200);
   }
-  function playEvents(p, mv, ev, pend) {
+  function playEvents(p, mv, ev) {
     let stamped = false;
     const st = (t, small) => { if (!stamped || !small) { stamp(t, small); stamped = !small || stamped; } };
     if (mv.k === GROUP || mv.k === SEQ) SND.play('card');
@@ -557,7 +560,6 @@
       else if (e.t === 'foul') { bubble(e.p, '反則あがり'); st('反則あがり', true); SND.play('lose'); if (TM) TM.pop(panel(e.p), 'shake'); }
       else if (e.t === 'miyako') { bubble(e.p, '都落ち'); st('都落ち'); SND.play('miyako', 0.2); if (TM) TM.pop(panel(e.p), 'shake'); }
     }
-    void pend;
   }
   function flash() {
     if (!motionOn()) return;
@@ -734,7 +736,7 @@
       else if (an.res[0].mv.k !== PASS) an.res[0].mv.cards.forEach(c => rec.add(c));
     }
     const got = new Set(S.got);
-    if (!n) { setHTML(el, `<div class="emptyh">${g.out[S.me] ? `あがり（${TITLE[g.rank[S.me]]}）` : '手札なし'}</div>`); return; }
+    if (!n) { setHTML(el, `<div class="emptyh">${g.out[S.me] ? `あがり（${TITLE[g.rank[S.me]]}）` : S.online && watching() && g.hands[S.me].length ? `この回は CPU が代わりに打っています（${g.hands[S.me].length}枚）。次の回から打てます` : '手札なし'}</div>`); return; }
     // 札ごとの要素は使い回す（描き直しで、配る・詰まる動きの途中の札を消さない）
     const old = new Map();
     el.querySelectorAll(':scope > .hc').forEach(b => old.set(Number(b.dataset.c), b));
@@ -793,10 +795,6 @@
       const r = S.g.rank[S.me];
       html = `<span class="txt"><b>${watching() ? `${shortName(S.g.rank.indexOf(0))}が大富豪` : `あなたは${TITLE[r]}（${r + 1}位）`}</b>　${S.ended ? '対局おしまい' : ''}</span>`;
       tools = btn('review', '振り返る') + (S.online ? (S.online.isHost ? btn('next', '次の回へ', ' primary') : '') : btn(S.ended ? 'again' : 'next', S.ended ? 'もう一度' : '次の回へ', ' primary'));
-    } else if (S.online && S.online.waiting) {
-      cls += ' mine';
-      html = `<span class="txt">${esc(S.online.waiting)}</span>`;
-      tools = btn('online', 'オンライン');
     } else if (S.online && S.online.alert) {
       cls += ' alert';
       html = `<span class="txt">${esc(S.online.alert)}</span>`;
@@ -936,7 +934,7 @@
   function renderScores() {
     const el = $('scores');
     if (!el) return;
-    const rows = [0, 1, 2, 3].map(s => `<tr><td>${seatName(s)}</td>${S.history.map(h => `<td>${TITLE[h.rank[s]].replace('大', '大')}</td>`).join('')}<td class="n"><b>${S.scores[s]}</b></td></tr>`).join('');
+    const rows = [0, 1, 2, 3].map(s => `<tr><td>${seatName(s)}</td>${S.history.map(h => `<td>${TITLE[h.rank[s]]}</td>`).join('')}<td class="n"><b>${S.scores[s]}</b></td></tr>`).join('');
     el.innerHTML = `<div class="tbl"><table class="scoretbl"><thead><tr><th></th>${S.history.map((_, i) => `<th>${i + 1}</th>`).join('')}<th class="n">点</th></tr></thead><tbody>${rows}</tbody></table></div><p class="hint" style="margin:6px 0 0">大富豪 3点・富豪 2点・貧民 1点・大貧民 0点。${S.games ? `${S.games}回戦で合計点のいちばん多い人の勝ち。` : ''}</p>`;
     $('score-info').textContent = S.games ? `${S.round}/${S.games}回戦` : `${S.round}回戦`;
   }
@@ -1003,14 +1001,14 @@
       const tot = [0, 1, 2, 3].sort((a, b) => S.scores[b] - S.scores[a]);
       const top = S.scores[tot[0]], mine = S.scores[S.me];
       $('rs-title').textContent = mine === top ? (tot.filter(s => S.scores[s] === top).length > 1 ? '同点で1位' : 'あなたの優勝') : `あなたは${tot.findIndex(s => S.scores[s] === mine) + 1}位`;
-      $('rs-list').innerHTML = tot.map(s => `<li class="${s === S.me ? 'me' : ''}"><span class="rk r${rk[s]}">${TITLE[rk[s]]}</span><span><b>${seatName(s)}</b></span><span class="pts">計 ${S.scores[s]}点</span></li>`).join('');
+      // 合計点の順位（同点は同じ順位）。この回の階級は名前の横に小さく
+      const place = s => tot.findIndex(x => S.scores[x] === S.scores[s]) + 1;
+      $('rs-list').innerHTML = tot.map(s => `<li class="${s === S.me ? 'me' : ''}"><span class="rk r${place(s) - 1}">${place(s)}位</span><span><b>${seatName(s)}</b> <span class="ev">この回 ${TITLE[rk[s]]}</span></span><span class="pts">計 ${S.scores[s]}点</span></li>`).join('');
       $('rs-body').textContent = `${S.games}回戦の合計点（大富豪3・富豪2・貧民1・大貧民0）。`;
       $('rs-next').textContent = 'もう一度';
     } else {
       $('rs-title').textContent = watching() ? `${seatName(order[0]).replace(/<[^>]+>/g, '')}が大富豪` : `あなたは${TITLE[meR]}`;
       $('rs-list').innerHTML = order.map(s => {
-        const evs = [];
-        if (g.events && false) evs.push('');
         const miy = S.recs.some(r => r.events && r.events.includes('miyako')) && g.prev && g.prev[s] === 0 && rk[s] === 3;
         return `<li class="${s === S.me ? 'me' : ''}"><span class="rk r${rk[s]}">${TITLE[rk[s]]}</span><span><b>${seatName(s)}</b>${miy ? ' <span class="ev">都落ち</span>' : ''}</span><span class="pts">+${PTS[rk[s]]}点（計 ${S.scores[s]}）</span></li>`;
       }).join('');
@@ -1066,7 +1064,7 @@
   const cid = (s, r) => s * 13 + D.RANKS.indexOf(r);
   function renderRules() {
     const R = D.RULE_LIST;
-    const ruleRows = R.map(r => `<tr><td><b>${r.label}</b></td><td>${r.group === 'basic' ? '基本' : 'ローカル'}</td><td>${r.type === 'num' ? '1枚' : r.def ? 'あり' : 'なし'}</td><td>${esc(r.desc)}</td></tr>`).join('');
+    const ruleRows = R.map(r => `<tr><td><b>${r.label}</b></td><td class="n">${r.group === 'basic' ? '基本' : 'ローカル'}</td><td class="n">${r.type === 'num' ? '1枚' : r.def ? 'あり' : 'なし'}</td><td>${esc(r.desc)}</td></tr>`).join('');
     $('view-rules').innerHTML = `
       <div class="card" data-tab="遊び方">
         <h3>遊び方</h3>
@@ -1077,7 +1075,7 @@
           <li>1回戦は♦3を持っている人から。2回戦からは大貧民から始め、その前に<b>カード交換</b>があります。</li>
           <li>何回戦か続けて、大富豪3点・富豪2点・貧民1点・大貧民0点の合計で競います。</li>
         </ul>
-        <p class="hint">操作: 手札をタップしてえらび（もう一度で外す）、「出す」。出せない札はやんわり暗くなります。場がペアなどのときは、1枚えらぶと組の相手も自動でえらばれます。</p>
+        <p class="hint">操作: 手札をタップしてえらび（もう一度で外す）、「出す」。えらんだ札をつかんで場へ持っていっても出せます。出せない札はやんわり暗くなります。場がペアなどのときは、1枚えらぶと組の相手も自動でえらばれます。札を長く押すと大きく見え、場の右上の「出た札」で、だれが何を出したかの一覧が開きます。</p>
       </div>
       <div class="card" data-tab="強さと形">
         <h3>札の強さと出し方</h3>
@@ -1129,9 +1127,9 @@
     const st = window.DF_STRENGTH;
     const lvRows = CPU_KEYS.map(k => {
       const r = st && st.levels && st.levels[k];
-      return `<tr><td><b>${CPU[k].label}</b></td><td>${esc(CPU[k].desc)}</td><td>${r ? `${r.mean.toFixed(2)} ± ${r.ci.toFixed(2)}位` : '—'}</td></tr>`;
+      return `<tr><td class="n"><b>${CPU[k].label}</b></td><td>${esc(CPU[k].desc)}</td><td class="n">${r ? `${r.mean.toFixed(2)} ± ${r.ci.toFixed(2)}位` : '—'}</td></tr>`;
     }).join('');
-    const genRows = st && st.gens ? st.gens.map(r => `<tr><td>${esc(r.name)}</td><td>${r.vsWeak ? `${r.vsWeak.mean.toFixed(2)} ± ${r.vsWeak.ci.toFixed(2)}` : '—'}</td><td>${r.vsPrev ? `${r.vsPrev.mean.toFixed(2)} ± ${r.vsPrev.ci.toFixed(2)}（第${r.vsPrev.prev}世代に）` : '—'}</td></tr>`).join('') : '';
+    const genRows = st && st.gens ? st.gens.map(r => `<tr><td class="n">${esc(r.name)}</td><td class="n">${r.vsWeak ? `${r.vsWeak.mean.toFixed(2)} ± ${r.vsWeak.ci.toFixed(2)}` : '—'}</td><td>${r.vsPrev ? `<span class="n">${r.vsPrev.mean.toFixed(2)} ± ${r.vsPrev.ci.toFixed(2)}</span>（第${r.vsPrev.prev}世代に）` : '—'}</td></tr>`).join('') : '';
     $('view-ai').innerHTML = `
       <div class="card" data-tab="強さ">
         <h3>この AI の強さ</h3>
@@ -1191,15 +1189,19 @@
   }
   function closeSheet() { $('side').classList.remove('open'); }
 
-  function setSetting(k, v) {
-    settings[k] = v; store.set('settings', settings);
-    const box = { showProb: 'set-prob', showBest: 'set-best', sound: 'set-sound', fast: 'set-fast', autopass: 'set-autopass', four: 'set-four' }[k];
-    if (box && $(box)) $(box).checked = v;
+  const BOX = { showProb: 'set-prob', showBest: 'set-best', sound: 'set-sound', fast: 'set-fast', autopass: 'set-autopass', four: 'set-four' };
+  function setSetting(k, v) { setSettings({ [k]: v }); }
+  function setSettings(o) {
+    Object.assign(settings, o); store.set('settings', settings);
+    for (const k in BOX) if ($(BOX[k])) $(BOX[k]).checked = !!settings[k];
     SND.on = settings.sound;
-    if ((k === 'showProb' || k === 'showBest') && S.online && S.online.setAI) S.online.setAI(aiOn() ? 1 : 0);
-    if ((k === 'showProb' || k === 'showBest') && aiOn()) analyze();
+    const ai = 'showProb' in o || 'showBest' in o;
+    if (ai && S.online && S.online.setAI) S.online.setAI(aiOn() ? 1 : 0);
+    if (ai && aiOn()) analyze();
     renderAll();
   }
+  // 「AI補助」ボタン（オンラインのロビーからも）: 見込みとおすすめをまとめて出し入れ
+  const setAI = on => setSettings({ showProb: on, showBest: on });
 
   // ------------------------------------------------------------------ イベント
   function bind() {
@@ -1234,7 +1236,7 @@
     $('btn-play').addEventListener('click', () => { SND.unlock(); onPlay(); });
     $('btn-pass').addEventListener('click', () => { SND.unlock(); onPass(); });
     $('btn-hint').addEventListener('click', hint);
-    $('btn-ai').addEventListener('click', () => { const on = !aiOn(); settings.showProb = on; setSetting('showBest', on); });
+    $('btn-ai').addEventListener('click', () => setAI(!aiOn()));
     $('info').addEventListener('click', e => {
       const b = e.target.closest('button');
       if (!b) return;
@@ -1285,13 +1287,13 @@
     $('btn-settings').addEventListener('click', e => { e.stopPropagation(); const p = $('settings'); p.hidden = !p.hidden; $('btn-settings').setAttribute('aria-expanded', String(!p.hidden)); });
     // アニメーションは全ゲーム共通の設定（common/motion.js が覚える）
     try { $('set-anim').checked = localStorage.getItem('tt-motion') !== '0'; } catch (e) { $('set-anim').checked = true; }
-    const still = () => document.documentElement.classList.toggle('still', !motionOn());
+    const still = () => document.documentElement.classList.toggle('still', !$('set-anim').checked);   // 裏のタブで開いたときに止めたままにならないよう、設定だけを見る
     $('set-anim').addEventListener('change', () => { if (TM) TM.set($('set-anim').checked); still(); });
     still();
-    [['set-prob', 'showProb'], ['set-best', 'showBest'], ['set-sound', 'sound'], ['set-fast', 'fast'], ['set-autopass', 'autopass'], ['set-four', 'four']].forEach(([id, k]) => {
-      const el = $(id); el.checked = !!settings[k];
+    for (const k in BOX) {
+      const el = $(BOX[k]); el.checked = !!settings[k];
       el.addEventListener('change', () => setSetting(k, el.checked));
-    });
+    }
     // 新しい対局
     $('dlg-new').addEventListener('click', e => {
       const b = e.target.closest('.seg button, .cards button');
@@ -1329,9 +1331,8 @@
 
   // ------------------------------------------------------------------ オンラインの卓から使う部品
   window.DFApp = {
-    S, D, A, store, settings, esc, aiOn, seatName, shortName,
+    S, D, A, store, settings, esc, aiOn, setAI, seatName, shortName,
     renderAll, schedule, applyMove, applyXfer, loadRound, applyQuiet, finishRound, showResult, toast, stamp, bubble, animateDeal, hideResult: () => { $('dlg-result').hidden = true; },
-    get busy() { return S.busy; },
     // 卓を始める（オンライン）: seats・me・rules などを入れてから呼ぶ
     beginOnline(o) {
       clearTimeout(S.timer);

@@ -96,7 +96,7 @@
   }
   const meIndex = () => (S.online ? S.online.me : S.seats.findIndex(s => s.kind === 'me'));
   const humanCount = () => S.seats.filter(s => s.kind === 'me' || s.kind === 'human').length;
-  const nameOf = i => (S.seats[i].kind === 'cpu' && S.mode !== 'watch' && !S.online ? S.seats[i].name : S.seats[i].name);
+  const nameOf = i => S.seats[i].name;
   const levelText = i => (S.seats[i].kind === 'cpu' ? `CPU（${(LV[S.seats[i].level] || {}).label || ''}）` : '');
   const paused = () => !$('dlg-new').hidden;
 
@@ -432,7 +432,7 @@
     if (c === Y.YACHT && pts) {
       M.float('ヨット！', $('dice'), { color: 'var(--sel-ring)', size: 30, ms: 1300 });
       dieEls.forEach((el, i) => setTimeout(() => M.pop(el._cube, 'glow'), i * 60));
-      if (window.TTJuice && S.seats[p] && S.seats[p].kind !== 'cpu') TTJuice.hype('', $('dice'), { tier: 3, quiet: !settings.sound });   // ヨット！（共通の光と音）
+      if (window.TTJuice && S.seats[p] && S.seats[p].kind !== 'cpu') TTJuice.hype('', $('dice'), { tier: 3 });   // ヨット！（共通の光と音）
     }
     if (upBefore < Y.BONUS_AT && s.up >= Y.BONUS_AT) {
       const sub = sh.querySelector(`[data-sub="${p}"]`);
@@ -568,7 +568,8 @@
   }
   function winnerText() {
     const g = S.g, rk = Y.ranks(g), w = [];
-    rk.forEach((r, i) => { if (r === 1) w.push(nameOf(i)); });
+    // 観戦では席の名前が強さ（「つよい」など）なので、かぎかっこで名前とわかるようにする
+    rk.forEach((r, i) => { if (r === 1) w.push(S.mode === 'watch' ? `「${nameOf(i)}」` : nameOf(i)); });
     return w.length > 1 ? `${w.join('・')}が1位タイ` : `${w[0]}の勝ち`;
   }
   function renderRoll() {
@@ -682,8 +683,9 @@
     // 共通のごほうび（common/juice.js）: あなたが入っていて、みんなで（1台）ではないとき
     if (window.TTJuice && me >= 0 && (S.online || S.mode !== 'local')) {
       const cpu = S.seats.find(x => x.kind === 'cpu');
-      TTJuice.result(g.n === 1 ? { outcome: S.newBest ? 'win' : 'draw', title: S.newBest ? '自己ベスト' : `${t[0]}点`, ref: g, quiet: !settings.sound }
-        : { place: rk[me], of: g.n, outcome: rk[me] === 1 ? 'win' : 'lose', stars: cpu && !S.online ? (LV[cpu.level] || {}).stars : 0, online: !!S.online, ref: g, quiet: !settings.sound });
+      const id = S.online ? undefined : 's' + S.seed;   // 1局ごとの印（最後の記入を戻して書き直しても、ごほうびは1局1回）
+      TTJuice.result(g.n === 1 ? { outcome: S.newBest ? 'win' : 'draw', title: S.newBest ? '自己ベスト' : `${t[0]}点`, ref: g, id }
+        : { place: rk[me], of: g.n, outcome: rk[me] === 1 ? 'win' : 'lose', stars: cpu && !S.online ? (LV[cpu.level] || {}).stars : 0, online: !!S.online, ref: g, id });
     }
     $('dlg-result').hidden = false;
   }

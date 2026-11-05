@@ -42,8 +42,8 @@
   };
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', side: 'white', cpuW: 'strong', cpuB: 'strong', start: 'std', fen: '' }, store.get('cfg', {}));
   if (!CPU[cfg.cpu]) cfg.cpu = 'normal';
-  // AI補助: showEval = 形勢、arrow = 最善手の矢印
-  const settings = Object.assign({ sound: true, moves: true, reach: true, analyze: true, showEval: true, arrow: true }, store.get('settings', {}));
+  // AI補助: showEval = 形勢、arrow = 最善手の矢印。さいしょはオフ（「AI補助」ボタンで出す。CONVENTIONS 3章。common/setup.js の AIK と同じ項目）
+  const settings = Object.assign({ sound: true, moves: true, reach: true, analyze: true, showEval: false, arrow: false }, store.get('settings', {}));
   // 前の「駒の動き」オフは、全ゲーム共通のアニメーションのオフとして引き継ぐ
   if (settings.anim === false && TM) { try { if (localStorage.getItem('tt-motion') == null) TM.set(false); } catch (e) { /* そのまま */ } }
   delete settings.anim;
@@ -191,11 +191,14 @@
     }
     loadGame({ seats, startFen: cfg.start === 'fen' && cfg.fen ? cfg.fen : START_FEN, moves: [] });
   }
+  // 対局ごとの印（共通のごほうびが、待ったで戻して指し直した同じ対局の結果を2度数えないように）
+  const newGid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
   // moves は UCI の文字列（保存・オンライン）か整数
   function loadGame(g) {
     AI.cancel(); clearTimeout(S.timer);
     S.seats = g.seats; S.online = g.online || null;
+    S.gid = S.online ? 'on-' + S.online.mid : g.gid || newGid();
     S.startFen = g.startFen || START_FEN;
     S.pos = Position.fromFEN(S.startFen);
     S.start0 = S.pos.clone();
@@ -214,7 +217,8 @@
   const uciList = () => { const p = Position.fromFEN(S.startFen), out = []; for (const m of S.moves) { out.push(p.uci(m)); p.makeMove(m); } return out; };
   function saveGame() {
     const online = S.online ? { mid: S.online.mid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
-    store.set('game', { seats: S.seats, startFen: S.startFen, moves: uciList(), result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
+    // 形は common/setup.js の lastGame() も読む（seats・moves・result）。変えたらそちらも直す
+    store.set('game', { seats: S.seats, startFen: S.startFen, moves: uciList(), result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online, gid: S.gid });
   }
   function rebuild(n) {
     S.moves.length = n; S.sans.length = n; S.evals.length = Math.min(S.evals.length, n + 1);
@@ -488,7 +492,7 @@
   }
   function renderBoard(anim) {
     const pos = shownPos(), grid = $('grid');
-    if (grid.children.length !== 64) buildBoard();
+    if (grid.childElementCount < 64) buildBoard(); // 64 マスのあとに矢印の SVG（#arrows）が入るので、65 でも作り直さない
     const ply = shownPly();
     const lm = ply ? S.moves[ply - 1] : 0;
     const lastFrom = lm ? C.mvFrom(lm) : -1, lastTo = lm ? C.mvTo(lm) : -1;
@@ -524,7 +528,7 @@
   // 行き先の印（空きマスは点、取る手は輪）・利き・やんわり暗くする
   function renderMarks() {
     const pos = shownPos(), grid = $('grid');
-    if (grid.children.length !== 64) return;
+    if (grid.childElementCount < 64) return;
     let reach = null, preview = null;
     if (S.inspect >= 0 && pos.b[S.inspect]) reach = new Set(pos.attacksFrom(S.inspect));
     else if (settings.reach && S.sel < 0 && S.hover >= 0 && pos.b[S.hover]) {
@@ -616,8 +620,8 @@
       el.classList.toggle('turn', myTurn);
       let st = '';
       if (myTurn && isCPU(c) && S.thinking) {
-        const ci = S.cpuInfo;
-        st = `<span class="think"><i></i>考え中${ci ? `・深さ${ci.depth}` : ''}</span>`;
+        // 深さは読むたびに変わるので、文字だけ書きかえる（ボタンを作り直すと、押している途中の「すぐ指して」が効かない）
+        st = '<span class="think"><i></i>考え中<span class="dep"></span></span>';
         // 長く考える段（最強・超最強）は、待ちきれないときに「すぐ指して」で今までの最善手を指させる
         if (CPU[S.seats[c]].time >= 8000) st += '<button class="btn small" data-act="movenow" title="今までに読んだ中で一番よい手を、すぐ指します">すぐ指して</button>';
       } else if (myTurn && isRemote(c)) {
@@ -627,17 +631,23 @@
       }
       // 取った駒の置き場: いつも見えていて（種類ごとに数をつけて詰める）、押すと両者の一覧が大きく開く
       const caps = capturedBy(c);
-      const capHTML = `<button class="caps${caps.length ? '' : ' none'}" data-act="caps" title="取った駒の一覧" aria-label="${SIDE[c]}が取った駒 ${caps.length ? caps.length + 'つ' : 'なし'}（押すと一覧）">${caps.length ? capGroups(c, caps) : '<span class="empty">取った駒</span>'}</button>`;
       const on = S.online;
       const nm = on ? (c === on.myColor ? 'あなた' : esc(on.opp.name)) : SIDE[c];
       const tag = on ? aiTagHTML(c === on.myColor ? aiFlags() : on.opp.ai, c === on.myColor ? on.myHints : on.opp.hints) : '';
-      el.innerHTML = `
-        <div class="id">${P.svg(c, KING, 'chip')}<span class="name">${nm}</span><span class="sub">${on ? SIDE[c] : seatLabel(c)}</span>${tag}</div>
-        ${capHTML}
-        <div class="right">${st}</div>`;
+      // CPU が読むたびに呼ばれるので、変わったところだけ書きかえる（押している途中の置き場・ボタンを作り直さない）
+      if (!el.querySelector(':scope > .caps')) el.innerHTML = '<div class="id"></div><button class="caps" data-act="caps" title="取った駒の一覧"></button><div class="right"></div>';
+      const [idEl, capEl, rightEl] = el.children;
+      setHTML(idEl, `${P.svg(c, KING, 'chip')}<span class="name">${nm}</span><span class="sub">${on ? SIDE[c] : seatLabel(c)}</span>${tag}`);
+      capEl.className = 'caps' + (caps.length ? '' : ' none');
+      capEl.setAttribute('aria-label', `${SIDE[c]}が取った駒 ${caps.length ? caps.length + 'つ' : 'なし'}（押すと一覧）`);
+      setHTML(capEl, caps.length ? capGroups(c, caps) : '<span class="empty">取った駒</span>');
+      setHTML(rightEl, st);
+      const dep = rightEl.querySelector('.dep'), ci = S.cpuInfo;
+      if (dep) dep.textContent = ci && ci.ply === S.moves.length ? `・深さ${ci.depth}` : '';
     });
     if (!$('dlg-caps').hidden) fillCaps();
   }
+  const setHTML = (el, html) => { if (el._html !== html) { el.innerHTML = html; el._html = html; } };
   const countTypes = list => CAP_ORDER.map(t => [t, list.filter(x => x === t).length]).filter(([, n]) => n);
   const capGroups = (c, caps) => countTypes(caps).map(([t, n]) => `<span class="cg" data-t="${t}" data-c="${c ^ 1}" data-n="${n}">${P.svg(c ^ 1, t, '')}${n > 1 ? `<b>${n}</b>` : ''}</span>`).join('');
   const playerCard = c => $(c === (S.flip ? WHITE : BLACK) ? 'player-top' : 'player-bottom');
@@ -708,7 +718,8 @@
       html = `<span class="txt"><b>${esc(S.online.opp.name)}さん</b>の番です　<span class="muted">${S.online.drawOffer === 2 ? '引き分けを申し込みました' : S.sans.length ? `直前 ${esc(S.sans[S.sans.length - 1])}` : ''}</span></span>`;
     } else {
       const ply = shownPly(), t = S.sans[ply - 1];
-      html = `<span class="txt muted">${ply ? `${moveNo(ply - 1)} <b style="color:var(--ink)">${esc(t)}</b>　` : ''}${humanTurn() ? `${SIDE[c]}の番です。駒をタップ（またはドラッグ）で指します` : `${SIDE[c]}の番`}</span>`;
+      // 操作の案内は、はじめの2手だけ（そのあとは直前の手と手番だけにして、狭い画面で切れないように）
+      html = `<span class="txt muted">${ply ? `${moveNo(ply - 1)} <b style="color:var(--ink)">${esc(t)}</b>　` : ''}${humanTurn() ? `${SIDE[c]}の番です${ply < 2 ? '。駒をタップかドラッグで指します' : ''}` : `${SIDE[c]}の番`}</span>`;
     }
     el.className = cls;
     el.innerHTML = html + `<span class="tools">${tools}</span>`;
@@ -895,6 +906,8 @@
     S.sel = -1; S.targets = new Map(); S.info = null; S.inspect = -1;
     render();
     if (live()) schedule(); else { AI.cancel(); S.thinking = false; analyze(); }
+    // 見返している間にオンラインの対局が終わっていたら、最新に戻ったところで結果を出す
+    if (live() && S.result && !S.resultShown) { S.resultShown = true; setTimeout(showResult, 300); }
   }
   function undo() {
     if (!S.moves.length || S.online) return; // オンライン対局では待ったなし
@@ -1001,7 +1014,8 @@
     $('rs-again').textContent = S.online ? 'もう一局（白黒交代）' : 'もう一局';
     // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
     const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
-    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    // id は対局ごと（待ったで戻して指し直しても、同じ対局は1回だけ数える）
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, id: S.gid, quiet: !settings.sound });
     $('dlg-result').hidden = false;
     $('rs-again').focus({ preventScroll: true });
   }
@@ -1049,7 +1063,7 @@
           <li>相手のキングを<b>チェックメイト</b>（取られるのを防げない形）にすれば勝ち。キングが狙われている状態を<b>チェック</b>といい、チェックされた側は必ず逃げるか防ぎます。自分のキングがチェックされる手は指せません。</li>
           <li>相手の駒のいるマスに動くと、その駒を<b>取れます</b>（取った駒は使えません）。</li>
           <li>指せる手がないのにチェックされていなければ<b>ステイルメイト</b>で引き分け。ほかの引き分けは「引き分け」のタブに。</li>
-          <li>このアプリでは、駒をタップ（またはドラッグ）すると行き先に印が出ます。相手の駒をタップするとその駒の利きが見られます。</li>
+          <li>このアプリでは、駒をタップすると行き先に印が出て、行き先をタップすると指せます（駒をつかんで行き先へ置いても指せます）。相手の駒をタップするとその駒の利きが見られます。スマホでは駒を長押しすると大きく見え、2本指で盤を拡大できます。取った駒は対局者の欄に並び、押すと一覧が開きます。</li>
         </ul>
         <div class="figs">
           <figure>${miniBoard(mate)}<figcaption>チェックメイトの例: ルークが8段目に入り、黒のキングは逃げられない</figcaption></figure>
@@ -1162,7 +1176,7 @@
         <h3>しくみ</h3>
         <ul>
           <li><b>探索</b>: αβ 探索（PVS・反復深化・置換表・静止探索・Null Move・LMR・枝刈り・キラー手と履歴による並べ替え）。ブラウザの JavaScript で1秒に数十万局面を読みます。「最強」は複数のスレッドが置換表を共有して読みます（Lazy SMP）。</li>
-          <li><b>評価</b>: 小さなニューラルネット（NNUE と同じ形）。入力は「どちらの側から見て、どの駒がどのマスにあるか」（768 個の 0/1）、隠れ層 ${NET ? NET.H : 128}、出力1つ。指すたびに差分だけを計算するので速く、整数（16ビット）に直して同梱しています。</li>
+          <li><b>評価</b>: 小さなニューラルネット（NNUE と同じ形）。入力は「どちらの側から見て、どの駒がどのマスにあるか」（768 個の 0/1${NET && NET.KB > 1 ? `。自分のキングの位置で${NET.KB}組に分ける` : ''}）、隠れ層 ${NET ? NET.H : 128}、出力は${NET && NET.OB > 1 ? `盤の駒の数で選ぶ${NET.OB}つのうちの1つ` : '1つ'}。指すたびに差分だけを計算するので速く、整数（16ビット）に直して同梱しています。</li>
           <li><b>人の知識は使っていない</b>: 駒の価値（ポーン=1 など）・マスの表・定跡・人の棋譜・ほかのソフトは一切使いません。第0世代の評価は全部 0 で、詰みだけを読む「何も知らない」AI から始めました。</li>
           <li><b>評価値</b>: 「手番の側が勝つ確率」を当てるように学習しているので、評価値 +400 で白の勝つ見込みが約73%（勝率 = 1 / (1 + e<sup>−評価値/400</sup>)）。</li>
           ${vals ? `<li><b>学習から測った駒の価値</b>（盤からその駒を除くと評価がどれだけ下がるか）: ポーン ${vals[1]}・ナイト ${vals[2]}・ビショップ ${vals[3]}・ルーク ${vals[4]}・クイーン ${vals[5]}。取る手の並べ替えにだけ使います。</li>` : ''}
@@ -1172,6 +1186,7 @@
         <h3>自己対局による学習</h3>
         <ul>
           <li><b>1世代</b> = ① 今の版どうしで数千局の自己対局（序盤はランダムな手で始めて、いろいろな局面を見る。一部は駒の少ないランダムな局面から始めて終盤も覚える）→ ② その局面の「探索の評価値」（1手に数千局面を読んだ判断）を目標にネットを学習（第99世代までは「最後に勝ったか」も少し混ぜていたが、評価値だけにした第100世代が強かった）→ ③ 新旧の対戦で勝ち越したら採用。</li>
+          <li>このページで指す版（公開版）は、1日1回「いちばん新しい世代 vs 公開中の版」を4000局対戦させ、<b>はっきり勝ったときだけ</b>入れ替えます（世代ごとの採用は勝ち越しだけなので、たまたま勝ち越した版をそのまま出さないため）。</li>
           <li>第0世代は評価が全部 0 で、ほぼでたらめに指しながら1手詰めだけを見つけます。それでも「駒が多い側が詰ませやすい」ことから、第1世代は駒の大切さを自分で覚えます。</li>
           <li>学習は Node.js（この PC）と Google Colab（たくさんの CPU）で行い、学習のプログラムもすべてこのゲームのために書いたものです。</li>
         </ul>

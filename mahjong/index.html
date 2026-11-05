@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <style>
-/* 卓が主役。自分の手牌も卓の上の手前側。横長の画面は卓が画面いっぱいで「左: 対局者 | 河と相手 | 右: 情報・AI補助・操作」＋手前に手牌。
- * 縦長は「この局 / 情報 / AI補助 / 卓（河と相手＋手前に手牌）/ 操作」。ページはスクロールしない
+/* 卓が主役。自分の手牌も卓の上の手前側。横長の画面は卓が画面いっぱいで「左: 対局者・この局 | 河と相手 | 右: 情報・AI補助・操作」＋手前に手牌。
+ * 縦長は「卓（河と相手＋手前に手牌）を画面の真ん中に / 情報 / AI補助 / 操作」（この局の記録は「記録」のパネルの中）。ページはスクロールしない
  * 卓・河・手牌の大きさは app.js が画面に合わせて --SW・--SH（河と相手の部分）・--rw（河の牌の幅）・--hw（手牌の幅）・--ow（相手の手牌の幅）・--rt（卓の縁の太さ）で決める */
 :root {
   --bg: #e9e6dc; --bg-2: #dfdbcf; --surface: #faf8f2; --surface-2: #f0ece2; --surface-3: #e5dfd2;
@@ -526,8 +526,8 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
     </button>
     <div class="popover" id="settings" hidden>
       <span class="hint" style="margin-bottom:-4px">AI補助（下の「AI補助」でまとめて切り替え）</span>
-      <label class="switch"><input type="checkbox" id="set-eval" checked> 牌ごとの評価とおすすめ</label>
-      <label class="switch"><input type="checkbox" id="set-waits" checked> 待ちと残り枚数・受け入れ</label>
+      <label class="switch"><input type="checkbox" id="set-eval"> 牌ごとの評価とおすすめ</label>
+      <label class="switch"><input type="checkbox" id="set-waits"> 待ちと残り枚数・受け入れ</label>
       <span class="hint" style="margin-bottom:-4px">操作</span>
       <label class="switch"><input type="checkbox" id="set-autowin"> 和了れるときは自動で和了る</label>
       <label class="switch"><input type="checkbox" id="set-nocall"> 鳴きを聞かない（ポン・チー・カンを自動で見送る）</label>
@@ -554,7 +554,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
       <div class="card assist off" id="assist"></div>
       <div class="ctrl" id="ctrl">
         <button class="btn" id="btn-hint">ヒント</button>
-        <button class="btn aibtn" id="btn-ai" aria-pressed="true" title="牌ごとの評価・おすすめ・待ちをまとめて出し入れ"><span class="led"></span>AI補助</button>
+        <button class="btn aibtn" id="btn-ai" aria-pressed="false" title="牌ごとの評価・おすすめ・待ちをまとめて出し入れ"><span class="led"></span>AI補助</button>
         <button class="btn" id="btn-hist">記録</button>
         <button class="btn" id="btn-menu">⋯</button>
       </div>
@@ -583,7 +583,6 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   <div class="hist" id="hist"></div>
 </div>
 
-<!-- メニュー -->
 <!-- 捨て牌と副露の一覧（卓の河・副露・真ん中をタップで開く） -->
 <div class="overlay" id="dlg-discards" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dd-title">
@@ -593,6 +592,7 @@ table.lv td.r, table.lv th.r { text-align: right; font-variant-numeric: tabular-
   </div>
 </div>
 
+<!-- メニュー -->
 <div class="overlay" id="dlg-menu" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mn-title" style="width:min(420px,100%)">
     <h2 id="mn-title">メニュー</h2>

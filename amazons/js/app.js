@@ -40,8 +40,8 @@
   if (!CPU_KEYS.includes(cfg.cpuW)) cfg.cpuW = 'max';
   if (!CPU_KEYS.includes(cfg.cpuB)) cfg.cpuB = 'max';
   const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-  // AI補助: showEval = 形勢、terr = 陣地を盤に塗る、best = 最善手の矢印
-  const settings = Object.assign({ sound: true, anim: true, analyze: true, showEval: true, terr: true, best: true, confirm: coarse }, store.get('settings', {}));
+  // AI補助: showEval = 形勢、terr = 陣地を盤に塗る、best = 最善手の矢印。はじめは出さない（「AI補助」で出す。common/setup.js の AIK と同じ3つ）
+  const settings = Object.assign({ sound: true, anim: true, analyze: true, showEval: false, terr: false, best: false, confirm: coarse }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.terr || settings.best;
   // 駒の動き・つかんで置く は全ゲーム共通の ../common/motion.js（TTMotion）。オン／オフも全ゲーム共通
   const TM = window.TTMotion || null;
@@ -692,7 +692,7 @@
       }
       if (reach && reach.has(p)) cls += ' reach';
       if (p === S.inspect) cls += ' inspect';
-      if (v === 1 || v === 2 || v === ARROW) { if ((v === 1 || v === 2) && !my) cls += ' can'; }
+      if ((v === 1 || v === 2) && !my) cls += ' can'; // 相手の番・見返し中: アマゾンを押すと行ける先が出る
       if (el.className !== cls) el.className = cls;
       // 確定を待っている矢・選んだ行き先の駒（局面にはまだない）
       const showTo = my && sel.to && p === sel.to, showArrow = my && sel.arrow && p === sel.arrow;
@@ -764,10 +764,12 @@
       const movable = pos.q[c].reduce((a, p) => a + (pos.reachFrom(p).length ? 1 : 0), 0);
       const cnt = T ? `<span class="count" title="${SIDE[c]}が先に届く空きマスの数"><b>${T.count[c]}</b><small>陣地</small></span>`
         : `<span class="count" title="動けるアマゾンの数"><b>${movable}</b><small>動ける</small></span>`;
-      el.innerHTML = `
+      // 変わらないときは書き直さない（CPU の読みの知らせのたびに書き直すと、「すぐ指す」が押せないことがある）
+      const out = `
         <svg class="chip" viewBox="0 0 40 40" aria-hidden="true"><use href="#amz" class="${c ? 'b' : 'w'}"/></svg>
         <div class="id"><span class="name">${nm}</span><span class="sub">${SIDE[c]}${c === WHITE ? '・先手' : ''}</span>${tag}</div>
         <div class="right">${st}${cnt}</div>`;
+      if (el._html !== out) { el._html = out; el.innerHTML = out; }
     });
   }
 
@@ -1115,16 +1117,17 @@
         <h3>このアプリの操作</h3>
         <ul>
           <li>自分の番に<b>アマゾンをタップ</b> → 浮き上がり、行ける先に青い点が出ます（ほかは暗くなります）→ <b>行き先をタップ</b> → 矢を放てる先に赤い輪が出ます → <b>矢のマスをタップ</b>で指します。</li>
+          <li>アマゾンは指やマウスで<b>つかんで行き先に置く</b>こともできます。行き先を選んだあとは、動いたアマゾンから<b>矢をつかみ出して</b>、狙うマスに置けます。スマホでは2本指で盤を拡大できます。</li>
           <li>途中で「戻す」（または選んだアマゾンをもう一度タップ）で一つ前に戻れます。設定の「矢を選んだあと『確定』で指す」をオンにすると、矢を選んでから「確定」を押すまで指しません（スマホではオンで始まります）。</li>
           <li>相手のアマゾンをタップすると、その行ける先が赤い点で出ます。</li>
-          <li><b>AI補助</b>：形勢（勝つ見込み）・陣地の色・最善手の緑の矢印（駒の動きと、点線の先の矢のマス）をまとめて出し入れします。細かくは右上の歯車で。<b>ヒント</b>は AI が約3秒読んで、おすすめの手を金の矢印で示します。</li>
+          <li><b>AI補助</b>：形勢（勝つ見込み）・陣地の色・最善手の緑の矢印（駒の動きと、点線の先の矢のマス）をまとめて出し入れします。はじめは隠してあり、押すと出ます。細かくは右上の歯車で。<b>ヒント</b>は AI が約3秒読んで、おすすめの手を金の矢印で示します。</li>
           <li>盤の下の<b>棋譜テープ</b>で前の局面に戻って見返せます。「ここから指す」でその局面から指し直せます。</li>
           <li><b>オンライン</b>：右上のボタン、または「新しい対局」の「オンライン対戦」から。相手を待つか、待っている人に申し込みます。招待リンクで友達とも指せます。オンラインでは「待った」はなく、相手が AI補助やヒントを使っているかが表示されます。</li>
         </ul>
       </div>
       <div class="card" data-tab="由来">
         <h3>このゲームについて</h3>
-        <p>アマゾンズは、1988年にアルゼンチンのワルテル・セナによって考えられ、雑誌で紹介されてから広まった2人用のゲームです。ルールは自由に遊ばれていて、コンピューターどうしの大会の種目にもなっています。囲碁のように陣地を囲い合う性格と、チェスのような駒の動きをあわせ持ちます。</p>
+        <p>アマゾンズは、1988年にアルゼンチンのワルテル・ザムカウスカスによって考えられ、雑誌で紹介されてから広まった2人用のゲームです。ルールは自由に遊ばれていて、コンピューターどうしの大会の種目にもなっています。囲碁のように陣地を囲い合う性格と、チェスのような駒の動きをあわせ持ちます。</p>
         <p>1手の組み合わせ（どのアマゾンを・どこへ・どこへ矢を）がとても多く、はじめの局面だけで <b>2,176通り</b> あります。そのため、コンピューターにとって難しいゲームの一つとして研究されてきました。</p>
       </div>`;
     docTabs($('view-rules'), 'rules');
@@ -1283,7 +1286,11 @@
       else if (act === 'back') undoStep();
       else if (act === 'commit') commit();
     });
-    ['player-top', 'player-bottom'].forEach(id => $(id).addEventListener('click', e => { if (e.target.closest('[data-act="now"]')) moveNow(); }));
+    // 「すぐ指す」は押した瞬間に指す（読みが1手深くなるたびにカードを描き直すので、click だと押しそこなうことがある）。キーボードは click で
+    ['player-top', 'player-bottom'].forEach(id => {
+      $(id).addEventListener('pointerdown', e => { if (e.button === 0 && e.target.closest('[data-act="now"]')) { e.preventDefault(); moveNow(); } });
+      $(id).addEventListener('click', e => { if (e.detail === 0 && e.target.closest('[data-act="now"]')) moveNow(); });
+    });
     $('navrow').addEventListener('click', e => {
       const b = e.target.closest('button');
       if (!b || b.disabled) return;

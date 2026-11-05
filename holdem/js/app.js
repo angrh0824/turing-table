@@ -690,6 +690,7 @@
     store.set('cfg', cfg);
     T.online = false;
     T.mode = cfg.mode; T.speed = cfg.speed; T.level = 0; T.handNo = 0; T.over = false; T.rebuys = 0; T.watching = false;
+    T.tid = Math.random().toString(36).slice(2, 12);   // 卓ごとの印（共通のごほうびは1卓1回。読み込み直しても同じ）
     T.bb = BB0; T.sb = BB0 / 2;
     T.startStack = cfg.stack * BB0;
     const names = NAMES.slice().sort(() => rng() - 0.5);
@@ -962,7 +963,7 @@
     $('rs-again').textContent = 'もう一度';
     $('rs-watch').hidden = won || alive().length <= 1;
     // 共通のごほうび（common/juice.js）
-    if (window.TTJuice && !T.watching) { const cpu = T.seats.find(x => x.kind === 'cpu'); TTJuice.result({ place: me.place || T.seats.length, of: T.seats.length, outcome: won ? 'win' : 'lose', stars: cpu ? (CPU[cpu.level] || {}).stars : 0, ref: T, id: `${T.handNo}:${T.seats.map(x => x.stack).join(',')}`, quiet: !settings.sound }); }
+    if (window.TTJuice && !T.watching) { const cpu = T.seats.find(x => x.kind === 'cpu'); TTJuice.result({ place: me.place || T.seats.length, of: T.seats.length, outcome: won ? 'win' : 'lose', stars: cpu ? (CPU[cpu.level] || {}).stars : 0, id: `${T.tid || T.seats.map(x => x.stack).join(',')}:${T.handNo}` }); }
     $('dlg-result').hidden = false;
     if (won) SFX.win();
     saveTable();
@@ -982,7 +983,7 @@
   // 卓の状態を保存（再読み込みで続きから。ハンドの途中なら、そのハンドは最初からやり直し）
   function saveTable() {
     if (T.online) return;
-    store.set('table', { seats: T.seats, button: T.button, level: T.level, handNo: T.handNo, mode: T.mode, speed: T.speed, startStack: T.startStack, mySeat: T.mySeat, over: T.over, rebuys: T.rebuys, cfg });
+    store.set('table', { tid: T.tid, seats: T.seats, button: T.button, level: T.level, handNo: T.handNo, mode: T.mode, speed: T.speed, startStack: T.startStack, mySeat: T.mySeat, over: T.over, rebuys: T.rebuys, cfg });
   }
 
   // ------------------------------------------------------------------ 見返し（履歴のハンドを1手ずつ）

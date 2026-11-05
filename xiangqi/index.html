@@ -188,9 +188,6 @@ body.L-land #player-top { grid-row: 1; } body.L-land .boardfoot { grid-row: 2; }
 .sq .mark.dim { background: rgba(40, 22, 6, .34); transition: background .12s; }
 .sq .mark.ring::after { content: ""; position: absolute; inset: 3%; border-radius: 50%; border: 2px solid rgba(205, 50, 25, .9); }
 .sq.can:hover .mark.move::after { background: rgba(30, 60, 120, .8); }
-.sq.drop-hover .tint { background: rgba(30, 95, 200, .30); }
-.moving { z-index: 30; }
-.dragpiece { position: fixed; z-index: 90; pointer-events: none; width: calc(var(--u) * 1.05); height: calc(var(--u) * 1.05); translate: -50% -60%; filter: drop-shadow(0 8px 10px rgba(0,0,0,.45)); }
 .board.noanim .piece { transition: none !important; }
 
 /* 盤上の矢印（最善手・ヒント） */
@@ -473,7 +470,15 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .tabs button { padding: 5px 5px; font-size: 12.5px; }
   .top { gap: 5px; }
 }
-@media (max-width: 360px) { .brand h1 { font-size: 15px; } .tabs button { padding: 5px 4px; font-size: 12px; } }
+/* 360〜380px: 題名「シャンチー」がタブにもぐらないよう、右の部品を少し小さく（つないでいる途中の「…」は出さない） */
+@media (max-width: 380px) {
+  .top { gap: 4px; }
+  .tabs button { padding: 5px 4px; font-size: 12px; }
+  .onbtn { font-size: 11.5px; padding: 0 7px; gap: 4px; }
+  .onbtn[data-st="connecting"] .cnt { display: none; }
+  .iconbtn { width: 32px; height: 32px; }
+}
+@media (max-width: 360px) { .brand h1 { font-size: 15px; } }
 /* 背の低い画面（スマホ横） */
 body.L-land .top { padding-block: 6px 6px; }
 body.L-land .brand span { display: none; }
@@ -508,8 +513,8 @@ body.L-land .controls .btn { padding: 5px 10px; font-size: 13px; }
     </button>
     <div class="popover" id="settings" hidden>
       <span class="hint" style="margin-bottom:-4px">AI補助（下の「AI補助」でまとめて切り替え）</span>
-      <label class="switch"><input type="checkbox" id="set-eval" checked> 形勢（評価値・勝率・グラフ）</label>
-      <label class="switch"><input type="checkbox" id="set-arrow" checked> 最善手を矢印で</label>
+      <label class="switch"><input type="checkbox" id="set-eval"> 形勢（評価値・勝率・グラフ）</label>
+      <label class="switch"><input type="checkbox" id="set-arrow"> 最善手を矢印で</label>
       <span class="hint" style="margin-bottom:-4px">棋譜の書き方</span>
       <div class="seg" id="set-notation"><button type="button" data-v="cn">中国式（炮二平五）</button><button type="button" data-v="iccs">座標（h2e2）</button></div>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
@@ -557,7 +562,7 @@ body.L-land .controls .btn { padding: 5px 10px; font-size: 13px; }
         <button class="btn primary" id="btn-new">新しい対局</button>
         <button class="btn" id="btn-undo">待った</button>
         <button class="btn" id="btn-hint">ヒント</button>
-        <button class="btn aibtn" id="btn-ai" aria-pressed="true" title="形勢と最善手の矢印をまとめて出し入れ"><span class="led"></span>AI補助</button>
+        <button class="btn aibtn" id="btn-ai" aria-pressed="false" title="形勢と最善手の矢印をまとめて出し入れ"><span class="led"></span>AI補助</button>
         <div class="more-wrap">
           <button class="btn" id="btn-more" aria-label="そのほかの操作" aria-expanded="false">⋯</button>
           <div class="menu" id="menu-more" hidden role="menu">
@@ -684,7 +689,6 @@ body.L-land .controls .btn { padding: 5px 10px; font-size: 13px; }
   </div>
 </div>
 
-<script src="../common/mute.js"></script>
 <script src="../common/mute.js"></script>
 <script src="../common/motion.js"></script>
 <script src="../common/juice.js"></script>

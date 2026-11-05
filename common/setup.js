@@ -66,6 +66,7 @@
 #ng-cpu>button small.tts-cl{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .tts-m{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;min-height:16px;margin-top:2px;font-size:10.5px;font-weight:800;color:var(--gold,#c9a24a);font-variant-numeric:tabular-nums;white-space:nowrap}
 .tts-m svg{width:13px;height:13px;flex:none}
+#dlg-new.tts-noxp .tts-m{display:none}
 .tts-m .tts-n{padding:0 6px;border-radius:999px;font-size:9.5px;letter-spacing:.04em;color:#2b1700;background:linear-gradient(90deg,#ffd45a,#ff9a3c)}
 .ttj-move .tts-m .tts-n{animation:tts-pulse 1.6s ease-in-out infinite}
 @keyframes tts-pulse{50%{box-shadow:0 0 10px #ffb02e}}
@@ -112,8 +113,17 @@
 
   const cpuBox = () => document.getElementById('ng-cpu');
   const modeBtn = () => { const m = document.getElementById('ng-mode'); return m && m.querySelector('button[aria-pressed="true"]'); };
-  const online = () => { const b = modeBtn(); return !!b && (b.dataset.v === 'online' || /オンライン/.test(b.textContent)); };
-  const cpuOn = () => shown(cpuBox()) && !online();
+  // 選んでいる遊び方: online・watch（CPU どうしの観戦）・pvp / local（ふたり・みんなで1台）。data-v が無いゲームは文字で見る
+  const modeV = () => {
+    const b = modeBtn();
+    if (!b) return '';
+    const t = b.textContent;
+    return b.dataset.v || (/オンライン/.test(t) ? 'online' : /観戦/.test(t) ? 'watch' : /ふたり|みんなで/.test(t) ? 'pvp' : '');
+  };
+  const online = () => modeV() === 'online';
+  const watching = () => modeV() === 'watch';
+  const cpuShown = () => shown(cpuBox()) && !online();   // CPU の強さを選べる（観戦の CPU も含む）
+  const cpuOn = () => cpuShown() && !['watch', 'pvp', 'local'].includes(modeV());   // CPU と対局する（XP がもらえる）
   const cpuPick = () => { const c = cpuBox(); return c && c.querySelector('button[aria-pressed="true"]'); };
   // 1つだけ選ぶ欄（.seg と CPU のカード）。チェックの並び（.chips・.rules）は数えない
   const groups = () => [...box.querySelectorAll('.seg, #ng-cpu')].filter(shown);
@@ -208,6 +218,7 @@
     if (d) d.classList.toggle('tts-dup', !!sm && shown(sm) && sm.textContent.trim() === d.textContent.trim());
   }
   function refresh() {
+    dlg.classList.toggle('tts-noxp', !cpuOn());   // 観戦・ふたりで: 勝っても XP は無いので、カードの +XP・王冠も出さない
     cards();
     dup();
     summary();
@@ -245,12 +256,13 @@
   // マウスで選んだあとはフォーカスがページに戻るので、ページ全体で受ける（ダイアログが開いているときだけ）
   document.addEventListener('keydown', e => {
     if (dlg.hidden || e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
+    if (asking || document.querySelector('.ttj-ov, .ttj-tour')) return;   // 続きの確認・ごほうびの画面が上に出ているときは、裏の「新しい対局」を動かさない
     const t = e.target;
     if (t !== document.body && !dlg.contains(t)) return;
     if (t === document.body && e.key === 'Enter') { eat(e); start.click(); return; }
     const g = t.closest && t.closest('.seg, #ng-cpu');
     // 1〜5: CPU の強さ
-    if (/^[1-9]$/.test(e.key) && cpuOn() && !(t.matches && t.matches('input, textarea, select'))) {
+    if (/^[1-9]$/.test(e.key) && cpuShown() && !(t.matches && t.matches('input, textarea, select'))) {
       const b = [...cpuBox().children].find(x => starsOf(x) === +e.key) || cpuBox().children[+e.key - 1];
       if (b) { eat(e); b.click(); focusIn('ng-cpu'); }
       return;
@@ -287,7 +299,7 @@
   document.addEventListener('click', e => {
     if (!e.target.closest || !e.target.closest('#ng-start') || dlg.hidden) return;
     if (online()) return;
-    if (cpuOn()) vs(); else if (J) J.hype('対局開始', null, { tier: 1 });
+    if (cpuOn()) vs(); else if (J) J.hype(watching() ? '観戦開始' : '対局開始', null, { tier: 1 });
   }, true);
   function vs() {
     const b = cpuPick();
@@ -329,23 +341,28 @@
   const mark = () => { try { localStorage.setItem(SEEN, String(Date.now())); } catch (e) { /* 覚えられないときは毎回聞かない */ } };
   // ゲームが残している途中の対局を読む（'<slug>-game'。ホールデムは卓 'holdem-table'）→ { done, at, who } か null
   function lastGame() {
-    let g = null;
-    try { g = JSON.parse(localStorage.getItem(PFX(SLUG) + (SLUG === 'holdem' ? 'table' : 'game'))); } catch (e) { return null; }
-    if (!g || typeof g !== 'object' || g.online || g.mode === 'online') return null;   // オンラインは各ゲームが相手との状態で戻す
-    const keys = [].concat(g.seats || [], (g.cfg || {}).cpu || []).map(x => (x && typeof x === 'object' ? x.level || x.kind : x));
-    const cpu = keys.find(k => LVN[k]), humans = (g.seats || []).filter(x => x === 'human' || (x && x.kind === 'human')).length;
-    const who = cpu ? `CPU（${LVN[cpu]}）との対局` : humans > 1 ? 'ふたりでの対局' : '';
-    let n = 0, done = false, at = '';
-    if (Array.isArray(g.moves)) { n = g.moves.length; done = !!g.result; at = `${n}手まで進んだところです。`; }   // 盤のゲーム
-    else if (SLUG === 'koikoi' && g.match) { n = (g.match.history || []).length + 1; done = n > g.match.months; at = `${Math.min(n, g.match.months)}/${g.match.months}か月目`; }
-    else if (SLUG === 'mahjong' && g.g) { n = (g.g.rounds || []).length + 1; done = !!g.g.ended; at = `${'東南西北'[g.g.roundWind || 0]}${(g.g.kyoku || 0) + 1}局`; }
-    else if (SLUG === 'daifugo') { n = g.round || 0; done = !!g.ended; at = n ? `第${n}回戦` : ''; }
-    else if (SLUG === 'backgammon' && Array.isArray(g.games)) { n = g.games.length; at = `第${(g.gi || 0) + 1}局`; }
-    else if (SLUG === 'yacht' && g.g) { n = (g.g.round || 0) + ((g.g.rolls || 0) ? 1 : 0); done = !!g.g.over; at = `${Math.min(12, (g.g.round || 0) + 1)}/12ラウンド`; }
-    else if (SLUG === 'holdem') { n = g.handNo || 0; done = !!g.over || !(g.seats || []).length; at = n ? `${n}ハンド目` : ''; }
-    if (!n) return null;   // まだ1手も進んでいない
-    if (at && !/。$/.test(at)) at += 'の途中です。';
-    return { done, at, who };
+    try {
+      const g = JSON.parse(localStorage.getItem(PFX(SLUG) + (SLUG === 'holdem' ? 'table' : 'game')));
+      if (!g || typeof g !== 'object' || g.online || g.mode === 'online') return null;   // オンラインは各ゲームが相手との状態で戻す
+      // 席は ['human', 'normal'] / [null, 'human', 'normal'] / [{ kind, level }] / 古い囲碁の { 1: …, 2: … } のどれでも読む
+      const seats = (Array.isArray(g.seats) ? g.seats : g.seats && typeof g.seats === 'object' ? Object.values(g.seats) : []).filter(x => x != null);
+      const keys = [].concat(seats, (g.cfg || {}).cpu || []).map(x => (x && typeof x === 'object' ? x.level || x.kind : x));
+      const cpu = keys.find(k => LVN[k]), humans = seats.filter(x => x === 'human' || x.kind === 'human' || x.kind === 'me').length;
+      const watch = seats.length > 0 && !humans;   // CPU どうしの観戦
+      const who = watch ? 'CPU どうしの観戦' : humans > 1 ? 'ふたりでの対局' : cpu ? `CPU（${LVN[cpu]}）との対局` : '';
+      const len = a => (Array.isArray(a) ? a.length : 0);
+      let n = 0, done = false, at = '';
+      if (Array.isArray(g.moves)) { n = g.moves.length; done = !!g.result; at = `${n}手まで進んだところです。`; }   // 盤のゲーム
+      else if (SLUG === 'koikoi' && g.match) { n = len(g.match.history) + 1; done = n > g.match.months; at = `${Math.min(n, g.match.months)}/${g.match.months}か月目`; }
+      else if (SLUG === 'mahjong' && g.g) { n = len(g.g.rounds) + (g.cur && len(g.cur.steps) ? 1 : 0); done = !!g.g.ended; at = `${'東南西北'[g.g.roundWind || 0]}${(g.g.kyoku || 0) + 1}局`; }
+      else if (SLUG === 'daifugo') { n = g.round || 0; done = !!g.ended; at = n ? `第${n}回戦` : ''; }
+      else if (SLUG === 'backgammon' && Array.isArray(g.games)) { n = g.games.reduce((a, x) => a + len(x && x.actions), 0); done = !!g.over; at = `第${(g.gi || 0) + 1}局`; }
+      else if (SLUG === 'yacht' && g.g) { n = (g.g.round || 0) + ((g.g.rolls || 0) ? 1 : 0); done = !!g.g.over; at = `${Math.min(12, (g.g.round || 0) + 1)}/12ラウンド`; }
+      else if (SLUG === 'holdem') { n = g.handNo || 0; done = !!g.over || !seats.length; at = n ? `${n}ハンド目` : ''; }
+      if (!n) return null;   // まだ1手も進んでいない
+      if (at && !/。$/.test(at)) at += 'の途中です。';
+      return { done, at, who, watch };
+    } catch (e) { return null; }   // 読めない形の保存なら聞かない（ゲームはいつもどおり続きから）
   }
   const ago = ms => (ms < 3600e3 ? `${Math.max(10, Math.round(ms / 60e3))}分前` : ms < 86400e3 ? `${Math.round(ms / 3600e3)}時間前` : `${Math.round(ms / 86400e3)}日前`);
   // ゲームの「新しい対局」を開く部品（12ゲームは #btn-new、ホールデム・麻雀はメニューの中、軍人将棋は data-act）
@@ -365,11 +382,13 @@
     const ac = [...act.classList].filter(c => c !== 'tts-act').join(' ') || 'actions';
     ov.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="tts-rz" style="width:min(420px,100%)">
       <p class="hint" style="margin:0 0 4px">${esc([away ? ago(away) : '前回', last.who].filter(Boolean).join('・'))}</p>
-      <h2 id="tts-rz" style="margin:0 0 6px">${last.done ? '前回の対局は終わっています' : '前回の続きがあります'}</h2>
-      <p style="margin:0 0 16px">${last.done ? '盤をもう一度見るか、新しい対局を始めるか選んでください。' : `${esc(last.at)}続きから遊びますか？ それとも、はじめからにしますか？`}</p>
-      <div class="${esc(ac)}"><button type="button" class="btn" data-rz="go">${last.done ? '盤を見る' : '続きから'}</button><button type="button" class="btn primary" data-rz="new">${last.done ? '新しい対局' : 'はじめから'}</button></div>
+      <h2 id="tts-rz" style="margin:0 0 6px">${last.done ? '前回の対局は終わっています' : last.watch ? '前回の観戦の続きがあります' : '前回の続きがあります'}</h2>
+      <p style="margin:0 0 16px">${last.done ? '盤をもう一度見るか、新しい対局を始めるか選んでください。' : `${esc(last.at)}${last.watch ? '続きを見ますか？' : '続きから遊びますか？'} それとも、はじめからにしますか？`}</p>
+      <div class="${esc(ac)}"><button type="button" class="btn" data-rz="go">${last.done ? '盤を見る' : last.watch ? '続きを見る' : '続きから'}</button><button type="button" class="btn primary" data-rz="new">${last.done ? '新しい対局' : 'はじめから'}</button></div>
     </div>`;
     document.body.appendChild(ov);
+    anim(ov, [{ opacity: 0 }, { opacity: 1 }], { duration: 160 });
+    anim(ov.querySelector('.dialog'), [{ opacity: 0, scale: 0.93, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
     const end = go => {
       if (!ov.isConnected) return;
       ov.remove();

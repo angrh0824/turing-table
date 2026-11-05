@@ -195,6 +195,7 @@
   function loadGame(g) {
     AI.cancel(); clearTimeout(S.timer);
     S.rule = g.rule; S.opening = g.opening; S.seats = g.seats; S.online = g.online || null; S.shukei = g.shukei || '';
+    S.gid = g.gid || Math.random().toString(36).slice(2, 12);   // 対局ごとの印（待った・ここからで終局をやり直しても、ごほうびは1局1回）
     S.game = new R.Game({ rule: g.rule, opening: g.opening });
     for (const p of g.moves) { if (!S.game.isLegal(p)) break; S.game.play(p); }
     if (g.result && !S.game.result) S.game.result = g.result;
@@ -207,7 +208,7 @@
 
   function saveGame() {
     const online = S.online ? { mid: S.online.mid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
-    store.set('game', { rule: S.rule, opening: S.opening, seats: S.seats, moves: S.game.moves, result: S.game.result, shukei: S.shukei, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online, assisted: S.assisted });
+    store.set('game', { gid: S.gid, rule: S.rule, opening: S.opening, seats: S.seats, moves: S.game.moves, result: S.game.result, shukei: S.shukei, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online, assisted: S.assisted });
   }
 
   function play(p, fromRemote) {
@@ -803,7 +804,7 @@
     $('rs-again').textContent = S.online ? 'もう一局（黒白を交代）' : 'もう一局';
     // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
     const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
-    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: !r.winner ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[3 - me]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: !r.winner ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[3 - me]].stars, online: !!S.online, ref: r, id: S.gid });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }

@@ -207,7 +207,6 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .btn:hover:not([disabled]) { border-color: var(--accent); }
 .btn[disabled] { opacity: .45; cursor: default; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.btn.gold { background: var(--gold); color: #fff; border-color: var(--gold); font-weight: 700; }
 .btn.small { padding: 4px 10px; font-size: 12px; }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; }
 .switch input { appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--surface-3); position: relative; cursor: pointer; border: 1px solid var(--line); margin: 0; transition: background .15s; flex: none; }
@@ -239,7 +238,8 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .eval-off .sheet-tabs [data-st="ev"], .eval-off .sheet-tabs [data-st="graph"] { display: none; }
 }
 @media (min-width: 980px) {
-  .side { position: sticky; top: 8px; max-height: calc(100dvh - 84px); }
+  /* 形勢・グラフ・棋譜が全部出て収まらないとき（1366×768 で AI補助オン）は、ページではなくこのパネルの中だけをスクロール */
+  .side { position: sticky; top: 8px; max-height: calc(100dvh - 84px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
   .side .kifucard { flex: 1 1 auto; min-height: 150px; display: flex; flex-direction: column; overflow: hidden; }
   .side .kifucard .kifu { flex: 1 1 auto; max-height: none; }
 }

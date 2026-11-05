@@ -92,7 +92,6 @@ main.doc-scroll { overflow-y: auto; overscroll-behavior: contain; }
 .play { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; height: 100%; }
 .lay-wide .play { grid-template-columns: minmax(0, 1fr) 340px; }
 .board-col { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "." "top" "board" "foot" "bottom" "." "ctrl"; grid-template-rows: minmax(0, .45fr) auto auto auto auto minmax(0, 1fr) auto; row-gap: 6px; justify-items: center; min-width: 0; min-height: 0; height: 100%; }
-.board-col > .gap-fix { display: none; }
 .board-col > * { width: 100%; max-width: var(--board-w, 640px); }
 #player-top { grid-area: top; } #board-wrap { grid-area: board; } .boardfoot { grid-area: foot; } #player-bottom { grid-area: bottom; } .controls { grid-area: ctrl; }
 /* 横の低い画面: 左に盤、右に情報 */
@@ -446,7 +445,6 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .player .score { font-size: 18px; }
   .controls { gap: 6px; }
   .controls .btn { padding: 6px 9px; font-size: 13px; }
-  .controls .wide { display: none; }
   .info { height: 40px; font-size: 12.5px; padding-left: 10px; }
   .navrow .ibtn { width: 32px; }
 }
@@ -467,7 +465,6 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
 .lay-land .player { min-height: 40px; padding: 4px 10px; }
 .lay-land .controls { flex-wrap: wrap; gap: 6px; }
 .lay-land .controls .btn { padding: 5px 9px; font-size: 12.5px; }
-.lay-land .controls .wide { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .wbar .b, .evstrip .bar .b, .player, .board-svg .ck { transition: none; }
   .board-svg .cube.offer, .player .think i { animation: none; }
@@ -489,8 +486,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
     </button>
     <div class="popover" id="settings" hidden>
       <span class="hint" style="margin-bottom:-4px">AI補助（下の「AI補助」でまとめて切り替え）</span>
-      <label class="switch"><input type="checkbox" id="set-eval" checked> 形勢（勝率・ギャモン率・キューブ）を表示</label>
-      <label class="switch"><input type="checkbox" id="set-arrow" checked> おすすめの手を矢印で表示</label>
+      <label class="switch"><input type="checkbox" id="set-eval"> 形勢（勝率・ギャモン率・キューブ）を表示</label>
+      <label class="switch"><input type="checkbox" id="set-arrow"> おすすめの手を矢印で表示</label>
       <span class="hint" style="margin-bottom:-4px">操作</span>
       <label class="switch"><input type="checkbox" id="set-autoroll" checked> キューブを使えない番は自動で振る</label>
       <label class="switch"><input type="checkbox" id="set-autoconfirm"> 動かし終えたら自動で確定</label>
@@ -532,7 +529,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
         <button class="btn primary" id="btn-new">新しい対局</button>
         <button class="btn" id="btn-undo">待った</button>
         <button class="btn" id="btn-hint">ヒント</button>
-        <button class="btn aibtn" id="btn-ai" aria-pressed="true" title="形勢（勝率）とおすすめの手の矢印をまとめて出し入れ"><span class="led"></span>AI補助</button>
+        <button class="btn aibtn" id="btn-ai" aria-pressed="false" title="形勢（勝率）とおすすめの手の矢印をまとめて出し入れ"><span class="led"></span>AI補助</button>
         <div class="more-wrap">
           <button class="btn" id="btn-more" aria-label="そのほかの操作" aria-expanded="false">⋯</button>
           <div class="menu" id="menu-more" hidden role="menu">

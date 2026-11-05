@@ -1,7 +1,8 @@
 // 全ゲーム共通の「ごほうび」: 勝ったときの演出（光・紙吹雪・音）、経験値とレベル・連勝・実績・毎日のボーナス、ボタンの手ごたえ
 // ゲームのページでは motion.js のあとに <script src="../common/juice.js"></script>（トップでも読む）。依存なし
 // 画像・音のファイルは使わない（紙吹雪は使うときだけ置く1枚の canvas に描き、音は Web Audio でその場で作る）。記録はこの端末の localStorage 'tt-prog' だけ
-// ゲームからは、結果を出すところで TTJuice.result({ outcome, stars, online, place, of, round, ref, quiet }) を1回呼ぶ。くわしくは CONVENTIONS.md §3「ごほうび」
+// ゲームからは、結果を出すところで TTJuice.result({ outcome, stars, online, place, of, round, ref, id }) を1回呼ぶ。くわしくは CONVENTIONS.md §3「ごほうび」
+// 音は、全体の元栓（mute.js）とゲームの設定の「音」（'<slug>-settings' の sound）に従う（quiet を渡しても同じ。渡さなくてよい）
 // 動きのオフ（tt-motion）・動きを減らす設定では、紙吹雪などは出さず、ごほうびのカードを止まった絵で出す
 (function () {
   'use strict';
@@ -244,6 +245,11 @@
 .ttj-mini .ttj-g{font-weight:800;font-size:16px;font-variant-numeric:tabular-nums}
 .ttj-mini .ttj-m{flex:1;min-width:0}
 .ttj-mini .ttj-s{display:flex;justify-content:space-between;gap:8px;opacity:.75;margin-top:4px;font-size:11px}
+.ttj-mini .ttj-s>span{white-space:nowrap}
+.ttj-mini .ttj-nx{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ttj-nxs{display:none}
+/* 狭い画面（スマホの縦）: 「次のレベルまで」→「あと」、ガチャの所持コインは省いて「ガチャ」の文字だけ */
+@media (max-width:420px){.ttj-mini{gap:8px;padding:8px 10px}.ttj-mini .ttj-nxw{display:none}.ttj-mini .ttj-nxs{display:inline}.ttj-mini .ttj-go{padding:6px 10px}.ttj-mini .ttj-go .ttj-gc{display:none}}
 .ttj-mini .ttj-bar{height:7px}
 .ttj-sheet{position:relative;width:min(560px,100%);max-height:min(82vh,760px);overflow-y:auto;overscroll-behavior:contain;padding:18px;border-radius:20px;cursor:auto;user-select:text;-webkit-user-select:text;
   background:linear-gradient(180deg,rgba(40,34,24,.97),rgba(16,14,11,.98));border:1px solid rgba(255,214,110,.3);box-shadow:0 30px 80px -24px #000}
@@ -305,7 +311,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
 .ttj-cg{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:-4px;font-weight:800;font-size:15px;color:#ffe08a;font-variant-numeric:tabular-nums}
 .ttj-cg[hidden]{display:none}
 .ttj-cs{display:block;text-align:right;font-size:10.5px;font-weight:700;color:#ffe08a}
-.ttj-go{display:inline-flex;align-items:center;gap:5px;flex:none;padding:6px 11px;border-radius:999px;font-weight:800;font-size:12px;text-decoration:none;white-space:nowrap;color:#ffe08a;border:1px solid rgba(255,214,110,.45);background:rgba(255,214,110,.08)}
+.ttj-go{display:inline-flex;align-items:center;gap:5px;flex:none;padding:6px 11px;border-radius:999px;font-weight:800;font-size:12px;text-decoration:none;white-space:nowrap;color:inherit;border:1px solid color-mix(in srgb,currentColor 28%,transparent);background:color-mix(in srgb,currentColor 6%,transparent)}
 .ttj-go.ttj-can{color:#2b1700;border-color:#ffcf5a;background:linear-gradient(135deg,#ffe07a,#ff9a3c);box-shadow:0 0 14px -4px #ffb02e}
 .ttj-move .ttj-go.ttj-can{animation:ttj-cta 1.6s ease-in-out infinite}
 .ttj-gtop{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 8px}
@@ -397,7 +403,8 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
 .ttj-toast .ttj-ic .ttj-coin-i{font-size:20px}
 @media (max-width:480px){.ttj-ten .ttj-front .ttj-r{display:none}.ttj-ten .ttj-front .ttj-nm{font-size:9px}.ttj-ten .ttj-ttl{font-size:9px}.ttj-ten .ttj-pv{transform:scale(.6);min-height:26px}
   .ttj-ten .ttj-new{top:3px;left:3px;padding:0 4px;font-size:7.5px}.ttj-ten .ttj-front{padding:3px;border-radius:10px}.ttj-ten .ttj-back{border-radius:10px}}
-.ttj-mini .ttj-coin-i{font-size:12px}`;
+.ttj-mini .ttj-coin-i{font-size:12px}
+.ttj-go .ttj-gc{display:inline-flex;align-items:center;gap:4px}`;
   function style() {
     if (document.getElementById('tt-juice-css')) return;
     const s = document.createElement('style');
@@ -421,11 +428,11 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
   document.addEventListener('visibilitychange', sync);
 
   // ---------------------------------------------------------------- 音（Web Audio でその場で作る。全体の音の元栓 mute.js と、ゲームの「音」オフに従う）
-  let ac = null, quiet = false;
-  // ゲームの設定の「音」（localStorage '<slug>-settings' の sound）がオフなら鳴らさない
+  let ac = null;
+  // ゲームの設定の「音」（localStorage '<slug>-settings' の sound）がオフなら鳴らさない（result の quiet は、これと同じことなので見ない）
   const gameMuted = () => { try { const v = JSON.parse(localStorage.getItem((HERE === 'backgammon' ? 'bg-' : HERE + '-') + 'settings')); return !!v && v.sound === false; } catch (e) { return false; } };
   function audio() {
-    if (quiet || (window.TTSound && TTSound.muted) || gameMuted()) return null;
+    if ((window.TTSound && TTSound.muted) || gameMuted()) return null;
     if (!ac) { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; try { ac = new C(); } catch (e) { return null; } }
     if (ac.state === 'suspended') ac.resume().catch(() => {});
     return ac;
@@ -631,6 +638,28 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     lock: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2h1v11H6V10zm2 0h6V8a3 3 0 0 0-6 0z"/></svg>',
   };
 
+  // ---------------------------------------------------------------- 重なった画面
+  // いちばん上に出ている画面だけが Esc などのキーを受ける（ガチャの上に案内・引き継ぎを重ねたとき、下の画面まで閉じないように）
+  const layers = [];
+  const layer = el => { layers.push(el); return el; };
+  const onTop = el => {
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const x = layers[i];
+      if (!x.isConnected || x._closing) { layers.splice(i, 1); continue; }
+      return x === el;
+    }
+    return false;
+  };
+
+  // 画面を消す: すぐに触れなくして薄くし、動きが終わらなくても時間で消す（裏のタブなどで動きが止まっても、見えない画面が残って押せなくならないように）
+  const fadeOut = (ov, ms) => {
+    ov._closing = 1;
+    ov.style.pointerEvents = 'none';
+    if (!motion()) { ov.remove(); return; }
+    anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: ms, fill: 'forwards' }).then(() => ov.remove());
+    setTimeout(() => ov.remove(), ms + 400);
+  };
+
   // ---------------------------------------------------------------- 上に出る小さな知らせ（実績・負けたときの XP など）
   let box = null;
   function toast(html, o = {}) {
@@ -664,7 +693,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     if (i) i.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%';
     const rk = el.querySelector('.ttj-rk'), nx = el.querySelector('.ttj-nx');
     if (rk) rk.textContent = r.name;
-    if (nx) nx.textContent = `次のレベルまで ${fmt(left)} XP`;
+    if (nx) nx.innerHTML = `<span class="ttj-nxw">次のレベルまで</span><span class="ttj-nxs">あと</span> ${fmt(left)} XP`;
   }
   function levelUp(el, L, seq) {
     const r = rankOf(L), rankUp = r.min === L, b = el.querySelector('.ttj-badge') || el;
@@ -724,7 +753,6 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     if (!o || (!o.outcome && !(o.place > 0))) return null;
     if (o.ref && typeof o.ref === 'object') { if (seen.has(o.ref)) return null; seen.add(o.ref); }
     if (o.id) { const id = (o.game || HERE) + ':' + o.id; if (P.ids.includes(id)) return null; P.ids.push(id); if (P.ids.length > 40) P.ids.shift(); }
-    quiet = !!o.quiet;
     style();
     sync();
     const r = award(o);
@@ -769,13 +797,14 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       window.removeEventListener('keydown', key, true);
       if (cur && cur.ov === ov) cur = null;
       mini(r);
-      if (now || !motion()) { ov.remove(); return; }
-      anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 220 }).then(() => ov.remove());
+      if (now) { ov.remove(); return; }
+      fadeOut(ov, 220);
     };
     const skip = () => { if (seq.done) { close(); return; } seq.skip = true; if (seq.wake) seq.wake(); };
-    const key = e => { if (['Enter', ' ', 'Escape'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); skip(); } };
+    const key = e => { if (onTop(ov) && ['Enter', ' ', 'Escape'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); skip(); } };
     ov.addEventListener('click', skip);
     window.addEventListener('keydown', key, true);
+    layer(ov);
     cur = { ov, seq, close };
 
     const card = ov.querySelector('.ttj-card'), lines = ov.querySelector('.ttj-lines'), gainEl = ov.querySelector('.ttj-gain span'), lv = ov.querySelector('.ttj-lv');
@@ -854,13 +883,12 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     if (!m) { m = make('div', 'ttj-mini'); d.insertBefore(m, d.firstChild); }
     const lv = levelOf(r.after);
     m.innerHTML = `${badge(lv.L, 'ttj-sm')}<span class="ttj-m"><span><span class="ttj-g">+${fmt(r.gain)}</span> XP${r.luck > 1 ? `（×${r.luck}）` : ''}・${COIN}+${r.coins}${r.streak >= 2 && r.out === 'win' ? `・${r.streak}連勝中` : ''}</span><span class="ttj-bar"><i></i></span><span class="ttj-s"><span class="ttj-rk"></span><span class="ttj-nx"></span></span></span>` +
-      (HERE ? `<a class="ttj-go${P.co >= COST[1] ? ' ttj-can' : ''}" href="../#gacha">${COIN}${fmt(P.co)}<span>${P.co >= COST[1] ? 'ガチャを引く' : 'ガチャ'}</span></a>` : '');
+      (HERE ? `<a class="ttj-go${P.co >= COST[1] ? ' ttj-can' : ''}" href="../#gacha" title="コイン ${fmt(P.co)}"><span class="ttj-gc">${COIN}${fmt(P.co)}</span><span>${P.co >= COST[1] ? 'ガチャを引く' : 'ガチャ'}</span></a>` : '');
     paint(m, lv.L, lv.cur / lv.need, lv.need - lv.cur);
   }
 
   // ---------------------------------------------------------------- 盛り上がる瞬間（役・革命・ヨット など）。tier 1〜3
   function hype(text, at, o = {}) {
-    if (o.quiet != null) quiet = !!o.quiet;
     const tier = o.tier || 1;
     if (!motion()) return;
     style();
@@ -919,11 +947,12 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     const b0 = levelOf(before);
     paint(lv, b0.L, b0.cur / b0.need, b0.need - b0.cur);
     let timer = 0;
-    const close = () => { if (!ov.isConnected || ov._closing) return; ov._closing = 1; clearTimeout(timer); window.removeEventListener('keydown', key, true); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 220 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
+    const close = () => { if (!ov.isConnected || ov._closing) return; ov._closing = 1; clearTimeout(timer); window.removeEventListener('keydown', key, true); fadeOut(ov, 220); };
     const skip = () => { if (seq.done) close(); else seq.skip = true; };
-    const key = e => { if (['Enter', ' ', 'Escape'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); skip(); } };
+    const key = e => { if (onTop(ov) && ['Enter', ' ', 'Escape'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); skip(); } };
     ov.addEventListener('click', skip);
     window.addEventListener('keydown', key, true);
+    layer(ov);
     return (async () => {
       if (moving) anim(ov.querySelector('.ttj-banner'), [{ opacity: 0, scale: 2 }, { opacity: 1, scale: 1 }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
       SFX.draw();
@@ -966,22 +995,26 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       <div class="ttj-stats"><div><b>${fmt(st.n)}</b>局</div><div><b>${fmt(st.w)}</b>勝</div><div><b>${fmt(st.best)}</b>最多連勝</div><div><b>${st.achDone}<small style="font-size:11px;color:rgba(255,255,255,.6)">/${st.achTotal}</small></b>実績</div></div>
       <h3>全体</h3><div class="ttj-achs">${general.map(item).join('')}</div>
       <h3>ゲームごと</h3><div class="ttj-achs">${per.map(item).join('')}</div>
-      <div class="ttj-row"><span>演出・アニメーション（全ゲーム共通）</span><button type="button" class="ttj-mo">${motion() ? 'オン' : 'オフ'}</button></div>
+      <div class="ttj-row"><span>演出・アニメーション（全ゲーム共通）</span><button type="button" class="ttj-mo">${moLabel()}</button></div>
       <div class="ttj-row"><span>記録はこの端末のブラウザに残ります（ログインなし）。別の端末へ移す・消えたときに戻すには</span><button type="button" class="ttj-xf">引き継ぎコード</button></div>
     </div>`;
     document.body.appendChild(ov);
     const lv = ov.querySelector('.ttj-lv');
     paint(lv, st.level, st.cur / st.need, st.need - st.cur);
-    const close = () => { window.removeEventListener('keydown', key, true); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
-    const key = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    const close = () => { if (ov._closing) return; ov._closing = 1; window.removeEventListener('keydown', key, true); fadeOut(ov, 180); };
+    const key = e => { if (e.key === 'Escape' && onTop(ov)) { e.preventDefault(); e.stopImmediatePropagation(); close(); } };
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     ov.querySelector('.ttj-close').addEventListener('click', close);
-    ov.querySelector('.ttj-mo').addEventListener('click', e => { setMotion(!motion()); e.target.textContent = motion() ? 'オン' : 'オフ'; });
+    ov.querySelector('.ttj-mo').addEventListener('click', e => { setMotion(!wantMotion()); e.target.textContent = moLabel(); });
     ov.querySelector('.ttj-xf').addEventListener('click', openTransfer);
     window.addEventListener('keydown', key, true);
+    layer(ov);
     anim(ov.querySelector('.ttj-sheet'), [{ opacity: 0, scale: 0.94, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
     ov.querySelector('.ttj-close').focus();
   }
+  // 「動き」の設定そのもの（端末の「動きを減らす」設定とは別に、この記録が覚えている方）
+  const wantMotion = () => { try { return localStorage.getItem('tt-motion') !== '0'; } catch (e) { return true; } };
+  const moLabel = () => (motion() ? 'オン' : mq && mq.matches && wantMotion() ? 'オフ（端末の設定で動きを減らしています）' : 'オフ');
   function setMotion(v) {
     if (window.TTMotion) TTMotion.set(v);
     else { try { localStorage.setItem('tt-motion', v ? '1' : '0'); } catch (e) { /* このページだけ */ } }
@@ -1172,14 +1205,18 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       anim(tip, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
       ov.querySelector('.ttj-next').focus({ preventScroll: true });
     };
-    const end = () => { if (!ov.isConnected) return; window.removeEventListener('keydown', key, true); window.removeEventListener('resize', place); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 160 }).then(() => ov.remove()); if (!motion()) ov.remove(); if (done) done(); };
+    const end = () => { if (!ov.isConnected || ov._closing) return; ov._closing = 1; window.removeEventListener('keydown', key, true); window.removeEventListener('resize', place); fadeOut(ov, 160); if (done) done(); };
     const go = d => { i += d; if (i < 0) i = 0; if (i >= steps.length) end(); else { SFX.sel(i); place(); } };
     const key = e => {
+      if (!onTop(ov)) return;
+      const onBtn = document.activeElement && tip.contains(document.activeElement);   // ボタンの上の Enter・スペースは、そのボタンを押す
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); end(); }
-      else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); go(1); }
+      else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onBtn)) { e.preventDefault(); e.stopImmediatePropagation(); go(1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopImmediatePropagation(); go(-1); }
+      else if (onBtn && (e.key === 'Enter' || e.key === ' ')) e.stopImmediatePropagation();
     };
     window.addEventListener('keydown', key, true);
+    layer(ov);
     window.addEventListener('resize', place);
     ov.addEventListener('click', e => {
       e.stopPropagation();
@@ -1251,9 +1288,10 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     </div>`;
     document.body.appendChild(ov);
     const $q = sel => ov.querySelector(sel);
-    const close = () => { window.removeEventListener('keydown', key, true); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
-    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); } };
+    const close = () => { if (ov._closing) return; ov._closing = 1; window.removeEventListener('keydown', key, true); fadeOut(ov, 180); };
+    const key = e => { if (e.key === 'Escape' && onTop(ov)) { e.preventDefault(); e.stopImmediatePropagation(); close(); } };
     window.addEventListener('keydown', key, true);
+    layer(ov);
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     $q('.ttj-close').addEventListener('click', close);
     let code = '';
@@ -1303,10 +1341,15 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-label', 'ガチャとコレクション');
     document.body.appendChild(ov);
-    const close = () => { window.removeEventListener('keydown', key, true); off(); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
-    const key = e => { if (e.key === 'Escape' && !document.querySelector('.ttj-rv')) { e.preventDefault(); close(); } };
+    const close = () => { if (ov._closing) return; ov._closing = 1; window.removeEventListener('keydown', key, true); off(); fadeOut(ov, 180); };
+    const key = e => { if (e.key === 'Escape' && onTop(ov)) { e.preventDefault(); e.stopImmediatePropagation(); close(); } };
     window.addEventListener('keydown', key, true);
+    layer(ov);
+    // 描き直しても、一覧のスクロールの位置と、押したボタンへのフォーカスはそのまま（着せ替えを選ぶたびに一番上へ戻らないように）
+    const focusKey = a => (!a || !ov.contains(a) ? '' : a.dataset.k ? `.ttj-tabs [data-k="${a.dataset.k}"]` : a.dataset.id ? `[data-id="${a.dataset.id}"]` : a.dataset.n ? `.ttj-pull[data-n="${a.dataset.n}"]`
+      : a.classList.contains('ttj-q2') ? '.ttj-q2' : a.classList.contains('ttj-xf') ? '.ttj-xf' : a.classList.contains('ttj-close') ? '.ttj-close' : '');
     const render = () => {
+      const old = ov.querySelector('.ttj-sheet'), scroll = old ? old.scrollTop : 0, fk = focusKey(document.activeElement);
       const w = wkState(), ms = missions(), have = ITEMS.filter(i => !i.base && P.inv[i.id]).length, all = ITEMS.filter(i => !i.base).length;
       const items = ITEMS.filter(i => i.k === gTab);
       ov.innerHTML = `<div class="ttj-sheet">
@@ -1336,6 +1379,9 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
         render();
       }));
       ov.querySelectorAll('.ttj-pull').forEach(b => b.addEventListener('click', () => { const r = pull(+b.dataset.n); if (r) reveal(r, render); }));
+      ov.querySelector('.ttj-sheet').scrollTop = scroll;
+      const f = fk && ov.querySelector(fk);
+      if (f) f.focus({ preventScroll: true });
     };
     const off = (() => { const f = () => { if (ov.isConnected && !document.querySelector('.ttj-rv')) render(); }; subs.add(f); return () => subs.delete(f); })();
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
@@ -1357,8 +1403,9 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       <div class="ttj-rvb" hidden><button type="button" class="ttj-pull" data-n="${list.length}"${P.co >= COST[list.length] ? '' : ' disabled'}>もう${list.length}回<small>${COIN} ${COST[list.length]}</small></button><button type="button" class="ttj-pull ttj-alt" data-x="1">閉じる<small>${COIN} ${fmt(P.co)}</small></button></div>`;
     document.body.appendChild(ov);
     const cards = [...ov.querySelectorAll('.ttj-gc')];
-    const seq = { skip: false };
-    const wait = ms => (seq.skip || !motion() ? Promise.resolve() : new Promise(res => setTimeout(res, ms)));
+    const seq = { skip: false, wake: null };
+    const wait = ms => (seq.skip || !motion() ? Promise.resolve() : new Promise(res => { const t = setTimeout(res, ms); seq.wake = () => { clearTimeout(t); res(); }; }));
+    const skipAll = () => { seq.skip = true; if (seq.wake) seq.wake(); };   // 飛ばしたら、待っている途中の間もすぐ終わらせる
     const flip = (c, x, quick) => {
       if (c.classList.contains('ttj-open')) return;
       c.classList.add('ttj-open');
@@ -1375,14 +1422,25 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       const b = ov.querySelector('.ttj-rvb');
       b.hidden = false;
       anim(b, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 240 });
+      const again = b.querySelector('.ttj-pull:not([data-x])');
+      (again && !again.disabled ? again : b.querySelector('[data-x]')).focus({ preventScroll: true });
       r.ach.forEach(achToast);
     };
-    const close = () => { anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); if (done) done(); };
+    const finished = () => !ov.querySelector('.ttj-rvb').hidden;
+    const drop = () => { ov._closing = 1; window.removeEventListener('keydown', key, true); };
+    const close = () => { if (ov._closing) return; drop(); fadeOut(ov, 180); if (done) done(); };
+    const key = e => {
+      if (!onTop(ov)) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (finished()) close(); else skipAll(); }
+      else if ((e.key === 'Enter' || e.key === ' ') && !finished()) { e.preventDefault(); e.stopImmediatePropagation(); skipAll(); }
+    };
+    window.addEventListener('keydown', key, true);
+    layer(ov);
     ov.addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('.ttj-pull');
-      if (b) { e.stopPropagation(); if (b.dataset.x) { close(); return; } const nr = pull(+b.dataset.n); if (nr) { ov.remove(); reveal(nr, done); } return; }
-      if (!ov.querySelector('.ttj-rvb').hidden) return;
-      seq.skip = true;
+      if (b) { e.stopPropagation(); if (b.dataset.x) { close(); return; } const nr = pull(+b.dataset.n); if (nr) { drop(); ov.remove(); reveal(nr, done); } return; }
+      if (finished()) return;
+      skipAll();
     });
     (async () => {
       if (motion()) {

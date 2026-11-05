@@ -102,7 +102,8 @@
   function seatsView(st) {
     const me = TAB.mySeat();
     return st.seats.map((x, i) => {
-      if (i === me) return { kind: 'human', name: myName, ai: aiFlag(), hints: x.hints | 0 };
+      // 途中から座った回は、その回だけ CPU が代わりに打つ（自分は観戦。結果とごほうびは次の回から）
+      if (i === me) return st.R && st.R.sp && st.R.sp[i] !== x.pid ? { kind: 'cpu', level: x.lvl || st.cfg.cpu, name: myName, ai: 0, hints: 0 } : { kind: 'human', name: myName, ai: aiFlag(), hints: x.hints | 0 };
       if (x.k === 'h') return { kind: st.R && st.R.sp && st.R.sp[i] !== x.pid && st.phase === 'round' ? 'cpu' : 'remote', name: x.name, ai: x.ai | 0, hints: x.hints | 0, level: x.lvl || st.cfg.cpu, next: st.R && st.R.sp && st.R.sp[i] !== x.pid };
       return { kind: 'cpu', level: x.lvl || st.cfg.cpu, name: '' };
     });
@@ -170,7 +171,6 @@
   function feed(quiet) {
     const mvs = TAB.mvs, R = TAB.state.R, me = TAB.mySeat();
     while (seen.fed < mvs.length) {
-      if (App.busy && !quiet) { setTimeout(render, 150); return; }
       const st = R.steps[seen.fed], mv0 = mvs[seen.fed];
       // 自分が渡す・受け取る以外の、見えない移動の札は伏せる（ホストでも CPU の札を画面に入れない）
       let mv = mv0;
@@ -299,7 +299,7 @@
     if (segEl) { lobby[segEl.dataset.seg] = segEl.dataset.seg === 'games' ? Number(b.dataset.v) : b.dataset.v; renderLobby(); return; }
     if (b.dataset.join) { lobby.msg = ''; openTable(b.dataset.join, null); return; }
     const act = b.dataset.act;
-    if (act === 'ai') { const on = !App.aiOn(); App.settings.showProb = on; App.settings.showBest = on; store.set('settings', App.settings); online.setAI(on ? 1 : 0); App.renderAll(); renderLobby(); }
+    if (act === 'ai') { App.setAI(!App.aiOn()); if (!S.online) online.setAI(App.aiOn() ? 1 : 0); renderLobby(); }
     else if (act === 'create') { const c = App.cfg(); openTable(code4(), { cfg: { rules: D.normRules(c.rules), games: lobby.games, cpu: lobby.cpu } }); }
     else if (act === 'start') { if (TAB) { TAB.startRound(); $('dlg-online').hidden = true; } }
     else if (act === 'leave') { leaveTable(false); renderLobby(); }

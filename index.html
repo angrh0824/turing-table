@@ -117,8 +117,7 @@ body::before { content: ""; position: fixed; inset: -20%; pointer-events: none; 
 .tile.soon .pl { display: none; }
 .tile.soon .nm::after { content: "近日公開"; display: inline-block; margin-left: 8px; vertical-align: 3px; font: 700 10px var(--font-body); letter-spacing: .1em; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 7px; }
 header { position: relative; }
-/* 全ゲームの音の元栓（common/mute.js） */
-/* 右上のボタン（遊び方の案内・音の元栓） */
+/* 右上のボタン（遊び方の案内・全ゲームの音の元栓 common/mute.js） */
 .hbtn { position: absolute; top: -4px; right: 0; display: flex; gap: 6px; }
 .snd { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 12px var(--font-body); cursor: pointer; }
 .snd:hover, .snd:focus-visible { border-color: var(--gold); outline: none; }
@@ -143,9 +142,9 @@ footer a { color: inherit; }
   .tile .ft .pl { display: none; }
   .tile .em { font-size: 64px; bottom: -12px; }
   .lead { font-size: 15px; }
-  .hbtn { top: -8px; }
+  .hbtn { top: -8px; }   /* 見出し（チューリング・テーブル）の右端にかからないよう、上の小さな行の高さに */
   .kicker { display: block; padding-right: 80px; letter-spacing: .16em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* 右上の「遊び方」「音」のボタンにかからないように */
-  .snd { padding: 4px 7px; }   /* 見出し（チューリング・テーブル）の右端にかからないよう、上の小さな行の高さに */
+  .snd { padding: 4px 7px; }
   .snd .t { display: none; }
 }
 @media (max-width: 360px) {
@@ -285,7 +284,10 @@ footer a { color: inherit; }
     if (!J.state().gift) { J.giftSeen(); setTimeout(() => J.toast(`<span class="ttj-ic">${J.COIN}</span><span><span class="ttj-k">ようこそ</span><span class="ttj-n">はじめのコイン 300 でガチャを引けます</span></span><span class="ttj-x">300</span>`, { ms: 4600, color: '#c9a0ff' }), 1600); }
     if (J.state().daily) setTimeout(() => J.toast(`<span class="ttj-ic">${ICON_GIFT}</span><span><span class="ttj-k">デイリーボーナス</span><span class="ttj-n">今日のボーナスを受け取れます</span></span><span class="ttj-x">最大1,000 XP</span>`, { ms: 4200 }), 500);
   }
-  if (!J.seen('hub') && !fromGacha) setTimeout(() => J.tour(HUB_TOUR, () => { J.markSeen('hub'); greet(); }), 900);
+  // はじめて来たときの案内は、ゲームの一覧を読み終えてから（一覧が空のまま光らせないように）
+  let listed = null;
+  const whenListed = new Promise(res => { listed = res; });
+  if (!J.seen('hub') && !fromGacha) whenListed.then(() => setTimeout(() => J.tour(HUB_TOUR, () => { J.markSeen('hub'); greet(); }), 700));
   else greet();
 
   // 傾くタイル（マウスのとき。指した所に光）
@@ -316,7 +318,7 @@ footer a { color: inherit; }
 
   // 各ゲームの manifest.json（公開されているものだけある）
   Promise.all(GAMES.map(g => fetch(`${g.slug}/manifest.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)))
-    .then(ms => { ms.forEach((m, i) => { if (m) Object.assign(GAMES[i], { name: m.name || GAMES[i].name, tagline: m.tagline, players: m.players, status: m.status, en: m.en || GAMES[i].en }); }); loaded = true; render(); });
+    .then(ms => { ms.forEach((m, i) => { if (m) Object.assign(GAMES[i], { name: m.name || GAMES[i].name, tagline: m.tagline, players: m.players, status: m.status, en: m.en || GAMES[i].en }); }); loaded = true; render(); listed(); });
 
   // 全体のオンライン人数（このページを見ている人も「オンライン」に数える）
   if (window.SSIHOnline && SSIHOnline.available()) {

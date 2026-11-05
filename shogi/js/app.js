@@ -22,9 +22,9 @@
   const CPU = {
     easy: { label: 'やさしい', stars: 1, desc: 'すぐ指します。駒の取り合いを少し読むだけ', nodes: 300, noise: 220 },
     normal: { label: 'ふつう', stars: 2, desc: '数手先まで読みます', nodes: 6000, noise: 50 },
-    strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習した評価で深く読みます', time: 2000 },
-    max: { label: '最強', stars: 4, desc: '1手8秒。すべてのスレッドで全力で読みます', time: 8000, parallel: true },
-    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、1手 約30秒じっくり読みます（すべてのスレッド）', time: 30000, parallel: true },
+    strong: { label: 'つよい', stars: 3, desc: '学習した評価で深く読みます', time: 2000 },
+    max: { label: '最強', stars: 4, desc: 'すべてのスレッドで全力で読みます', time: 8000, parallel: true },
+    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、じっくり読みます', time: 30000, parallel: true },
   };
   const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   const ANALYZE_MS = 6000, HINT_MS = 2500;
@@ -875,6 +875,8 @@
     else { S.view = Math.max(0, p); S.dpos = Position.fromMoves(S.handicap, S.moves.slice(0, S.view)); }
     S.sel = null; S.targets = new Map(); S.info = null; S.inspect = -1;
     render();
+    // 見返している間に終わった対局（オンラインで相手が詰ませた・投了した）は、最新の局面に戻ったときに結果を出す
+    if (live() && S.result && !S.resultShown) { S.resultShown = true; setTimeout(showResult, 450); }
     if (live()) schedule(); else { AI.cancel(); S.thinking = false; analyze(); }
   }
   function undo() {
@@ -951,6 +953,7 @@
     // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
     const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
     if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    if (!$('dlg-new').hidden) return; // オンラインの途中で「新しい対局」を押して投了したとき: 選ぶ画面の上に結果を重ねない
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }
@@ -1090,7 +1093,8 @@
         <text x="${pad}" y="${bh - 6}" fill="var(--muted)" font-size="10">第0世代</text><text x="${bw - 8}" y="${bh - 6}" text-anchor="end" fill="var(--muted)" font-size="10">第${g1}世代</text>
       </svg>`;
     }
-    const rows = h.slice(-30).reverse().map(e => `<tr><td>第${e.gen}世代${e.accepted ? '' : '（候補）'}</td><td>${(e.totalGames || 0).toLocaleString()}</td><td>${e.w ?? ''}勝${e.l ?? ''}敗${e.d ?? ''}分</td><td>${e.elo >= 0 ? '+' : ''}${e.elo} ±${e.err}</td><td>${e.accepted ? '採用' : '不採用'}</td></tr>`).join('');
+    // 検定まで進んだ候補だけ（学習で検証の損失がよくならず検定しなかった回は Elo・誤差が 0）。勝ち負けの数は記録にあるときだけ
+    const rows = h.filter(e => e.accepted || e.elo || e.err).slice(-30).reverse().map(e => `<tr><td>第${e.gen}世代${e.accepted ? '' : '（候補）'}</td><td>${(e.totalGames || 0).toLocaleString()}</td><td${e.w != null ? ` title="${e.w}勝${e.l}敗${e.d}分"` : ''}>${e.elo >= 0 ? '+' : ''}${e.elo} ±${e.err}</td><td>${e.accepted ? '採用' : '不採用'}</td></tr>`).join('');
     const mrows = ms.slice(-12).reverse().map(m => `<tr><td>第${m.gen}世代 vs ${m.anchor}</td><td>${m.w}勝${m.l}敗${m.d}分</td><td>${(m.score * 100).toFixed(1)}%</td><td>${m.score >= 1 ? '全勝（差が大きすぎて測れない）' : `${m.elo >= 0 ? '+' : ''}${m.elo} ±${m.eloErr}`}</td></tr>`).join('');
     const lvRows = LV && LV.pairs ? LV.pairs.filter(p => CPU[p.a] && CPU[p.b]).map(p => `<tr><td>${CPU[p.a].label} vs ${CPU[p.b].label}${p.note ? `<br><small style="color: var(--muted)">${esc(p.note)}</small>` : ''}</td><td>${p.w}勝${p.l}敗${p.d}分</td><td>${!p.l && !p.d ? '全勝' : `${p.elo >= 0 ? '+' : ''}${p.elo} ±${p.err}`}</td></tr>`).join('') : '';
     $('view-ai').innerHTML = `
@@ -1106,7 +1110,8 @@
       </div>
       <div class="card" data-tab="世代の記録">
         <h3>世代ごとの検定</h3>
-        <div class="tbl"><table class="lv"><thead><tr><th>世代</th><th>累計自己対局</th><th>新 vs 旧</th><th>Elo</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">まだありません</td></tr>'}</tbody></table></div>
+        <p class="hint" style="margin:0 0 6px">新しい候補と、それまでの最強版の対戦（勝ち越して基準を越えたら採用）。新しい順に30回まで。学習しても検証の損失がよくならず、対戦まで進まなかった候補は出していません。</p>
+        <div class="tbl"><table class="lv"><thead><tr><th>世代</th><th>累計自己対局</th><th>新 vs 旧（Elo）</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4">まだありません</td></tr>'}</tbody></table></div>
       </div>
       <div class="card" data-tab="しくみ">
         <h3>しくみ（すべて自作・人の知識なし）</h3>
@@ -1306,6 +1311,7 @@
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') { closeSheet(); hideChooser(); if (!$('dlg-new').hidden) closeNew(); ['dlg-result', 'dlg-import', 'dlg-online'].forEach(id => { $(id).hidden = true; }); $('settings').hidden = true; $('menu-more').hidden = true; if (S.sel || S.inspect >= 0) clearSel(); return; }
       if (e.target.closest('input, textarea, .dialog') || !$('view-play').offsetParent) return;
+      if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden)) return; // ダイアログが開いている間は、裏の棋譜を動かさない
       if (e.key === 'ArrowLeft') { e.preventDefault(); viewPly(shownPly() - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); viewPly(shownPly() + 1); }
       if (e.key === 'Home') { e.preventDefault(); viewPly(0); }

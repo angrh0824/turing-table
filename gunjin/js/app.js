@@ -139,6 +139,7 @@
       seats = h === BLACK ? ['human', cfg.cpu] : [cfg.cpu, 'human'];
     }
     S.mode = cfg.mode === 'pvp' || cfg.mode === 'watch' ? cfg.mode : 'cpu';
+    S.gid = Math.random().toString(36).slice(2, 12);   // 対局ごとの印（待った・ここからで終局をやり直しても、ごほうびは1局1回）
     S.seats = seats; S.log = []; S.result = null; S.resultShown = false; S.view = null; S.evals = []; S.info = null; S.hint = -1;
     S.setups = [null, null]; S.game = null; S.sel = -1; S.inspect = -1; S.swapSel = -1; S.curtain = null;
     for (const c2 of [BLACK, WHITE]) if (isCPU(c2)) S.setups[c2] = cpuSetup(seats[c2]);
@@ -184,10 +185,11 @@
       store.set('game', { mode: 'online', online: { mid: o.mid, me: o.me, opp: o.opp, myHints: o.myHints, setup: o.setup, salts: o.salts, rec: o.rec }, draft: S.draft, flip: S.flip });
       return;
     }
-    store.set('game', { mode: S.mode, seats: S.seats, setups: S.setups, phase: S.phase, drafting: S.drafting, draft: S.draft, moves: S.log.map(e => (e.f << 6) | e.t), result: S.result, flip: S.flip, evals: S.evals });
+    store.set('game', { gid: S.gid, mode: S.mode, seats: S.seats, setups: S.setups, phase: S.phase, drafting: S.drafting, draft: S.draft, moves: S.log.map(e => (e.f << 6) | e.t), result: S.result, flip: S.flip, evals: S.evals });
   }
   function loadGame(g) {
     S.mode = g.mode; S.seats = g.seats; S.setups = g.setups; S.flip = !!g.flip; S.evals = g.evals || [];
+    S.gid = g.gid || Math.random().toString(36).slice(2, 12);
     S.log = []; S.result = null; S.view = null; S.curtain = null;
     if (g.phase === 'setup') { S.phase = 'setup'; S.drafting = g.drafting; S.draft = g.draft; if (S.mode === 'pvp') S.curtain = `${MARK[g.drafting]}${SIDE[g.drafting]}の配置です`; afterChange(); return; }
     S.game = new C.Game(S.setups[0], S.setups[1]);
@@ -841,7 +843,7 @@
     renderVerify();
     $('rs-again').textContent = S.mode === 'online' ? 'もう一局（先後交代）' : 'もう一局';
     // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
-    if (window.TTJuice && hc >= 0 && (S.mode === 'cpu' || S.mode === 'online')) TTJuice.result({ outcome: r.winner < 0 ? 'draw' : r.winner === hc ? 'win' : 'lose', stars: S.mode === 'cpu' ? CPU[S.seats[hc ^ 1]].stars : 0, online: S.mode === 'online', ref: r, quiet: !settings.sound });
+    if (window.TTJuice && hc >= 0 && (S.mode === 'cpu' || S.mode === 'online')) TTJuice.result({ outcome: r.winner < 0 ? 'draw' : r.winner === hc ? 'win' : 'lose', stars: S.mode === 'cpu' ? CPU[S.seats[hc ^ 1]].stars : 0, online: S.mode === 'online', ref: r, id: S.mode === 'online' && S.online ? 'o' + S.online.mid : S.gid });
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }

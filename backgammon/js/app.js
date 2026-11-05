@@ -29,7 +29,8 @@
     set(k, v) { try { localStorage.setItem(PFX + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
   };
   let draft = Object.assign({ mode: 'cpu', cpu: 'normal', cpuW: 'strong', cpuB: 'max', len: 5, cube: 'on' }, store.get('cfg', {}));
-  const settings = Object.assign({ sound: true, anim: true, arrow: true, showEval: true, autoroll: true, autoconfirm: false, mirror: false, numbers: true }, store.get('settings', {}));
+  // AI補助（形勢・おすすめの矢印）は、さいしょはオフ（CONVENTIONS.md §3。「AI補助」を押すと出る）
+  const settings = Object.assign({ sound: true, anim: true, arrow: false, showEval: false, autoroll: true, autoconfirm: false, mirror: false, numbers: true }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.arrow;
   // 動き: 全ゲーム共通の設定（common/motion.js。オフ・動きを減らす設定・裏のタブでは一瞬で終わる）
   const MO = window.TTMotion || null;
@@ -67,8 +68,9 @@
     S.starts = BG.matchStarts(S.cfg, S.games);
     S.st = BG.replay(S.cfg, S.starts[S.gi], S.games[S.gi].actions);
   }
-  const matchScore = () => (S.st.phase === 'over' ? S.st.score : S.starts[S.gi].score);
   const matchDone = () => S.st.phase === 'over' && (S.cfg.single || BG.matchOver(S.cfg, S.st.score));
+  // CPU 戦では、終わった局へは「待った」「ここから」で戻れない（同じ勝ちのごほうび（XP）を2度もらえないように）
+  const canRewind = gi => S.mode !== 'cpu' || (gi === S.gi && S.st.phase !== 'over');
 
   // ------------------------------------------------------------------ 読みの手伝い（Web Worker）
   function Pool(name) { this.ws = []; this.id = 0; this.wait = new Map(); this.name = name; }
@@ -176,7 +178,8 @@
   }
   function save() {
     const online = S.online ? { mid: S.online.mid, mySide: S.online.mySide, opp: S.online.opp, myHints: S.online.myHints, secrets: S.online.secrets, reveals: S.online.reveals, anchors: S.online.anchors } : null;
-    store.set('game', { cfg: S.cfg, mode: S.mode, seats: S.seats, games: S.games, gi: S.gi, bottom: S.bottom, evals: S.evals, errs: S.errs, online });
+    // over: マッチ（マネー1局）が終わったか。common/setup.js の「前回の続き」が読む
+    store.set('game', { cfg: S.cfg, mode: S.mode, seats: S.seats, games: S.games, gi: S.gi, bottom: S.bottom, evals: S.evals, errs: S.errs, online, over: matchDone() });
     if (S.online) saveOnline();
   }
   // 行動を1つ進める（確かめてから）
@@ -187,6 +190,7 @@
     S.st = st2;
     if (st2.phase === 'over') S.starts = BG.matchStarts(S.cfg, S.games);
     S.hint = null;
+    if (a.a === 'move') S.msg = ''; // 振り分けの目などの知らせは、その手を指したら消す（次の番に残さない）
     save();
   }
   // 次の局へ（マッチの途中・マネーの続き）
@@ -232,7 +236,7 @@
     if (S.st !== st0) return;
     push(opening ? { a: 'open', d } : { a: 'roll', d });
     if (opening && d[0] === d[1]) S.msg = `${d[0]} と ${d[1]} の同じ目なので振り直し`;
-    else if (opening) S.msg = `${SIDE[0]} ${d[0]}・${SIDE[1]} ${d[1]} → ${seatName(S.st.turn)}（${SIDE[S.st.turn]}）が先手`;
+    else if (opening) S.msg = `${SIDE[0]}${d[0]}・${SIDE[1]}${d[1]}で${seatName(S.st.turn)}が先手`;
     else S.msg = '';
     render(); schedule();
   }
@@ -525,7 +529,7 @@
   }
   // 待った: 人が最後に動かす前（サイコロはそのまま）に戻す
   function undo() {
-    if (S.online || S.view || S.busy) return;
+    if (S.online || S.view || S.busy || !canRewind(S.gi)) return;
     if (S.pm && S.pm.hops.length) { undoHop(); return; }
     const acts = S.games[S.gi].actions;
     let k = -1;
@@ -592,7 +596,8 @@
     if (isCPU(opp)) {
       // CPU は、受けたほうが得なら受ける（今の局面の見立てと比べる）
       $('rg-msg').textContent = 'CPU が考えています…';
-      const roll = st.phase === 'doubled' || st.phase === 'turn' || st.phase === 'open' ? st.turn : st.turn;
+      // 振る側から見た局面で読む（振り分けの前は手番がまだないので、CPU の側から）
+      const roll = st.turn < 0 ? opp : st.turn;
       const r = await ANP.run({ type: 'cube', me: arr(st.b[roll]), opp: arr(st.b[roll ^ 1]), ply: 1, ctx: ctxOf(st) });
       if (r.type !== 'cube') return;
       const p = roll === opp ? r.p : BGNet.flip(r.p, new Float32Array(5));
@@ -609,7 +614,7 @@
   }
 
   // ------------------------------------------------------------------ AI補助（形勢・キューブ・おすすめの手）とヒント
-  const AN = { cache: new Map(), cur: null, running: null };
+  const AN = { cache: new Map(), running: null };
   // 局面が変わった（待った・指し直し）ところより先の読み・印は捨てる
   function dropAnalysisAfter(gi, n) {
     for (const key of [...AN.cache.keys()]) { const [g, k] = key.split(':').map(Number); if (g > gi || (g === gi && k >= n)) AN.cache.delete(key); }
@@ -630,7 +635,7 @@
     if (live() && S.online && isRemote(actorOf(st)) && !force) { renderSide(); return; }
     const key = anaKey(gi, n), have = AN.cache.get(key);
     const want = deep ? 2 : 1;
-    if (have && have.ply >= want) { renderAll(); return; }
+    if (have && have.ply >= want) { render(); return; }
     if (AN.running === key + ':' + want) return;
     AN.running = key + ':' + want;
     const r = await analyze(st, want);
@@ -638,7 +643,7 @@
     if (!r) return;
     const prev = AN.cache.get(key);
     if (!prev || prev.ply <= r.ply) AN.cache.set(key, r);
-    renderAll();
+    render();
     // 1手読みが出たら、手が空いているうちに2手読みで確かめる
     if (want === 1 && settings.showEval) { const s2 = shownState(); if (anaKey(s2.gi, s2.n) === key) analyzeNow(force, true); }
   }
@@ -698,15 +703,15 @@
     }
     btn.textContent = 'この対局を分析';
     analyzingAll = false;
-    save(); renderAll();
+    save(); render();
   }
   function hint() {
     if (!humanCanAct()) return;
     if (S.online) { S.online.myHints++; NET && NET.send({ t: 'hint' }); save(); }
     const { gi, n } = shownState();
     S.hint = anaKey(gi, n);
-    analyzeNow(true).then(() => renderAll());
-    renderAll();
+    analyzeNow(true).then(() => render());
+    render();
   }
 
   // ------------------------------------------------------------------ 描画
@@ -821,7 +826,7 @@
     if (!live()) {
       const { st, gi, n } = shownState();
       const e = entryAt(gi, n);
-      set('view', `見返し中: 第${gi + 1}局 ${e ? esc(e.label) : '始まり'}`, `<button class="btn small" data-act="live">最新へ</button>${!S.online && S.mode !== 'watch' && st.phase !== 'over' ? '<button class="btn small" data-act="branch">ここから</button>' : ''}`);
+      set('view', `見返し中: 第${gi + 1}局 ${e ? esc(e.label) : '始まり'}`, `<button class="btn small" data-act="live">最新へ</button>${!S.online && S.mode !== 'watch' && st.phase !== 'over' && canRewind(gi) ? '<button class="btn small" data-act="branch">ここから</button>' : ''}`);
       return;
     }
     const st = S.st;
@@ -835,32 +840,33 @@
       return;
     }
     if (st.phase === 'open') { set('', S.msg ? esc(S.msg) : '振り分け: 1個ずつ振って、大きい目のほうが先手'); return; }
-    const craw = st.crawford ? '<span class="muted">（クロフォード: キューブなし）</span> ' : '';
+    const craw = st.crawford ? '<span class="muted" title="クロフォードの局: キューブは使えません">クロフォード</span> ' : '';
     if (isCPU(actor) || (S.online && isRemote(actor))) {
       const who = esc(seatName(actor));
-      if (st.phase === 'doubled') set('act', `${esc(seatName(st.turn))}がダブル（キューブ ${st.cube * 2}）。${who}が考えています…`);
+      if (st.phase === 'doubled') set('act', `ダブル → ${st.cube * 2}。${who}が考えています…`);
       else set('', S.msg ? esc(S.msg) : `${craw}${who}の番${S.online && S.online.oppPresent === false ? '（接続が切れています。戻るのを待っています）' : ''}`);
       return;
     }
     const you = S.mode === 'pvp' ? `${SIDE[actor]}の番` : 'あなたの番';
     if (st.phase === 'doubled') {
-      set('alert', `${esc(seatName(st.turn))}がダブル（キューブを ${st.cube * 2} に）`,
+      set('alert', `${esc(seatName(st.turn))}がダブル → ${st.cube * 2}`,
         `<button class="btn small primary" data-act="take">テイク</button><button class="btn small bad" data-act="pass">パス</button>${BG.canBeaver(st) ? '<button class="btn small" data-act="beaver">ビーバー</button>' : ''}`);
       return;
     }
     if (st.phase === 'turn') {
       if (S.online && S.online.rolling) { set('act', '振っています（相手の乱数を待っています）…'); return; }
       const canD = BG.canDouble(st) && !BG.mustRoll(st);
-      set('act', `${S.msg ? esc(S.msg) + '　' : ''}${craw}${you}: ${canD ? 'ダブルするか、振るか' : '振ってください'}`, `${canD ? '<button class="btn small" data-act="double">ダブル</button>' : ''}<button class="btn small primary" data-act="roll">振る</button>`);
+      // 知らせ（「CPU はテイク」など）があるときは「あなたの番」を省く（狭い画面で1行に収める）
+      set('act', `${S.msg ? esc(S.msg) + '　' : `${craw}${you}: `}${canD ? 'ダブルか振るか' : '振ってください'}`, `${canD ? '<button class="btn small" data-act="double">ダブル</button>' : ''}<button class="btn small primary" data-act="roll">振る</button>`);
       return;
     }
     if (st.phase === 'move' && S.pm) {
       const pm = S.pm, d = st.dice;
       if (pm.forced) { set('act', pm.need ? `${d[0]}-${d[1]}: 動かせる手は1つだけ（自動で動かします）` : `${d[0]}-${d[1]}: 動かせる駒がありません`); return; }
       let txt;
-      if (pmComplete()) txt = `${d[0]}-${d[1]}: ${esc(BG.moveText(pm.hops))}${settings.autoconfirm ? '' : ' — これで確定しますか？'}`;
-      else if (S.sel != null) txt = `${esc(BG.ptName(S.sel))} の駒 → 光っている行き先をタップ`;
-      else txt = `${S.msg ? esc(S.msg) + '　' : ''}${d[0]}-${d[1]}: 動かす駒をタップ${pm.hops.length ? `（${esc(BG.moveText(pm.hops))}）` : ''}`;
+      if (pmComplete()) txt = `${esc(BG.moveText(pm.hops))}${settings.autoconfirm ? '' : ' でよければ確定'}`; // 目は盤のサイコロで見える（狭い画面で「確定」「戻す」と1行に）
+      else if (S.sel != null) txt = `${esc(BG.ptName(S.sel))} の駒 → 光っている行き先へ`;
+      else txt = `${S.msg ? esc(S.msg) + '　' : `${d[0]}-${d[1]}: `}${pm.hops.length ? `動かす駒をタップ（${esc(BG.moveText(pm.hops))}）` : '動かす駒をタップかドラッグ'}`; // 知らせ（振り分けの目など）があるときは目をくり返さない
       set('act', txt, `${pm.hops.length ? '<button class="btn small" data-act="undohop">戻す</button>' : ''}${pmComplete() ? '<button class="btn small primary" data-act="confirm">確定</button>' : ''}`);
       return;
     }
@@ -999,7 +1005,7 @@
   }
   function renderSide() { renderEvalCard(); renderKifu(); renderGraph(); }
   function renderControls() {
-    $('btn-undo').disabled = !!S.online || S.mode === 'watch' || !!S.view;
+    $('btn-undo').disabled = !!S.online || S.mode === 'watch' || !!S.view || !canRewind(S.gi);
     $('btn-hint').disabled = !humanCanAct();
     $('btn-ai').setAttribute('aria-pressed', String(aiOn()));
     document.body.classList.toggle('eval-off', !settings.showEval);
@@ -1010,7 +1016,6 @@
     renderBoard(); renderPlayers(); renderInfo(); renderTape(); renderControls();
     if (settings.showEval || $('side').classList.contains('open') || layoutMode === 'wide') renderSide();
   }
-  const renderAll = render;
 
   // 見返し
   function viewAt(gi, n) {
@@ -1031,7 +1036,7 @@
   }
   // 見返している局面から指し直す（CPU 戦・ふたり）
   function branch() {
-    if (live() || S.online) return;
+    if (live() || S.online || S.mode === 'watch' || !canRewind(S.view.gi)) return;
     const { gi, n } = S.view;
     S.epoch++; CPUP.reset(); clearTimeout(S.timer);
     S.games.length = gi + 1; S.games[gi].actions.length = n; S.gi = gi;
@@ -1050,10 +1055,8 @@
       if (t.act === 'cube') { offerDouble(); return; }
       if (t.act === 'dice') { if (pmComplete()) confirmMove(); return; }
     }
-    if (!live() || S.busy || !S.pm || S.pm.forced || !isHuman(S.pm.side)) {
-      if (live() && S.st && S.st.phase === 'turn' && isHuman(S.st.turn) && !S.busy) { /* 盤を押しても振らない（誤操作を避ける） */ }
-      return;
-    }
+    // 振るのは「タップして振る」の札か「振る」だけ（盤のほかの所を押しても振らない。誤操作を避ける）
+    if (!live() || S.busy || !S.pm || S.pm.forced || !isHuman(S.pm.side)) return;
     const slot = board.slotAt(ev.clientX, ev.clientY);
     if (slot == null) { clearSel(); render(); return; }
     const side = S.pm.side;
@@ -1388,9 +1391,10 @@
       <li>マッチのキューブの判断は、自分たちで計算したマッチの勝率表（自己対局で測ったギャモン率から）で行います</li></ul></div>`;
     else if (rulesTab === 'ui') body = `<div class="card"><h3>画面の操作</h3><ul>
       <li>自分の番: 盤の「タップして振る」か下の「振る」。ダブルするときは右のキューブか「ダブル」</li>
-      <li>動かす駒をタップ → 行き先が光り、ほかはやんわり暗くなる → 行き先をタップで動きます。目を続けて使う先も光ります。途中でヒットするかどうかで違いが出るときだけ、小さな選択が出ます</li>
+      <li>動かす駒をタップ → 行き先が光り、ほかはやんわり暗くなる → 行き先をタップで動きます。駒をつかんで光っている行き先へドラッグしても動かせます（ほかで離すと元へ戻ります）。目を続けて使う先も光ります。途中でヒットするかどうかで違いが出るときだけ、小さな選択が出ます</li>
       <li>動かし終えたら「確定」（サイコロを押しても確定）。「戻す」で1歩ずつ戻せます。設定で「自動で確定」もできます</li>
-      <li>棋譜テープ（⏮ ◀ ▶ ⏭）で振り返り。「この対局を分析」で悪手（? や ??）に印が付きます。「待った」は CPU 戦とふたりのときだけ</li>
+      <li>ポイント・バー・上がりの山を長押しすると、その部分が大きく出て枚数とどちらの駒かが分かります（キューブは値と持ち主）。2本指で盤を拡大することもできます</li>
+      <li>棋譜テープ（⏮ ◀ ▶ ⏭）で振り返り。見返している局面から「ここから」で指し直せます。「この対局を分析」で悪手（? や ??）に印が付きます。「待った」は CPU 戦とふたりのときだけ（CPU 戦では、終わった局は「待った」「ここから」で戻せません）</li>
       <li>「AI補助」で勝率・ギャモン率・キューブの判断・おすすめの手（矢印）をまとめて出し入れ。オンラインでは相手にも表示されます</li></ul></div>`;
     el.innerHTML = docTabs(T, rulesTab, 'rt') + body;
     el.querySelector('.doctabs').addEventListener('click', e => { const b = e.target.closest('[data-rt]'); if (b) { rulesTab = b.dataset.rt; renderRules(); } });
@@ -1565,7 +1569,7 @@
     if (S.gi !== gi || rollsUsed(gi) !== k) return;
     push(opening ? { a: 'open', d } : { a: 'roll', d });
     if (opening && d[0] === d[1]) S.msg = `${d[0]} と ${d[1]} の同じ目なので振り直し`;
-    else if (opening) S.msg = `${SIDE[0]} ${d[0]}・${SIDE[1]} ${d[1]} → ${seatName(S.st.turn)}（${SIDE[S.st.turn]}）が先手`;
+    else if (opening) S.msg = `${SIDE[0]}${d[0]}・${SIDE[1]}${d[1]}で${seatName(S.st.turn)}が先手`;
     else S.msg = '';
     render(); schedule();
   }
@@ -1674,13 +1678,11 @@
       const st = S.st, actor = a.a === 'resign' ? a.s : actorOf(st);
       if (actor !== opp && !(a.a === 'resign' && a.s === o.mySide && o.resignOffer === a.v)) return;
       try {
-        const before = st;
         if (a.a === 'move') { S.busy = true; await animateHops(st.turn, a.h); S.busy = false; }
         if (S.games[gi].actions.length !== n) return;
         push(a);
         if (a.a === 'double' || a.a === 'take' || a.a === 'pass') snd('cube');
         if (a.a === 'resign') o.resignOffer = null;
-        void before;
       } catch (e) { S.busy = false; console.warn('相手の行動を受け付けられない', e.message); return; }
       S.msg = a.a === 'take' ? `${o.opp.name}さんはテイク` : a.a === 'pass' ? `${o.opp.name}さんはパス` : '';
       render(); schedule();
@@ -1694,11 +1696,8 @@
       o.oppResign = v; render(); askResign(v);
     } else if (msg.t === 'rsg!') {
       if (!o.resignOffer) return;
-      if (msg.ok) {
-        const a = { a: 'resign', s: o.mySide, v: o.resignOffer };
-        // 受けた側が行動として送ってくるので、ここでは待つ
-        void a;
-      } else { S.msg = `${o.opp.name}さんは投了を断りました`; o.resignOffer = null; render(); }
+      // 受けたときは、受けた側が投了を行動（act）として送ってくるので、ここでは待つ
+      if (!msg.ok) { S.msg = `${o.opp.name}さんは投了を断りました`; o.resignOffer = null; render(); }
     } else if (msg.t === 're') { o.oppRe = true; maybeRematch(); renderInfo(); }
     else if (msg.t === 'rego' && typeof msg.gid === 'string') {
       NET.start({ mid: msg.gid.slice(0, 20), myColor: msg.oc ? 1 : 0, r: { len: S.cfg.len }, opp: { id: msg.from, name: o.opp.name, ai: o.opp.ai } });
