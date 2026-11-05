@@ -36,9 +36,9 @@
   };
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', side: 'black', cpuB: 'strong', cpuW: 'strong', level: 'jokyu', setup: 'free' }, store.get('cfg2', {}));
   if (!G.LEVELS[cfg.level]) cfg.level = 'jokyu';
-  // AI補助: showEval = 形勢（評価値・グラフ）を見せる、arrow = 最善手の矢印を見せる
+  // AI補助: showEval = 形勢（評価値・グラフ）を見せる、arrow = 最善手の矢印を見せる。さいしょはどちらもオフ（「AI補助」で出す。CONVENTIONS §3）
   // （アニメーションのオン・オフは全ゲーム共通なので、ここではなく TTMotion が覚える）
-  const settings = Object.assign({ sound: true, arrow: true, reach: true, analyze: true, showEval: true }, store.get('settings', {}));
+  const settings = Object.assign({ sound: true, arrow: false, reach: true, analyze: true, showEval: false }, store.get('settings', {}));
   const aiOn = () => settings.showEval || settings.arrow;
 
   // ------------------------------------------------------------------ 対局の状態
@@ -89,7 +89,7 @@
     };
   }
 
-  // CPU の思考。ページが共有メモリを使える状態（start.bat のサーバで開いたとき）なら、
+  // CPU の思考。ページが共有メモリを使える状態（start.bat・ルートの serve.py のサーバで開いたとき）なら、
   // 複数のワーカーが置換表を共有して同じ局面を読む（Lazy SMP）。そうでなければワーカー1つで読む。
   const SMP = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
   const THREADS = SMP ? Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1)) : 1;
@@ -190,6 +190,8 @@
   function loadGame(g) {
     AI.cancel(); clearTimeout(S.timer);
     S.level = g.level; S.setup = g.setup; S.seats = g.seats; S.online = g.online || null;
+    // 対局の印: 待った・指し直しのあとにもう一度終わっても、ごほうびを2度数えない（読み込み直しても同じ印）
+    S.gameId = g.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     S.pos = new Position(g.level, { setup: g.setup });
     S.moves = []; S.texts = []; S.evals = g.evals ? g.evals.slice() : []; S.capCache = null;
     for (const m of g.moves) { S.texts.push(S.pos.moveText(m)); S.pos.make(m); S.moves.push(m); }
@@ -203,7 +205,7 @@
 
   function saveGame() {
     const online = S.online ? { gid: S.online.gid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
-    store.set('game', { level: S.level, setup: S.setup, seats: S.seats, moves: S.moves, result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
+    store.set('game', { id: S.gameId, level: S.level, setup: S.setup, seats: S.seats, moves: S.moves, result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
   }
 
   function rebuild(n) {
@@ -445,14 +447,17 @@
 
   // 盤の大きさ: 盤・情報の行・自分の手駒・ボタンが画面の高さに収まる大きさにする（盤を見ている間はスクロールしなくていいように）
   let fitPending = 0;
+  const LANDSCAPE = window.matchMedia('(max-width: 979px) and (max-height: 500px) and (orientation: landscape)');
   function fitBoardSoon() { if (!fitPending) fitPending = setTimeout(() => { fitPending = 0; fitBoard(); }, 0); }
   function fitBoard() {
     const col = document.querySelector('.board-col'), row = document.querySelector('.board-row'), frame = document.querySelector('.board-frame');
     if (!col || !col.offsetParent) return;
     const cs = getComputedStyle(col), gap = parseFloat(cs.rowGap) || 0;
+    // 横向きのスマホでは盤の右に対局者・ボタンを並べる（index.html の同じ条件）ので、盤の上下には何も積まない
+    const side = LANDSCAPE.matches;
     let other = 0, n = 0;
     for (const el of col.children) {
-      if (el === row || getComputedStyle(el).display === 'none') continue;
+      if (side || el === row || getComputedStyle(el).display === 'none') continue;
       other += el.getBoundingClientRect().height; n++;
     }
     // 測るのは画面の上の帯の下から（狭い画面では盤の列を上下の真ん中に置くので、列そのものの位置は使わない）
@@ -462,7 +467,7 @@
     const rowExtra = row.getBoundingClientRect().width - frame.getBoundingClientRect().width; // 評価値バーの分
     const avail = window.innerHeight - top - other - gap * n - 12; // 下に少し余白
     // 盤の枠の高さ = 盤の幅 − 横の余白 + 縦の余白
-    const w = Math.round(Math.max(260, Math.min(680, avail - padV + padH + rowExtra)));
+    const w = Math.round(Math.max(side ? 200 : 260, Math.min(680, avail - padV + padH + rowExtra)));
     const cur = document.documentElement.style.getPropertyValue('--board-w');
     if (cur !== w + 'px') document.documentElement.style.setProperty('--board-w', w + 'px');
   }
@@ -762,12 +767,7 @@
     const cur = shownPly();
     let html = `<button data-ply="0" class="${cur === 0 ? 'cur' : ''}">開始</button>`;
     S.texts.forEach((t, i) => {
-      const s2 = S.evals[i + 1], prev = S.evals[i];
-      let bad = false;
-      if (settings.showEval && s2 != null && prev != null) {
-        const mover = t.startsWith('▲') ? BLACK : WHITE;
-        bad = (winP(s2) - winP(prev)) * (mover === BLACK ? 1 : -1) < -0.15;
-      }
+      const bad = badMove(i);
       html += `<button data-ply="${i + 1}" class="${cur === i + 1 ? 'cur' : ''}${bad ? ' bad' : ''}"><span class="no">${i + 1}</span>${t.replace(/\(\d\d\)$/, '')}${bad ? '?' : ''}</button>`;
     });
     if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
@@ -838,6 +838,12 @@
     return (s > 0 ? '+' : s < 0 ? '−' : '±') + Math.abs(Math.round(s));
   }
   const winP = s => (G.isMate(s) ? (s > 0 ? 1 : 0) : G.winRate(s));
+  // i 手目（0 から）が、指した側から見て勝率を大きく下げた手か（形勢を出しているときだけ。棋譜テープと棋譜の一覧の「?」）
+  function badMove(i) {
+    const s = S.evals[i + 1], prev = S.evals[i];
+    if (!settings.showEval || s == null || prev == null) return false;
+    return (winP(s) - winP(prev)) * (S.texts[i].startsWith('▲') ? 1 : -1) < -0.15;
+  }
 
   function renderEval() {
     const ply = shownPly(), pos = shownPos();
@@ -888,7 +894,6 @@
     const bar = $('evalbar'), fill = $('evalbar-fill');
     bar.classList.toggle('flip', S.flip);
     fill.style.height = (p * 100).toFixed(1) + '%';
-    fill.style.setProperty('--w', (p * 100).toFixed(1) + '%');
   }
 
   function renderGraph() {
@@ -913,17 +918,8 @@
     const el = $('kifu'), cur = shownPly();
     const rows = [`<li data-ply="0" class="${cur === 0 ? 'cur' : ''}"><span class="no">0</span><span>開始局面</span><span class="ev"></span></li>`];
     S.texts.forEach((t, i) => {
-      const s = S.evals[i + 1], prev = S.evals[i];
-      let ev = '', bad = false;
-      if (s != null && settings.showEval) {
-        ev = G.isMate(s) ? '詰' : (s > 0 ? '+' : '') + Math.round(s);
-        // 指した側から見て勝率が大きく下がった手に印
-        if (prev != null && t[0] !== undefined && i + 1 >= 1) {
-          const mover = t.startsWith('▲') ? BLACK : WHITE;
-          const d = (winP(s) - winP(prev)) * (mover === BLACK ? 1 : -1);
-          bad = d < -0.15;
-        }
-      }
+      const s = S.evals[i + 1], bad = badMove(i);
+      const ev = s != null && settings.showEval ? (G.isMate(s) ? '詰' : (s > 0 ? '+' : '') + Math.round(s)) : '';
       rows.push(`<li data-ply="${i + 1}" class="${cur === i + 1 ? 'cur' : ''}"><span class="no">${i + 1}</span><span>${t}${bad ? ' ?' : ''}</span><span class="ev${bad ? ' bad' : ''}">${ev}</span></li>`);
     });
     const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
@@ -1189,11 +1185,14 @@
     $('rs-title').textContent = title;
     const opp = S.online ? `相手は ${S.online.opp.name} さん（${aiText(S.online.opp.ai)}${S.online.opp.hints ? `・ヒント${S.online.opp.hints}回` : ''}）でした。`
       : humans.length === 1 ? `相手は CPU（${CPU[S.seats[humans[0] ^ 1]].label}）でした。` : '';
-    $('rs-body').textContent = r.winner === -1 ? `${r.reason}。${opp}` : `${r.reason}。${opp}`;
+    $('rs-body').textContent = `${r.reason}。${opp}`;
     $('rs-again').textContent = S.online ? 'もう一局（先後交代）' : 'もう一局';
-    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ
+    // 共通のごほうび（common/juice.js）: 人ひとりと CPU、またはオンラインの対局だけ。1つの対局は1度だけ数える（id）
     const me = S.online ? S.online.myColor : humans.length === 1 ? humans[0] : -1;
-    if (window.TTJuice && me >= 0) TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online, ref: r, quiet: !settings.sound });
+    if (window.TTJuice && me >= 0) {
+      TTJuice.result({ outcome: r.winner === -1 ? 'draw' : r.winner === me ? 'win' : 'lose', stars: S.online ? 0 : CPU[S.seats[me ^ 1]].stars, online: !!S.online,
+        ref: r, id: S.online ? 'on-' + S.online.gid : S.gameId, quiet: !settings.sound });
+    }
     $('dlg-result').hidden = false;
     $('rs-again').focus();
   }
@@ -1388,7 +1387,7 @@
           ${W.nn ? `<li><b>評価関数</b>：${W.w ? '駒の価値・段・取られそうな駒・帥から見た各駒の位置などの重み付き和（約10万項目）に、' : ''}<b>小さなニューラルネット（NNUE）</b>${W.w ? 'の補正を足したもの' : 'だけで評価します'}。ネットの入力は盤上の駒（段・重なり）・帥から見た近くの駒・手駒で、指した手で変わった分だけ計算し直します（ブラウザでは WebAssembly SIMD）。</li>
           <li><b>強化学習</b>：AI同士の自己対局で局面を集め、「この局面から勝つ確率」を当てるようにネットを学習します（JAX）。学習した版が今の版に先後入れ替えの対戦ではっきり勝ったときだけ採用します。</li>
           <li><b>評価値</b>：勝率 = 1 / (1 + e<sup>−評価値/600</sup>) になるよう学習しているので、評価値+600で先手の勝率は約73%です。</li>
-          <li><b>学習と対局</b>：ネットの学習は Colab の GPU で行い、対局（探索）はブラウザの CPU だけで動きます。</li>` : `<li><b>評価関数</b>：駒の価値・手駒・段・動ける範囲・取られそうな駒・帥の守りなど約800項目に加えて、<b>「自分の帥・相手の帥から見た各駒の位置」</b>（約10万項目）の重み付き和。将棋ソフト Bonanza・elmo 系と同じ考え方です。</li>
+          <li><b>学習と対局</b>：ネットの学習は PC（と Colab）で JAX を使って行い、対局（探索）はブラウザの CPU だけで動きます。</li>` : `<li><b>評価関数</b>：駒の価値・手駒・段・動ける範囲・取られそうな駒・帥の守りなど約800項目に加えて、<b>「自分の帥・相手の帥から見た各駒の位置」</b>（約10万項目）の重み付き和。将棋ソフト Bonanza・elmo 系と同じ考え方です。</li>
           <li><b>強化学習</b>：AI同士の自己対局で局面を集め、「この局面から先手が勝つ確率」を当てるように重みを調整します（Texel法・ロジスティック回帰）。調整した版が旧版に勝ち越したときだけ採用します。</li>
           <li><b>評価値</b>：勝率 = 1 / (1 + e<sup>−評価値/600</sup>) になるよう学習しているので、評価値+600で先手の勝率は約73%です。</li>
           <li><b>GPUは不要</b>：この方式はCPUだけで速く学習できます。</li>`}
@@ -1450,6 +1449,8 @@
       ['play', 'rules', 'ai'].forEach(k => { $('view-' + k).hidden = b.dataset.tab !== k; });
       if (b.dataset.tab === 'rules' && !$('view-rules').innerHTML) renderRules();
       if (b.dataset.tab === 'ai') renderAIPage();
+      // ルール・AI を見ている間に画面の向きや大きさが変わっても、盤は隠れていて測れないので、戻ったときに測り直す
+      if (b.dataset.tab === 'play') { fitBoardSoon(); renderPlayers(); }
     }));
     $('view-rules').addEventListener('click', e => {
       const chip = e.target.closest('#pchips button');

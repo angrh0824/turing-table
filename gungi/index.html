@@ -243,16 +243,6 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .arrows .ghost { fill: none; stroke: rgba(46, 140, 80, .9); stroke-width: 3; stroke-dasharray: 6 4; }
 .arrows text { fill: rgba(30, 110, 60, 1); font: 700 13px var(--font-body); }
 
-/* 盤上の案内（配置フェーズなど） */
-.banner {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--radius);
-  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); font-size: 13px;
-}
-.banner b { font-weight: 700; }
-.banner .grow { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
-.banner.alert { background: color-mix(in srgb, var(--bad) 14%, transparent); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
-.banner.result { background: color-mix(in srgb, var(--gold) 18%, transparent); border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
-
 /* 盤の下: 情報の行（選んだ駒・利きを見ている駒・重なりの中身・直前の手）と評価値の行。高さは固定して盤が動かないようにする */
 .boardfoot { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .sqinfo { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 12px; font-size: 13px; white-space: nowrap; }
@@ -515,12 +505,6 @@ input.text { width: 100%; font: inherit; padding: 8px 10px; border-radius: 9px; 
 }
 .doc .card p, .doc .card li { max-width: 70ch; }
 .doc h3 { font-family: var(--font-display); font-size: 21px; margin: 0 0 8px; }
-.pieces-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-.pcard { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; background: var(--surface); }
-.pcard .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.pcard .hd .disc { position: relative; width: 34px; height: 34px; font-size: 18px; flex: none; }
-.pcard .hd b { font-size: 14px; }
-.pcard .hd small { color: var(--muted); display: block; font-size: 11px; }
 .mini { display: grid; grid-template-columns: repeat(9, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); aspect-ratio: 1 / 1; }
 .mini i { background: var(--surface-2); display: block; }
 .mini i.c { background: var(--pc-black); }
@@ -588,6 +572,26 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .hp .disc { font-size: 16px; }
   .hp .n { min-width: 15px; height: 15px; line-height: 15px; font-size: 9px; right: -4px; bottom: -3px; }
 }
+/* 横向きのスマホ: 盤を左に画面の高さいっぱいで置き、右に対局者・情報の行・ボタンを縦に並べる（ページを縦に動かさずに1画面に収める）。
+   振り返りパネル（形勢・グラフ・棋譜）は右から出して、盤は見えたまま */
+@media (max-width: 979px) and (max-height: 500px) and (orientation: landscape) {
+  .board-col { display: grid; grid-template-columns: auto minmax(0, 360px); grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: 6px 12px; align-items: start; justify-content: center; }
+  .board-col > * { width: auto; max-width: none; min-width: 0; }
+  .board-row { grid-column: 1; grid-row: 1 / -1; width: var(--board-w, 300px); }
+  #player-top { grid-column: 2; grid-row: 1; }
+  .boardfoot { grid-column: 2; grid-row: 2; }
+  #player-bottom { grid-column: 2; grid-row: 4; }
+  .controls { grid-column: 2; grid-row: 5; flex-wrap: nowrap; gap: 6px; }
+  .controls .btn { padding: 6px 7px; font-size: 13px; white-space: nowrap; }
+  .side { left: auto; top: 0 !important; width: min(380px, 52vw); border-top: 0; border-left: 1px solid var(--line); border-radius: 16px 0 0 16px; transform: translateX(105%); }
+  /* 手駒と取った駒の一覧: 両者を左右に並べて1画面に */
+  #dlg-pieces .dialog { width: min(760px, 100%) !important; padding: 14px 18px; }
+  #dlg-pieces .dialog h2 { font-size: 18px; margin-bottom: 6px; }
+  #pc-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
+  #pc-body .pcs-side + .pcs-side { margin-top: 0; padding-top: 0; border-top: 0; padding-left: 16px; border-left: 1px solid var(--line); }
+  #pc-body .pcs-row { grid-template-columns: 5.4em minmax(0, 1fr); }
+  #pc-body .pchip .disc { width: 30px; height: 30px; }
+}
 /* 幅 375 前後: 下の5つのボタンが盤の幅に収まるよう、ボタンの左右の余白を詰める */
 @media (max-width: 400px) {
   .controls .btn { padding: 6px 8px; }
@@ -614,8 +618,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
     </button>
     <div class="popover" id="settings" hidden>
       <span class="hint" style="margin-bottom:-4px">AI補助（下の「AI補助」でまとめて切り替え）</span>
-      <label class="switch"><input type="checkbox" id="set-eval" checked> 形勢（評価値・グラフ）を表示</label>
-      <label class="switch"><input type="checkbox" id="set-arrow" checked> 最善手を矢印で表示</label>
+      <label class="switch"><input type="checkbox" id="set-eval"> 形勢（評価値・グラフ）を表示</label>
+      <label class="switch"><input type="checkbox" id="set-arrow"> 最善手を矢印で表示</label>
       <span class="hint" style="margin-bottom:-4px">そのほか</span>
       <label class="switch"><input type="checkbox" id="set-sound" checked> 駒音</label>
       <label class="switch"><input type="checkbox" id="set-anim" checked> アニメーション（全ゲームで共通）</label>
@@ -662,7 +666,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
         <button class="btn primary" id="btn-new">新しい対局</button>
         <button class="btn" id="btn-undo">待った</button>
         <button class="btn" id="btn-hint">ヒント</button>
-        <button class="btn aibtn" id="btn-ai" aria-pressed="true" title="形勢（評価値）と最善手の矢印をまとめて出し入れ"><span class="led"></span>AI補助</button>
+        <button class="btn aibtn" id="btn-ai" aria-pressed="false" title="形勢（評価値）と最善手の矢印をまとめて出し入れ"><span class="led"></span>AI補助</button>
         <div class="more-wrap">
           <button class="btn" id="btn-more" aria-label="そのほかの操作" aria-expanded="false">⋯</button>
           <div class="menu" id="menu-more" hidden role="menu">
