@@ -278,7 +278,7 @@
     v.setAttribute('aria-hidden', 'true');
     v.style.setProperty('--tts-lv', LV[n] || LV[0]);
     v.style.setProperty('--tts-me', s ? s.rank.color : '#4d9fff');
-    v.innerHTML = `<div class="tts-side tts-sl">${s && J ? J.badge(s.level) : ''}<b>あなた</b><small>${s ? `Lv ${s.level}・${esc(s.rank.name)}` : ''}</small></div>
+    v.innerHTML = `<div class="tts-side tts-sl">${s && J ? J.badge(s.level) : ''}<b>あなた</b><small>${s ? (s.title ? `〈${esc(s.title)}〉` : `Lv ${s.level}・${esc(s.rank.name)}`) : ''}</small></div>
       <div class="tts-vv">VS</div>
       <div class="tts-side tts-sr"><span class="tts-st">${'★'.repeat(n)}</span><small class="tts-k">CPU${many ? '×3' : ''}</small><b>${esc(nameOf(b))}</b><small>自己対局で学習</small></div>
       ${o ? `<div class="tts-vx">勝てば +${o.xp.toLocaleString()} XP</div>` : ''}`;

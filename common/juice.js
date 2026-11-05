@@ -48,7 +48,10 @@
   // xp 合計・g ゲームごと {n 局数, w 勝ち, top 勝った CPU のいちばん上の★}・streak 連勝・best 最多連勝・day/run 最後に遊んだ日と連続日数
   // bonus 毎日のボーナスを受け取った日・first 本日初勝利を数えた日・ach 実績（id → 取った時刻）・n/w 全体の局数と勝ち・nw オンラインの勝ち・jack 大当たりの回数
   // ids: 数えた対局の印（o.id。読み込み直しても同じ対局を2度数えない。新しい40件）
-  const blank = () => ({ v: 1, xp: 0, g: {}, streak: 0, best: 0, day: '', run: 0, bonus: '', first: '', ach: {}, n: 0, w: 0, nw: 0, jack: 0, ids: [] });
+  // co コイン（はじめは 300）・inv 着せ替えの持ち物（id → 枚数）・eq 使っている着せ替え（種類 → id）・pity レジェンドが出ていない回数（天井）・pulls ガチャの回数
+  // wk 今週のお題 { id 週の月曜, p 進み, done 済み, kinds 勝ったゲーム }・gift はじめのコインを知らせたか
+  const blank = () => ({ v: 1, xp: 0, g: {}, streak: 0, best: 0, day: '', run: 0, bonus: '', first: '', ach: {}, n: 0, w: 0, nw: 0, jack: 0, ids: [],
+    co: 300, inv: {}, eq: {}, pity: 0, pulls: 0, wk: null, gift: 0 });
   const load = () => { try { const o = JSON.parse(localStorage.getItem(KEY)); if (o && o.v === 1) return Object.assign(blank(), o); } catch (e) { /* 壊れていたら最初から */ } return blank(); };
   let P = load();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e) { /* 覚えられないときはこのページだけ */ } };
@@ -64,7 +67,7 @@
     [40, 'ダイヤモンド', '#78b4ff'], [50, 'マスター', '#b77cff'], [70, 'レジェンド', '#ff6584'], [100, 'シンギュラリティ', '#ffffff']];
   const rankOf = L => { let r = RANKS[0]; for (const x of RANKS) if (L >= x[0]) r = x; return { name: r[1], color: r[2], min: r[0], top: r === RANKS[RANKS.length - 1] }; };
   // レベルの紋章（六角形。色はランク）。トップでも使う
-  const badge = (L, cls = '') => { const r = rankOf(L); return `<span class="ttj-badge${r.top ? ' ttj-rb' : ''}${cls ? ' ' + cls : ''}" style="--rk:${r.color}" aria-label="レベル${L}"><small>Lv</small>${L}</span>`; };
+  const badge = (L, cls = '', fr) => { const r = rankOf(L); return `<span class="ttj-bw"${fr ? ` data-fr="${fr}"` : ''}><span class="ttj-badge${r.top ? ' ttj-rb' : ''}${cls ? ' ' + cls : ''}" style="--rk:${r.color}" aria-label="レベル${L}"><small>Lv</small>${L}</span></span>`; };
 
   // ---------------------------------------------------------------- 実績（一覧から作る。ゲームが増えても書き足さなくてよい）
   const RAR = { c: ['コモン', '#9fb3c8', 50], r: ['レア', '#4ea8ff', 150], e: ['エピック', '#b977ff', 400], l: ['レジェンド', '#ffc53d', 1000] };
@@ -94,12 +97,15 @@
     A('m:' + g.slug, `${g.name} 最強撃破`, `${g.name}で CPU「最強」に勝つ`, 'e', p => gs(p, g.slug).top >= 4, g.slug);
     if (g.ultra) A('u:' + g.slug, `${g.name} 超最強撃破`, `${g.name}で CPU「超最強」に勝つ`, 'l', p => gs(p, g.slug).top >= 5, g.slug);
   });
+  A('gacha', 'はじめてのガチャ', 'ガチャを1回引く', 'c', p => p.pulls >= 1);
+  A('col10', '集める人', '着せ替えを10種類そろえる', 'r', p => Object.keys(p.inv || {}).length >= 10);
+  A('colall', 'コンプリート', '着せ替えをすべてそろえる', 'l', p => ITEMS.every(i => i.base || (p.inv || {})[i.id]));
   // 新しく取れた実績（印をつけ、ごほうびの XP を足す。実績の XP でレベルが上がって取れるものもあるので、増えなくなるまで）
   function check() {
     const got = [];
     for (let k = 0; k < 5; k++) {
       let more = false;
-      for (const a of ACH) if (!P.ach[a.id] && a.test(P)) { P.ach[a.id] = Date.now(); P.xp += RAR[a.rar][2]; got.push(a); more = true; }
+      for (const a of ACH) if (!P.ach[a.id] && a.test(P)) { P.ach[a.id] = Date.now(); P.xp += RAR[a.rar][2]; P.co += RAR[a.rar][2] / 5; got.push(a); more = true; }
       if (!more) break;
     }
     return got;
@@ -140,10 +146,13 @@
     }
     const gain = Math.round(base * x * luck);
     P.xp += gain;
+    const coins = Math.max(1, Math.round(gain / 5));
+    P.co += coins;
+    const mis = o.round ? [] : progress({ play: true, win: out === 'win', stars: o.stars || 0, online: !!o.online, slug, streak: P.streak });
     const ach = check();
     save();
     emit();
-    return { out, lines, base, x, luck, gain, before, after: P.xp, ach, slug, round: !!o.round, multi, place: o.place, streak: P.streak, stars: o.stars || 0, online: !!o.online, title: o.title, into: o.into };
+    return { out, lines, base, x, luck, gain, coins, mis, before, after: P.xp, ach, slug, round: !!o.round, multi, place: o.place, streak: P.streak, stars: o.stars || 0, online: !!o.online, title: o.title, into: o.into };
   }
 
   // 勝ったらもらえる XP の見込み（運は入れない）と、上乗せ・取れる実績。「新しい対局」の画面で見せる
@@ -259,12 +268,116 @@
 @keyframes ttj-cta{50%{box-shadow:0 0 0 4px rgba(255,190,60,.25),0 0 22px rgba(255,180,50,.55)}}
 @keyframes ttj-sweep2{0%,55%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
 @media (max-width:420px){.ttj-card{padding:14px 12px 12px}.ttj-stats{grid-template-columns:repeat(2,1fr)}}`;
+
+  // ガチャ・着せ替えの見た目（勝利の文字とオーラは、一覧から CSS を作る）
+  const SHINE = 'linear-gradient(105deg,transparent 42%,rgba(255,255,255,.95) 50%,transparent 58%)';
+  const BN = {   // 上・中ほど・境目・下 の色、光の筋の色、文字にかける光
+    gold: ['#fff8d6', '#ffd75e', '#df9612', '#ffe48a', 'rgba(255,212,90,.17)'],
+    emerald: ['#f0fff6', '#63e3a0', '#0f7d4a', '#b5f7d2', 'rgba(99,227,160,.16)'],
+    sakura: ['#fff5f8', '#ffa3c2', '#d6467a', '#ffd6e3', 'rgba(255,163,194,.17)'],
+    ice: ['#ffffff', '#a3ecff', '#1f8fd6', '#dcf7ff', 'rgba(163,236,255,.16)'],
+    flame: ['#fff6c2', '#ffae2e', '#e2370b', '#ffd27a', 'rgba(255,120,40,.2)', 'drop-shadow(0 0 10px rgba(255,90,0,.8))'],
+    galaxy: ['#ffffff', '#c7a9ff', '#5634c4', '#8fd8ff', 'rgba(170,140,255,.18)', 'drop-shadow(0 0 12px rgba(140,110,255,.7))'],
+    neon: ['#ffffff', '#ff5ee6', '#2ee6ff', '#ffffff', 'rgba(255,94,230,.17)', 'drop-shadow(0 0 6px #ff5ee6) drop-shadow(0 0 14px #2ee6ff)'],
+  };
+  const FR = {
+    aura: 'drop-shadow(0 0 5px #ffd45a) drop-shadow(0 0 2px #fff3b0)',
+    frost: 'drop-shadow(0 0 5px #7fe3ff) drop-shadow(0 0 2px #ffffff)',
+    flame: 'drop-shadow(0 0 4px #ff7a1a) drop-shadow(0 -3px 6px #ff3d00)',
+    shadow: 'drop-shadow(0 0 6px #8a3dff) drop-shadow(0 0 3px #000000)',
+    prism: 'drop-shadow(0 0 6px #ff6584) drop-shadow(0 0 4px #78b4ff)',
+  };
+  const bnSel = (id, tail) => `.ttj-ov[data-bn="${id}"] ${tail},.ttj-bnp[data-bn="${id}"] ${tail}`;
+  const frSel = id => `html[data-tfr="${id}"] .ttj-bw:not([data-fr]),.ttj-bw[data-fr="${id}"]`;
+  const CSS2 = Object.entries(BN).map(([id, c]) => `${bnSel(id, '.ttj-banner b')}{background-image:${SHINE},linear-gradient(180deg,${c[0]} 0%,${c[1]} 44%,${c[2]} 56%,${c[3]} 100%)${c[5] ? `;filter:${c[5]}` : ''}}` +
+    `.ttj-ov[data-bn="${id}"] .ttj-rays{background:repeating-conic-gradient(${c[4]} 0 7deg,transparent 7deg 15deg)}`).join('\n') + `
+${bnSel('rainbow', '.ttj-banner b')}{background-image:${SHINE},linear-gradient(90deg,#ff4d6d,#ffb03a,#ffe14d,#4dd97a,#4db8ff,#9b6bff,#ff4d6d);background-size:250% 100%,200% 100%;filter:drop-shadow(0 0 10px rgba(255,255,255,.45))}
+.ttj-move ${bnSel('rainbow', '.ttj-banner b')}{animation:ttj-rbw 2.6s linear infinite}
+@keyframes ttj-rbw{0%{background-position:150% 0,0% 0}100%{background-position:-50% 0,200% 0}}
+.ttj-ov[data-bn="rainbow"] .ttj-rays{background:repeating-conic-gradient(rgba(255,90,130,.17) 0 7deg,transparent 7deg 15deg,rgba(90,200,255,.17) 15deg 22deg,transparent 22deg 30deg,rgba(255,220,80,.17) 30deg 37deg,transparent 37deg 45deg)}
+.ttj-bw{display:inline-grid;flex:none;position:relative;line-height:1}
+${Object.entries(FR).map(([id, f]) => `${frSel(id)}{filter:${f}}`).join('\n')}
+html.ttj-move[data-tfr="prism"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr="prism"]{animation:ttj-prism 3s linear infinite}
+@keyframes ttj-prism{from{filter:${FR.prism}}to{filter:${FR.prism} hue-rotate(360deg)}}
+html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr="flame"]{animation:ttj-flick 1.1s ease-in-out infinite alternate}
+@keyframes ttj-flick{to{filter:drop-shadow(0 0 7px #ffb02e) drop-shadow(0 -5px 8px #ff3d00)}}
+.ttj-coin-i{display:inline-block;width:1em;height:1em;flex:none;border-radius:50%;vertical-align:-.14em;background:radial-gradient(circle at 35% 30%,#fff7c2,#ffc53d 45%,#b37800);box-shadow:inset 0 0 0 .1em rgba(120,70,0,.35)}
+.ttj-cg{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:-4px;font-weight:800;font-size:15px;color:#ffe08a;font-variant-numeric:tabular-nums}
+.ttj-cg[hidden]{display:none}
+.ttj-cs{display:block;text-align:right;font-size:10.5px;font-weight:700;color:#ffe08a}
+.ttj-go{display:inline-flex;align-items:center;gap:5px;flex:none;padding:6px 11px;border-radius:999px;font-weight:800;font-size:12px;text-decoration:none;white-space:nowrap;color:#ffe08a;border:1px solid rgba(255,214,110,.45);background:rgba(255,214,110,.08)}
+.ttj-go.ttj-can{color:#2b1700;border-color:#ffcf5a;background:linear-gradient(135deg,#ffe07a,#ff9a3c);box-shadow:0 0 14px -4px #ffb02e}
+.ttj-move .ttj-go.ttj-can{animation:ttj-cta 1.6s ease-in-out infinite}
+.ttj-gtop{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 8px}
+.ttj-coins{display:inline-flex;align-items:center;gap:6px;font-size:22px;font-weight:800;color:#ffe08a;font-variant-numeric:tabular-nums}
+.ttj-gh{font-size:11px;color:rgba(255,255,255,.6)}
+.ttj-sheet h3 small{margin-left:6px;font-size:10.5px;letter-spacing:0;color:rgba(255,255,255,.55);font-weight:500}
+.ttj-mis{display:grid;gap:6px}
+.ttj-mi{display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:center;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.05);font-size:12.5px}
+.ttj-mi b{color:#ffe08a;font-variant-numeric:tabular-nums}
+.ttj-mi .ttj-bar{height:6px}
+.ttj-mi small{font-size:10.5px;color:rgba(255,255,255,.6);text-align:right;font-variant-numeric:tabular-nums}
+.ttj-mi.ttj-ok{opacity:.55}
+.ttj-mach{position:relative;display:grid;justify-items:center;gap:12px;margin-top:14px;padding:18px 10px 14px;border-radius:18px;overflow:hidden;
+  background:radial-gradient(circle at 50% 30%,rgba(255,212,90,.2),transparent 62%),rgba(255,255,255,.04);border:1px solid rgba(255,214,110,.25)}
+.ttj-orb{position:relative;width:92px;height:92px;border-radius:50%;background:conic-gradient(#ff6584,#ffc53d,#5fd6cf,#78b4ff,#b77cff,#ff6584);box-shadow:0 0 34px rgba(255,200,80,.55)}
+.ttj-orb::after{content:"";position:absolute;inset:9px;border-radius:50%;background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.95),rgba(255,255,255,.12) 42%,rgba(0,0,0,.35) 100%)}
+.ttj-move .ttj-orb{animation:ttj-spin 5s linear infinite}
+.ttj-pulls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.ttj-pull{display:grid;justify-items:center;gap:2px;min-width:128px;padding:9px 16px;border-radius:14px;border:0;cursor:pointer;font:800 16px/1.2 ${FONT};color:#2b1700;background:linear-gradient(180deg,#ffe07a,#ffb347);box-shadow:0 6px 18px -6px #ffb02e}
+.ttj-pull small{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:700;opacity:.85}
+.ttj-pull.ttj-ten{background:linear-gradient(180deg,#ecc4ff,#a86bff);color:#1d0733;box-shadow:0 6px 18px -6px #a86bff}
+.ttj-pull.ttj-alt{background:rgba(255,255,255,.12);color:#fff;box-shadow:none}
+.ttj-pull:disabled{filter:grayscale(1);opacity:.45;cursor:default}
+.ttj-rates{font-size:10.5px;line-height:1.6;color:rgba(255,255,255,.55);text-align:center}
+.ttj-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.ttj-tabs button{padding:5px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:transparent;color:rgba(255,255,255,.75);font:700 12px ${FONT};cursor:pointer}
+.ttj-tabs button[aria-pressed="true"]{background:rgba(255,224,138,.16);border-color:#ffe08a;color:#fff}
+.ttj-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.ttj-it{--rc:#9fb3c8;position:relative;display:grid;justify-items:center;align-content:center;gap:3px;min-height:100px;padding:8px 6px;border-radius:12px;border:1px solid color-mix(in srgb,var(--rc) 60%,transparent);background:rgba(255,255,255,.05);color:#fff;font:700 11px/1.3 ${FONT};cursor:pointer;text-align:center}
+.ttj-it.ttj-no{opacity:.4;cursor:default}
+.ttj-it.ttj-on{box-shadow:0 0 0 2px var(--rc),0 0 16px -4px var(--rc)}
+.ttj-chk{position:absolute;top:4px;right:6px;font-size:9px;color:var(--rc)}
+.ttj-it .ttj-r,.ttj-gc .ttj-r{font-size:9px;letter-spacing:.14em;color:var(--rc)}
+.ttj-pv{display:grid;place-items:center;min-height:42px}
+.ttj-q{font:800 26px ${SERIF};color:var(--rc)}
+.ttj-dots{display:flex;align-items:center;gap:3px}
+.ttj-dots i{display:block}
+.ttj-bnp .ttj-banner{filter:none}
+.ttj-bnp .ttj-banner b{font-size:24px;letter-spacing:.04em;-webkit-text-stroke:0;white-space:nowrap}
+.ttj-ttl{font:800 12px/1.35 ${SERIF};color:#ffe9b0;letter-spacing:.02em}
+.ttj-reveal{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:min(560px,100%);perspective:900px}
+.ttj-gc{--rc:#9fb3c8;position:relative;width:min(150px,42vw);aspect-ratio:3/4;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.3,1.3,.5,1)}
+.ttj-reveal.ttj-ten{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;width:min(560px,100%)}
+.ttj-ten .ttj-gc{width:auto}
+.ttj-gc>div{position:absolute;inset:0;overflow:hidden;border-radius:14px;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:grid;justify-items:center;align-content:center;gap:5px;padding:8px;text-align:center}
+.ttj-back{background:linear-gradient(145deg,#2c2544,#15121d);border:2px solid rgba(255,224,138,.45);box-shadow:0 10px 30px -10px #000;font:800 clamp(26px,8vw,44px) ${SERIF};color:#ffe08a}
+.ttj-gc.ttj-hint .ttj-back{border-color:var(--rc);box-shadow:0 0 22px 2px var(--rc),0 10px 30px -10px #000}
+.ttj-move .ttj-gc.ttj-g-l.ttj-hint .ttj-back{animation:ttj-lglow .7s linear infinite}
+@keyframes ttj-lglow{0%{box-shadow:0 0 26px 4px #ff6584}33%{box-shadow:0 0 26px 4px #ffd45a}66%{box-shadow:0 0 26px 4px #78b4ff}100%{box-shadow:0 0 26px 4px #ff6584}}
+.ttj-front{transform:rotateY(180deg);background:linear-gradient(160deg,color-mix(in srgb,var(--rc) 28%,#1b1812),#14120e);border:2px solid var(--rc);box-shadow:0 0 26px -4px var(--rc);color:#fff;font:700 12px/1.3 ${FONT}}
+.ttj-front .ttj-nm{font-size:13px;line-height:1.25}
+.ttj-front small{font-size:10px;color:rgba(255,255,255,.65)}
+.ttj-ten .ttj-front{gap:2px;padding:4px}
+.ttj-ten .ttj-front .ttj-nm{font-size:10px}
+.ttj-ten .ttj-ttl{font-size:10px}
+.ttj-ten .ttj-front small{display:none}
+.ttj-ten .ttj-pv{min-height:30px;transform:scale(.8)}
+.ttj-gc.ttj-open{transform:rotateY(180deg)}
+.ttj-new{position:absolute;top:6px;left:6px;padding:0 6px;border-radius:999px;font-size:9px;font-weight:800;letter-spacing:.08em;color:#2b1700;background:#ffe07a}
+.ttj-rvb{position:relative;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.ttj-rvb[hidden]{display:none}
+.ttj-ov.ttj-rv{background:radial-gradient(ellipse at 50% 40%,rgba(34,26,44,.92),rgba(0,0,0,.95))}
+.ttj-toast .ttj-ic .ttj-coin-i{font-size:20px}
+@media (max-width:480px){.ttj-ten .ttj-front .ttj-r{display:none}.ttj-ten .ttj-front .ttj-nm{font-size:9px}.ttj-ten .ttj-ttl{font-size:9px}.ttj-ten .ttj-pv{transform:scale(.6);min-height:26px}
+  .ttj-ten .ttj-new{top:3px;left:3px;padding:0 4px;font-size:7.5px}.ttj-ten .ttj-front{padding:3px;border-radius:10px}.ttj-ten .ttj-back{border-radius:10px}}
+.ttj-mini .ttj-coin-i{font-size:12px}`;
   function style() {
     if (document.getElementById('tt-juice-css')) return;
     const s = document.createElement('style');
     s.id = 'tt-juice-css';
     // トップとゲームの行き来は、ページどうしをなめらかに入れ替える（対応するブラウザだけ。動きオンのとき）
-    s.textContent = CSS + (motion() ? '@view-transition{navigation:auto}' +
+    s.textContent = CSS + CSS2 + (motion() ? '@view-transition{navigation:auto}' +
       '::view-transition-old(root){animation:.2s ease-in both ttj-vt-out}::view-transition-new(root){animation:.28s cubic-bezier(.2,.8,.2,1) both ttj-vt-in}' +
       '@keyframes ttj-vt-out{to{opacity:0;transform:scale(.985)}}@keyframes ttj-vt-in{from{opacity:0;transform:scale(1.015)}}' : '');
     document.head.appendChild(s);
@@ -273,6 +386,7 @@
   const sync = () => {
     const m = motion();
     document.documentElement.classList.toggle('ttj-move', m);
+    document.documentElement.dataset.tfr = eq('fr').slice(3);
     if (!m && cv) { parts.length = 0; if (cv.isConnected) cv.remove(); }   // 止めたら、舞っている紙吹雪も消す
   };
   if (window.TTMotion) { const set = TTMotion.set; TTMotion.set = v => { set(v); sync(); }; }
@@ -340,12 +454,15 @@
     if (at.width != null) return { x: at.left + at.width / 2, y: at.top + at.height / 2 };
     return at;
   };
-  const LIFE = { confetti: [2600, 3800], spark: [450, 900], coin: [2200, 3000], star: [800, 1300] };
+  const LIFE = { confetti: [2600, 3800], spark: [450, 900], coin: [2200, 3000], star: [800, 1300], petal: [3200, 4600], snow: [3400, 5000], neon: [2600, 3800], rainbow: [2600, 3800] };
+  // 落ち方: [重さ, 空気の抵抗, 落ちる速さの上限, ゆらゆら]
+  const PHY = { confetti: [0.24, 0.965, 3.2, 0.9], neon: [0.24, 0.965, 3.2, 0.9], rainbow: [0.24, 0.965, 3.2, 0.9], petal: [0.12, 0.955, 1.5, 1.4], snow: [0.06, 0.96, 1.1, 0.7],
+    coin: [0.3, 0.99, 99, 0], spark: [0.06, 0.93, 99, 0], star: [0.08, 0.93, 99, 0] };
   function add(kind, x, y, vx, vy, c, delay) {
     if (parts.length > 420) return;
     const L = LIFE[kind];
     parts.push({ kind, x, y, vx, vy, c, t: 0, delay: delay || 0, life: L[0] + Math.random() * (L[1] - L[0]),
-      w: kind === 'coin' ? 7 + Math.random() * 4 : kind === 'star' ? 4 + Math.random() * 5 : 5 + Math.random() * 6, h: 3 + Math.random() * 4,
+      w: kind === 'coin' ? 7 + Math.random() * 4 : kind === 'star' ? 4 + Math.random() * 5 : kind === 'snow' ? 2.5 + Math.random() * 3 : 5 + Math.random() * 6, h: 3 + Math.random() * 4,
       r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.35, ph: Math.random() * 6.28 });
     if (!raf) { last = 0; raf = requestAnimationFrame(tick); }
   }
@@ -368,9 +485,10 @@
     for (let i = 0; i < n; i++) add(kind, Math.random() * innerWidth, -20 - Math.random() * 60, (Math.random() - 0.5) * 2, 2 + Math.random() * 3, cols[i % cols.length], Math.random() * (o.ms || 1200));
   }
   // 下の両すみから打ち上げる（勝ったとき）
-  function cannon(n = 90) {
-    burst({ x: -10, y: innerHeight * 0.92 }, { n, dir: -Math.PI / 3, spread: 0.7, speed: Math.max(14, innerHeight / 38), delay: 260 });
-    burst({ x: innerWidth + 10, y: innerHeight * 0.92 }, { n, dir: -Math.PI * 2 / 3, spread: 0.7, speed: Math.max(14, innerHeight / 38), delay: 260 });
+  function cannon(n = 90, id) {
+    const st = CF[id || eq('cf')] || CF['cf:basic'];
+    burst({ x: -10, y: innerHeight * 0.92 }, { n, kind: st.kind, colors: st.colors, dir: -Math.PI / 3, spread: 0.7, speed: Math.max(14, innerHeight / 38), delay: 260 });
+    burst({ x: innerWidth + 10, y: innerHeight * 0.92 }, { n, kind: st.kind, colors: st.colors, dir: -Math.PI * 2 / 3, spread: 0.7, speed: Math.max(14, innerHeight / 38), delay: 260 });
   }
   function star(c, r) {
     c.beginPath();
@@ -391,21 +509,30 @@
       p.t += dt;
       if (p.t >= p.life || p.y > innerHeight + 40) continue;
       parts[keep++] = p;
-      const g = p.kind === 'confetti' ? 0.24 : p.kind === 'coin' ? 0.3 : p.kind === 'spark' ? 0.06 : 0.08;
-      const drag = p.kind === 'confetti' ? 0.965 : p.kind === 'coin' ? 0.99 : 0.93;
-      const dk = Math.pow(drag, k);
-      p.vx *= dk; p.vy = p.vy * dk + g * k;
-      if (p.kind === 'confetti') { p.ph += 0.12 * k; p.x += (p.vx + Math.sin(p.ph) * 0.9) * k; p.vy = Math.min(p.vy, 3.2); } else p.x += p.vx * k;
+      const ph = PHY[p.kind] || PHY.star;
+      const dk = Math.pow(ph[1], k);
+      p.vx *= dk; p.vy = p.vy * dk + ph[0] * k;
+      if (ph[3]) { p.ph += 0.12 * k; p.x += (p.vx + Math.sin(p.ph) * ph[3]) * k; p.vy = Math.min(p.vy, ph[2]); } else p.x += p.vx * k;
       p.y += p.vy * k;
       p.r += p.vr * k;
       const fade = Math.min(1, (p.life - p.t) / 400);
       c.globalAlpha = fade;
       c.setTransform(dpr, 0, 0, dpr, p.x * dpr, p.y * dpr);
-      if (p.kind === 'confetti') {
+      if (p.kind === 'confetti' || p.kind === 'neon' || p.kind === 'rainbow') {
+        if (p.kind === 'neon') c.globalCompositeOperation = 'lighter';
         c.rotate(p.r);
         c.scale(1, Math.cos(p.ph * 1.7));
-        c.fillStyle = p.c;
+        c.fillStyle = p.kind === 'rainbow' ? `hsl(${(p.t / 6 + p.ph * 57) % 360},95%,62%)` : p.c;
         c.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        c.globalCompositeOperation = 'source-over';
+      } else if (p.kind === 'petal') {
+        c.rotate(p.r);
+        c.scale(1, Math.cos(p.ph * 1.3));
+        c.fillStyle = p.c;
+        c.beginPath(); c.ellipse(0, 0, p.w * 0.62, p.w * 0.36, 0, 0, 6.283); c.fill();
+      } else if (p.kind === 'snow') {
+        c.fillStyle = p.c;
+        c.beginPath(); c.arc(0, 0, p.w, 0, 6.283); c.fill();
       } else if (p.kind === 'coin') {
         const sx = Math.cos(p.ph + p.t / 90);
         c.scale(Math.abs(sx) < 0.15 ? 0.15 : sx, 1);
@@ -581,10 +708,11 @@
 
   function small(r) {
     const head = r.round ? (r.lines[0].t) : r.multi ? `${r.place}位` : 'おつかれさま';
-    const t = toast(`${badge(levelOf(r.before).L, 'ttj-sm')}<span class="ttj-m"><span class="ttj-n">${esc(head)}${r.luck > 1 ? ' <span style="color:#ffd45a">おまけ ×' + r.luck + '</span>' : ''}</span><span class="ttj-bar"><i></i></span></span><span class="ttj-x">+${fmt(r.gain)} XP</span>`, { ms: 2800 });
+    const t = toast(`${badge(levelOf(r.before).L, 'ttj-sm')}<span class="ttj-m"><span class="ttj-n">${esc(head)}${r.luck > 1 ? ' <span style="color:#ffd45a">おまけ ×' + r.luck + '</span>' : ''}</span><span class="ttj-bar"><i></i></span></span><span class="ttj-x">+${fmt(r.gain)} XP<small class="ttj-cs">${COIN}+${r.coins}</small></span>`, { ms: 2800 });
     if (r.luck > 1) { SFX.coin(); burst(t, { kind: 'coin', n: 16, speed: 7, colors: PAL.gold }); }
     grow(t, r.before, r.after, null, 700);
     r.ach.forEach(achToast);
+    r.mis.forEach(misToast);
     setTimeout(() => mini(r), 50);
   }
 
@@ -593,6 +721,7 @@
     const moving = motion();
     const win = r.out === 'win';
     const ov = make('div', 'ttj-ov ' + (win ? 'ttj-win' : 'ttj-draw'));
+    if (win) ov.dataset.bn = eq('bn').slice(3);
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-label', 'ごほうび');
     const title = r.title || (r.multi ? `${r.place}位` : win ? '勝利' : '引き分け');
@@ -601,7 +730,7 @@
     ov.innerHTML = `<div class="ttj-rays"></div>
       <div class="ttj-banner"><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>
       <div class="ttj-card"><div class="ttj-lines"></div><div class="ttj-reel" hidden><div class="ttj-strip"></div><i></i></div>
-        <div class="ttj-gain">+<span>0</span><small>XP</small></div>${lvHTML()}</div>
+        <div class="ttj-gain">+<span>0</span><small>XP</small></div><div class="ttj-cg" hidden>${COIN}+${r.coins} コイン</div>${lvHTML()}</div>
       <div class="ttj-tap">タップで閉じる</div>`;
     document.body.appendChild(ov);
     const seq = { skip: false, done: false, wake: null };
@@ -679,11 +808,15 @@
       }
       await countTo(r.gain, 700);
       if (!seq.skip && moving) anim(ov.querySelector('.ttj-gain'), [{ scale: 1 }, { scale: 1.18 }, { scale: 1 }], { duration: 260, easing: 'ease-out' });
+      const cg = ov.querySelector('.ttj-cg');
+      cg.hidden = false;
+      if (!seq.skip && moving) { SFX.coin(); anim(cg, [{ opacity: 0, transform: 'translateY(6px) scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'ease-out' }); burst(cg, { kind: 'coin', n: 10, speed: 6, colors: PAL.gold }); }
       await grow(lv, r.before, r.after, seq, 900);
       r.ach.forEach(achToast);
+      r.mis.forEach(misToast);
       seq.done = true;
       ov.classList.add('ttj-done');
-      timer = setTimeout(() => close(), (r.ach.length ? 1200 : 0) + (moving ? 2600 : 4200));
+      timer = setTimeout(() => close(), (r.ach.length || r.mis.length ? 1200 : 0) + (moving ? 2600 : 4200));
     })();
   }
 
@@ -694,7 +827,8 @@
     let m = d.querySelector(':scope > .ttj-mini');
     if (!m) { m = make('div', 'ttj-mini'); d.insertBefore(m, d.firstChild); }
     const lv = levelOf(r.after);
-    m.innerHTML = `${badge(lv.L, 'ttj-sm')}<span class="ttj-m"><span><span class="ttj-g">+${fmt(r.gain)}</span> XP${r.luck > 1 ? `（×${r.luck}）` : ''}${r.streak >= 2 && r.out === 'win' ? `・${r.streak}連勝中` : ''}</span><span class="ttj-bar"><i></i></span><span class="ttj-s"><span class="ttj-rk"></span><span class="ttj-nx"></span></span></span>`;
+    m.innerHTML = `${badge(lv.L, 'ttj-sm')}<span class="ttj-m"><span><span class="ttj-g">+${fmt(r.gain)}</span> XP${r.luck > 1 ? `（×${r.luck}）` : ''}・${COIN}+${r.coins}${r.streak >= 2 && r.out === 'win' ? `・${r.streak}連勝中` : ''}</span><span class="ttj-bar"><i></i></span><span class="ttj-s"><span class="ttj-rk"></span><span class="ttj-nx"></span></span></span>` +
+      (HERE ? `<a class="ttj-go${P.co >= COST[1] ? ' ttj-can' : ''}" href="../#gacha">${COIN}${fmt(P.co)}<span>${P.co >= COST[1] ? 'ガチャを引く' : 'ガチャ'}</span></a>` : '');
     paint(m, lv.L, lv.cur / lv.need, lv.need - lv.cur);
   }
 
@@ -719,7 +853,7 @@
     }
     burst(p, { kind: 'spark', n: 10 + tier * 10 });
     if (tier >= 2) { burst(p, { kind: 'star', n: 16 * tier, speed: 7 }); SFX.coin(); } else SFX.pop();
-    if (tier >= 3) { flash('#fff3c0', 0.4); shake(8); burst(p, { kind: 'confetti', n: 80, speed: 12 }); SFX.jackpot(); }
+    if (tier >= 3) { const st = CF[eq('cf')] || CF['cf:basic']; flash('#fff3c0', 0.4); shake(8); burst(p, { kind: st.kind, colors: st.colors, n: 80, speed: 12 }); SFX.jackpot(); }
   }
 
   // ---------------------------------------------------------------- 毎日のボーナス（トップのギフト）
@@ -734,21 +868,24 @@
     const run = P.run, boost = +(1 + 0.1 * Math.min(run - 1, 5)).toFixed(1);
     let roll = Math.random() * PRIZES.reduce((a, p) => a + p[1], 0), prize = PRIZES[0][0];
     for (const [v, w] of PRIZES) { if ((roll -= w) < 0) { prize = v; break; } }
-    const gain = Math.round(prize * boost), before = P.xp;
+    const gain = Math.round(prize * boost), before = P.xp, coins = Math.round(gain / 5);
     P.xp += gain;
+    P.co += coins;
     P.bonus = d;
+    const mis = progress({ daily: true });
     const ach = check();
     save();
     emit();
     const moving = motion();
     const tier = v => (v >= 1000 ? 'ttj-t4' : v >= 300 ? 'ttj-t3' : v >= 150 ? 'ttj-t2' : '');
     const ov = make('div', 'ttj-ov ttj-win');
+    ov.dataset.bn = eq('bn').slice(3);
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-label', '毎日のボーナス');
     ov.innerHTML = `<div class="ttj-rays"></div>
       <div class="ttj-banner"><b style="font-size:clamp(40px,11vw,76px)">デイリー</b><small>連続 ${run} 日目${boost > 1 ? `・ボーナス ×${boost}` : ''}</small></div>
       <div class="ttj-card"><div class="ttj-reel ttj-big"><div class="ttj-strip"></div><i></i></div>
-        <div class="ttj-gain">+<span>0</span><small>XP</small></div>${lvHTML()}</div>
+        <div class="ttj-gain">+<span>0</span><small>XP</small></div><div class="ttj-cg">${COIN}+${coins} コイン</div>${lvHTML()}</div>
       <div class="ttj-tap">タップで閉じる</div>`;
     document.body.appendChild(ov);
     const seq = { skip: false, done: false };
@@ -778,6 +915,7 @@
       await tween(800, t => { gainEl.textContent = fmt(gain * t); }, seq);
       await grow(lv, before, before + gain + ach.reduce((a, x) => a + RAR[x.rar][2], 0), seq, 900);
       ach.forEach(achToast);
+      mis.forEach(misToast);
       seq.done = true;
       ov.classList.add('ttj-done');
       timer = setTimeout(close, moving ? 3000 : 4200);
@@ -822,6 +960,256 @@
     else { try { localStorage.setItem('tt-motion', v ? '1' : '0'); } catch (e) { /* このページだけ */ } }
     sync();
     emit();
+  }
+
+
+  // ---------------------------------------------------------------- 着せ替え（勝ってためたコインでガチャを引いて集める。見た目だけで、お金はかからない）
+  // cf 紙吹雪（勝ったときに打ち上がるもの）・bn 勝利の文字・fr 紋章のオーラ・tt 称号。base はさいしょから持っているもの
+  const KINDS = [['cf', '紙吹雪'], ['bn', '勝利の文字'], ['fr', 'オーラ'], ['tt', '称号']];
+  const ITEMS = [
+    ['cf:basic', '定番の紙吹雪', 'c', 1], ['cf:snow', '粉雪', 'c'], ['cf:momiji', '紅葉', 'r'], ['cf:sakura', '桜吹雪', 'r'],
+    ['cf:stars', '星屑', 'e'], ['cf:neon', 'ネオン', 'e'], ['cf:gold', '金貨の雨', 'l'], ['cf:rainbow', '七色の紙吹雪', 'l'],
+    ['bn:gold', '黄金', 'c', 1], ['bn:emerald', '翡翠', 'c'], ['bn:sakura', '桜色', 'r'], ['bn:ice', '氷結', 'r'],
+    ['bn:flame', '業火', 'e'], ['bn:galaxy', '銀河', 'e'], ['bn:neon', 'ネオン', 'l'], ['bn:rainbow', '七色', 'l'],
+    ['fr:none', 'オーラなし', 'c', 1], ['fr:aura', '金のオーラ', 'c'], ['fr:frost', '氷のオーラ', 'r'], ['fr:flame', '炎のオーラ', 'r'],
+    ['fr:shadow', '闇のオーラ', 'e'], ['fr:prism', '虹のオーラ', 'l'],
+    ['tt:minarai', '見習いの打ち手', 'c'], ['tt:joren', '卓の常連', 'c'], ['tt:kimagure', '気まぐれな打ち手', 'c'], ['tt:yofukashi', '夜ふかし勢', 'c'], ['tt:joseki', '定石マニア', 'c'],
+    ['tt:majutsu', '盤上の魔術師', 'r'], ['tt:yomi', '読みの鬼', 'r'], ['tt:gyakuten', '逆転の名手', 'r'], ['tt:shobushi', '勝負師', 'r'], ['tt:fuda', '札さばきの達人', 'r'],
+    ['tt:killer', 'AIキラー', 'e'], ['tt:fukutsu', '不屈の挑戦者', 'e'], ['tt:sente', '千手先を読む者', 'e'],
+    ['tt:singularity', 'シンギュラリティの申し子', 'l'], ['tt:toride', '人類最後の砦', 'l'],
+  ].map(([id, name, rar, base]) => ({ id, k: id.slice(0, 2), name, rar, base: !!base }));
+  const IT = {};
+  ITEMS.forEach(i => { IT[i.id] = i; });
+  const DEF = { cf: 'cf:basic', bn: 'bn:gold', fr: 'fr:none', tt: '' };
+  const owned = id => !!IT[id] && (IT[id].base || !!(P.inv || {})[id]);
+  const eq = k => { const id = (P.eq || {})[k]; return id && owned(id) ? id : DEF[k]; };
+  // 紙吹雪の種類ごとの形と色
+  const CF = {
+    'cf:basic': { kind: 'confetti', colors: ['#ffd23f', '#ff5d8f', '#3ec1ff', '#7bff8a', '#b47bff', '#ff9a3c', '#ffffff'] },
+    'cf:snow': { kind: 'snow', colors: ['#ffffff', '#eef7ff', '#d6ecff'] },
+    'cf:momiji': { kind: 'petal', colors: ['#e8471c', '#f07a1a', '#d42a1c', '#f5a524', '#b3261e'] },
+    'cf:sakura': { kind: 'petal', colors: ['#ffd1dc', '#ffb7c9', '#ff9fb8', '#fff0f4'] },
+    'cf:stars': { kind: 'star', colors: ['#fff6c8', '#ffe08a', '#ffffff', '#ffd45a'] },
+    'cf:neon': { kind: 'neon', colors: ['#00f0ff', '#ff2bd6', '#a6ff00', '#7a5cff'] },
+    'cf:gold': { kind: 'coin', colors: ['#ffe27a', '#ffc53d', '#fff2b8', '#f5a623'] },
+    'cf:rainbow': { kind: 'rainbow', colors: ['#fff'] },
+  };
+  // 小さな見本（ガチャの札・コレクションの一覧）
+  function sample(it, big) {
+    if (it.k === 'cf') {
+      const st = CF[it.id], cols = it.id === 'cf:rainbow' ? ['#ff4d6d', '#ffb03a', '#ffe14d', '#4dd97a', '#4db8ff', '#9b6bff'] : st.colors;
+      const shape = st.kind === 'snow' || st.kind === 'coin' ? 'border-radius:50%;width:8px;height:8px' : st.kind === 'petal' ? 'border-radius:60% 0;width:9px;height:7px' : st.kind === 'star' ? 'clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);width:11px;height:11px' : 'width:6px;height:10px;border-radius:2px';
+      return `<span class="ttj-dots">${[0, 1, 2, 3, 4, 5].map(i => `<i style="${shape};background:${cols[i % cols.length]};transform:rotate(${(i * 47) % 90 - 45}deg) translateY(${(i % 2) * 4}px)${st.kind === 'neon' ? `;box-shadow:0 0 6px ${cols[i % cols.length]}` : ''}"></i>`).join('')}</span>`;
+    }
+    if (it.k === 'bn') return `<span class="ttj-bnp" data-bn="${it.id.slice(3)}"><span class="ttj-banner"><b>勝利</b></span></span>`;
+    if (it.k === 'fr') return badge(levelOf(P.xp).L, big ? '' : 'ttj-sm', it.id.slice(3));
+    return `<span class="ttj-ttl">〈${esc(it.name)}〉</span>`;
+  }
+  // 引く: レジェンド 2%・エピック 10%・レア 30%・コモン 58%。40回レジェンドが出なければ次は必ずレジェンド（天井）。10回引きはエピック以上を1つ約束
+  const RATES = [['l', 0.02], ['e', 0.10], ['r', 0.30], ['c', 0.58]];
+  const REFUND = { c: 10, r: 30, e: 80, l: 250 };   // ダブったら戻るコイン
+  const COST = { 1: 100, 10: 900 };
+  const PITY = 40;
+  function rollRar() {
+    let rar = 'c';
+    if ((P.pity || 0) >= PITY - 1) rar = 'l';
+    else { let x = Math.random(); for (const [r, q] of RATES) { if ((x -= q) < 0) { rar = r; break; } } }
+    P.pity = rar === 'l' ? 0 : (P.pity || 0) + 1;
+    return rar;
+  }
+  function pull(n) {
+    if (!(P.co >= COST[n])) return null;
+    P.co -= COST[n];
+    const rars = [];
+    for (let i = 0; i < n; i++) rars.push(rollRar());
+    if (n === 10 && !rars.some(r => r === 'e' || r === 'l')) rars[9] = 'e';
+    const res = rars.map(rar => {
+      const pool = ITEMS.filter(i => !i.base && i.rar === rar), it = pool[(Math.random() * pool.length) | 0];
+      const dup = !!P.inv[it.id];
+      P.inv[it.id] = (P.inv[it.id] || 0) + 1;
+      if (dup) P.co += REFUND[rar];
+      return { it, dup, refund: dup ? REFUND[rar] : 0 };
+    });
+    P.pulls = (P.pulls || 0) + n;
+    const ach = check();
+    save();
+    emit();
+    return { res, ach };
+  }
+  function equip(id) {
+    const it = IT[id];
+    if (!it || !owned(id)) return;
+    P.eq = P.eq || {};
+    P.eq[it.k] = it.k === 'tt' && P.eq.tt === id ? '' : id;   // 称号はもう一度押すと外す
+    save();
+    sync();
+    emit();
+  }
+
+  // ---------------------------------------------------------------- 今週のお題（月曜に変わる。だれが見ても同じ3つ）。達成したらコインがすぐ入る
+  const weekKey = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayOf(d); };
+  const MPOOL = [
+    { t: 'play', n: 8, rw: 300, tx: () => '8局あそぶ' },
+    { t: 'win', n: 5, rw: 400, tx: () => '5回勝つ' },
+    { t: 'win', n: 12, rw: 800, tx: () => '12回勝つ' },
+    { t: 'kinds', n: 3, rw: 500, tx: () => '3種類のゲームで勝つ' },
+    { t: 'strong', n: 3, rw: 500, tx: () => '「つよい」以上の CPU に3回勝つ' },
+    { t: 'max', n: 1, rw: 600, tx: () => '「最強」以上の CPU に勝つ' },
+    { t: 'streak', n: 3, rw: 500, tx: () => '3連勝する' },
+    { t: 'game', n: 2, rw: 400, tx: g => `${BY[g].name}で2回勝つ` },
+    { t: 'pickup', n: 1, rw: 400, tx: () => 'その日のピックアップのゲームで勝つ' },
+    { t: 'daily', n: 4, rw: 300, tx: () => 'デイリーボーナスを4日受け取る' },
+  ];
+  function missions() {
+    const wk = weekKey(), list = [], seen = new Set();
+    const easy = MPOOL[hash('e' + wk) % 2];   // 1つめはかならず手の届くもの（8局あそぶ か 5回勝つ）
+    const order = [easy].concat(MPOOL.filter(m => m !== easy).map((m, i) => [hash(wk + ':' + i), m]).sort((a, b) => a[0] - b[0]).map(x => x[1]));
+    for (const m of order) {
+      if (seen.has(m.t) || (m.t === 'win' && seen.has('win'))) continue;
+      seen.add(m.t);
+      const g = m.t === 'game' ? GAMES[hash('g' + wk) % GAMES.length].slug : null;
+      list.push({ id: m.t + m.n + (g || ''), t: m.t, n: m.n, rw: m.rw, g, text: m.tx(g) });
+      if (list.length === 3) break;
+    }
+    return list;
+  }
+  function wkState() {
+    if (!P.wk || P.wk.id !== weekKey()) P.wk = { id: weekKey(), p: {}, done: {}, kinds: [] };
+    return P.wk;
+  }
+  // ev: { play, win, stars, online, slug, streak, daily } → 今回達成したお題
+  function progress(ev) {
+    const w = wkState(), got = [];
+    for (const m of missions()) {
+      if (w.done[m.id]) continue;
+      let v = w.p[m.id] || 0;
+      if (m.t === 'play' && ev.play) v++;
+      else if (m.t === 'win' && ev.win) v++;
+      else if (m.t === 'kinds' && ev.win) { if (!w.kinds.includes(ev.slug)) w.kinds.push(ev.slug); v = w.kinds.length; }
+      else if (m.t === 'strong' && ev.win && (ev.online || ev.stars >= 3)) v++;
+      else if (m.t === 'max' && ev.win && !ev.online && ev.stars >= 4) v++;
+      else if (m.t === 'streak' && ev.streak) v = Math.max(v, ev.streak);
+      else if (m.t === 'game' && ev.win && ev.slug === m.g) v++;
+      else if (m.t === 'pickup' && ev.win && ev.slug === pickup()) v++;
+      else if (m.t === 'daily' && ev.daily) v++;
+      w.p[m.id] = Math.min(v, m.n);
+      if (v >= m.n) { w.done[m.id] = Date.now(); P.co += m.rw; got.push(m); }
+    }
+    return got;
+  }
+  const COIN = '<i class="ttj-coin-i" aria-hidden="true"></i>';
+  function misToast(m, i) {
+    setTimeout(() => {
+      const t = toast(`<span class="ttj-ic">${COIN}</span><span><span class="ttj-k">今週のお題 達成</span><span class="ttj-n">${esc(m.text)}</span></span><span class="ttj-x">+${m.rw} コイン</span>`, { color: '#ffd45a', ms: 3600 });
+      SFX.coin();
+      burst(t, { kind: 'coin', n: 18, speed: 7, colors: PAL.gold });
+    }, 600 + i * 800);
+  }
+
+  // ---------------------------------------------------------------- ガチャとコレクションの画面（トップの「コイン」から。ゲームの結果からも行ける）
+  let gTab = 'cf';
+  function openGacha() {
+    style();
+    sync();
+    if (document.querySelector('.ttj-gacha')) return;
+    const ov = make('div', 'ttj-ov ttj-draw ttj-gacha');
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-label', 'ガチャとコレクション');
+    document.body.appendChild(ov);
+    const close = () => { window.removeEventListener('keydown', key, true); off(); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
+    const key = e => { if (e.key === 'Escape' && !document.querySelector('.ttj-rv')) { e.preventDefault(); close(); } };
+    window.addEventListener('keydown', key, true);
+    const render = () => {
+      const w = wkState(), ms = missions(), have = ITEMS.filter(i => !i.base && P.inv[i.id]).length, all = ITEMS.filter(i => !i.base).length;
+      const items = ITEMS.filter(i => i.k === gTab);
+      ov.innerHTML = `<div class="ttj-sheet">
+        <button class="ttj-close" type="button" aria-label="閉じる">×</button>
+        <h2>ガチャ</h2>
+        <div class="ttj-gtop"><span class="ttj-coins">${COIN}<b>${fmt(P.co)}</b></span><span class="ttj-gh">勝つとコイン（XP の 1/5）・お題と実績でも入ります</span></div>
+        <h3>今週のお題<small>（月曜に入れかわり）</small></h3>
+        <div class="ttj-mis">${ms.map(m => { const v = w.done[m.id] ? m.n : (w.p[m.id] || 0); return `<div class="ttj-mi${w.done[m.id] ? ' ttj-ok' : ''}"><span>${w.done[m.id] ? '✓ ' : ''}${esc(m.text)}</span><b>${w.done[m.id] ? '達成' : `+${m.rw}`}</b><span class="ttj-bar"><i style="width:${(v / m.n * 100).toFixed(0)}%"></i></span><small>${v}/${m.n}</small></div>`; }).join('')}</div>
+        <div class="ttj-mach"><div class="ttj-orb" aria-hidden="true"></div>
+          <div class="ttj-pulls"><button type="button" class="ttj-pull" data-n="1"${P.co >= COST[1] ? '' : ' disabled'}>1回<small>${COIN} ${COST[1]}</small></button>
+          <button type="button" class="ttj-pull ttj-ten" data-n="10"${P.co >= COST[10] ? '' : ' disabled'}>10回<small>${COIN} ${COST[10]}・エピック以上1つ確定</small></button></div>
+          <div class="ttj-rates">レジェンドまで あと ${PITY - (P.pity || 0)} 回で確定（天井）<br>出る確率: レジェンド 2%・エピック 10%・レア 30%・コモン 58%。ダブりはコインに戻ります</div></div>
+        <h3>コレクション<small>${have}/${all}</small></h3>
+        <div class="ttj-tabs">${KINDS.map(([k, n]) => `<button type="button" data-k="${k}" aria-pressed="${gTab === k}">${n}</button>`).join('')}</div>
+        <div class="ttj-items">${items.map(it => { const ok = owned(it.id), on = eq(it.k) === it.id, r = RAR[it.rar]; return `<button type="button" class="ttj-it${ok ? '' : ' ttj-no'}${on ? ' ttj-on' : ''}" data-id="${it.id}" style="--rc:${r[1]}"${ok ? '' : ' disabled'}>${on ? '<span class="ttj-chk">使用中</span>' : ''}<span class="ttj-pv">${ok ? sample(it) : '<span class="ttj-q">？</span>'}</span>${ok && it.k === 'tt' ? '' : `<span>${ok ? esc(it.name) : '？？？'}</span>`}<span class="ttj-r">${r[0]}${ok && P.inv[it.id] > 1 ? ` ×${P.inv[it.id]}` : ''}</span></button>`; }).join('')}</div>
+        <div class="ttj-row" style="border:0;margin-top:8px;padding-top:0"><span>着せ替えは見た目だけです。お金はかかりません。記録はこの端末のブラウザだけに残ります。</span></div>
+      </div>`;
+      ov.querySelector('.ttj-close').addEventListener('click', close);
+      ov.querySelectorAll('.ttj-tabs button').forEach(b => b.addEventListener('click', () => { gTab = b.dataset.k; render(); }));
+      ov.querySelectorAll('.ttj-it:not(.ttj-no)').forEach(b => b.addEventListener('click', () => {
+        equip(b.dataset.id);
+        const it = IT[b.dataset.id];
+        if (it.k === 'cf') { const st = CF[it.id]; burst(b, { kind: st.kind, colors: st.colors, n: 30, speed: 8 }); }
+        SFX.sel(2);
+        render();
+      }));
+      ov.querySelectorAll('.ttj-pull').forEach(b => b.addEventListener('click', () => { const r = pull(+b.dataset.n); if (r) reveal(r, render); }));
+    };
+    const off = (() => { const f = () => { if (ov.isConnected && !document.querySelector('.ttj-rv')) render(); }; subs.add(f); return () => subs.delete(f); })();
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    render();
+    anim(ov.querySelector('.ttj-sheet'), [{ opacity: 0, scale: 0.94, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
+  }
+
+  // 引いたものを1枚ずつめくる。札の裏の光で、めくる前からレア度が分かる（レジェンドは虹色に光って揺れる）
+  function reveal(r, done) {
+    const list = r.res, ten = list.length > 1;
+    const top = Math.max(...list.map(x => ['c', 'r', 'e', 'l'].indexOf(x.it.rar)));
+    const ov = make('div', 'ttj-ov ttj-rv' + (top === 3 ? ' ttj-win' : ' ttj-draw'));
+    ov.dataset.bn = top === 3 ? 'rainbow' : 'gold';
+    ov.innerHTML = `<div class="ttj-rays"></div><div class="ttj-reveal${ten ? ' ttj-ten' : ''}">${list.map(x => { const rr = RAR[x.it.rar];
+      return `<div class="ttj-gc ttj-g-${x.it.rar}" style="--rc:${rr[1]}"><div class="ttj-back">？</div><div class="ttj-front">${x.dup ? '' : '<span class="ttj-new">NEW</span>'}<span class="ttj-r">${rr[0]}</span><span class="ttj-pv">${sample(x.it, !ten)}</span>${x.it.k === 'tt' ? '' : `<b class="ttj-nm">${esc(x.it.name)}</b>`}<small>${KINDS.find(k => k[0] === x.it.k)[1]}${x.dup ? `・ダブり +${x.refund}` : ''}</small></div></div>`; }).join('')}</div>
+      <div class="ttj-rvb" hidden><button type="button" class="ttj-pull" data-n="${list.length}"${P.co >= COST[list.length] ? '' : ' disabled'}>もう${list.length}回<small>${COIN} ${COST[list.length]}</small></button><button type="button" class="ttj-pull ttj-alt" data-x="1">閉じる<small>${COIN} ${fmt(P.co)}</small></button></div>`;
+    document.body.appendChild(ov);
+    const cards = [...ov.querySelectorAll('.ttj-gc')];
+    const seq = { skip: false };
+    const wait = ms => (seq.skip || !motion() ? Promise.resolve() : new Promise(res => setTimeout(res, ms)));
+    const flip = (c, x, quick) => {
+      if (c.classList.contains('ttj-open')) return;
+      c.classList.add('ttj-open');
+      if (quick) return;
+      const rar = x.it.rar;
+      if (rar === 'l') { SFX.jackpot(); flash('#fff', 0.5); shake(9); cannon(70, x.it.k === 'cf' ? x.it.id : null); rain({ kind: 'star', n: 60, colors: ['#ffd45a', '#fff', '#ff6584', '#78b4ff'], ms: 1200 }); }
+      else if (rar === 'e') { SFX.unlock(); shake(4); burst(c, { kind: 'star', n: 26, colors: [RAR.e[1], '#fff'], speed: 8 }); }
+      else if (rar === 'r') { SFX.coin(); burst(c, { kind: 'spark', n: 16, speed: 8 }); }
+      else SFX.pop();
+      if (x.it.k === 'cf' && rar !== 'l') { const st = CF[x.it.id]; burst(c, { kind: st.kind, colors: st.colors, n: 24, speed: 7 }); }
+    };
+    const finish = () => {
+      cards.forEach((c, i) => flip(c, list[i], true));
+      const b = ov.querySelector('.ttj-rvb');
+      b.hidden = false;
+      anim(b, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 240 });
+      r.ach.forEach(achToast);
+    };
+    const close = () => { anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); if (done) done(); };
+    ov.addEventListener('click', e => {
+      const b = e.target.closest && e.target.closest('.ttj-pull');
+      if (b) { e.stopPropagation(); if (b.dataset.x) { close(); return; } const nr = pull(+b.dataset.n); if (nr) { ov.remove(); reveal(nr, done); } return; }
+      if (!ov.querySelector('.ttj-rvb').hidden) return;
+      seq.skip = true;
+    });
+    (async () => {
+      if (motion()) {
+        anim(ov, [{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
+        cards.forEach((c, i) => anim(c, [{ opacity: 0, transform: 'translateY(-40px) scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: i * 40, easing: 'cubic-bezier(.3,1.4,.5,1)', fill: 'backwards' }));
+      }
+      SFX.draw();
+      await wait(ten ? 700 : 600);
+      // 札の裏が、レア度の色で光りはじめる（レジェンドは虹）
+      cards.forEach((c, i) => { const rar = list[i].it.rar; if (rar !== 'c') c.classList.add('ttj-hint'); });
+      if (top >= 2) { await wait(450); if (!seq.skip) { SFX.vs(); shake(top === 3 ? 7 : 3); } }
+      await wait(ten ? 350 : 500);
+      for (let i = 0; i < cards.length; i++) {
+        if (seq.skip) break;
+        flip(cards[i], list[i]);
+        await wait(list[i].it.rar === 'l' ? 900 : list[i].it.rar === 'e' ? 420 : ten ? 170 : 300);
+      }
+      finish();
+    })();
   }
 
   // ---------------------------------------------------------------- どのページでも効く手ごたえ
@@ -909,11 +1297,14 @@
       xp: P.xp, level: lv.L, cur: lv.cur, need: lv.need, rank: rankOf(lv.L), streak: P.streak, best: P.best, n: P.n, w: P.w,
       run: P.day === today() || P.day === yesterday() ? P.run : 0, daily: dailyReady(), pickup: pickup(), games: P.g,
       achDone: ACH.filter(a => P.ach[a.id]).length, achTotal: ACH.length,
+      coins: Math.floor(P.co), canPull: P.co >= COST[1], title: eq('tt') ? IT[eq('tt')].name : '', gift: P.gift,
+      have: ITEMS.filter(i => !i.base && (P.inv || {})[i.id]).length, items: ITEMS.filter(i => !i.base).length,
     };
   }
 
   window.TTJuice = {
-    GAMES, here: HERE, result, hype, burst, rain, cannon, shake, flash, toast, daily, openAchievements, setMotion, badge, paint, state, offer, RAR,
+    GAMES, here: HERE, result, hype, burst, rain, cannon, shake, flash, toast, daily, openAchievements, openGacha, equip, setMotion, badge, paint, state, offer, RAR, COIN,
+    giftSeen() { P.gift = 1; save(); },
     sfx: SFX, get motion() { return motion(); },
     on(f) { subs.add(f); return () => subs.delete(f); },
   };
