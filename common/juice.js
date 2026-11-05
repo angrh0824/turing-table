@@ -381,6 +381,18 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
 .ttj-skip,.ttj-prev{background:transparent;color:rgba(255,255,255,.62)}
 .ttj-next{background:linear-gradient(180deg,#ffe07a,#ffb347);color:#2b1700}
 .ttj-sheet .ttj-q2{right:52px;font-weight:800;font-size:16px}
+.ttj-note{margin:4px 0 8px;font-size:11.5px;line-height:1.6;color:rgba(255,255,255,.62)}
+.ttj-now{margin:0 0 6px;font-size:12.5px;color:#ffe9b0}
+.ttj-code{display:block;box-sizing:border-box;width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.35);color:#ffe9b0;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;resize:vertical;user-select:text;-webkit-user-select:text}
+.ttj-btns{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
+.ttj-bt{padding:8px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font:700 12.5px ${FONT};cursor:pointer}
+.ttj-bt.ttj-pri{border:0;color:#2b1700;background:linear-gradient(180deg,#ffe07a,#ffb347)}
+.ttj-bt:disabled{opacity:.45;cursor:default}
+.ttj-pick{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin-top:8px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.05);font-size:12px}
+.ttj-pick b{color:#ffe08a;white-space:nowrap}
+.ttj-pick .ttj-note,.ttj-pick .ttj-btns{grid-column:1/-1}
+.ttj-err{margin:8px 0 0;padding:8px 12px;border-radius:10px;background:rgba(255,90,90,.12);border:1px solid rgba(255,120,120,.4);color:#ffc9c9;font-size:12px}
+.ttj-row .ttj-xf{flex:none}
 .ttj-ov.ttj-rv{background:radial-gradient(ellipse at 50% 40%,rgba(34,26,44,.92),rgba(0,0,0,.95))}
 .ttj-toast .ttj-ic .ttj-coin-i{font-size:20px}
 @media (max-width:480px){.ttj-ten .ttj-front .ttj-r{display:none}.ttj-ten .ttj-front .ttj-nm{font-size:9px}.ttj-ten .ttj-ttl{font-size:9px}.ttj-ten .ttj-pv{transform:scale(.6);min-height:26px}
@@ -955,7 +967,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       <h3>全体</h3><div class="ttj-achs">${general.map(item).join('')}</div>
       <h3>ゲームごと</h3><div class="ttj-achs">${per.map(item).join('')}</div>
       <div class="ttj-row"><span>演出・アニメーション（全ゲーム共通）</span><button type="button" class="ttj-mo">${motion() ? 'オン' : 'オフ'}</button></div>
-      <div class="ttj-row" style="border:0;margin-top:6px;padding-top:0"><span>記録はこの端末のブラウザだけに残ります。</span></div>
+      <div class="ttj-row"><span>記録はこの端末のブラウザに残ります（ログインなし）。別の端末へ移す・消えたときに戻すには</span><button type="button" class="ttj-xf">引き継ぎコード</button></div>
     </div>`;
     document.body.appendChild(ov);
     const lv = ov.querySelector('.ttj-lv');
@@ -965,6 +977,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     ov.querySelector('.ttj-close').addEventListener('click', close);
     ov.querySelector('.ttj-mo').addEventListener('click', e => { setMotion(!motion()); e.target.textContent = motion() ? 'オン' : 'オフ'; });
+    ov.querySelector('.ttj-xf').addEventListener('click', openTransfer);
     window.addEventListener('keydown', key, true);
     anim(ov.querySelector('.ttj-sheet'), [{ opacity: 0, scale: 0.94, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
     ov.querySelector('.ttj-close').focus();
@@ -1183,6 +1196,103 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     { el: '.ttj-gacha .ttj-tabs', t: '出たものを使う', d: '出た着せ替えは下に並びます。押すと「使用中」になり、次に勝ったときの紙吹雪・勝利の文字などが変わります。見た目だけで、お金はかかりません。' },
   ];
 
+
+  // ---------------------------------------------------------------- 引き継ぎコード（ログインなしで、記録を別の端末へ移す・消えたときに戻す）
+  // 記録（tt-prog）を縮めて文字にする: TTZ1.<deflate-raw の base64url>.<確かめの4文字>（縮められないブラウザでは TTJ1 で縮めずに）
+  const b64u = bytes => { let t = ''; for (let i = 0; i < bytes.length; i += 0x8000) t += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(t).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const unb64u = str => { const t = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)); const b = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) b[i] = t.charCodeAt(i); return b; };
+  const pipe = (bytes, T) => new Response(new Blob([bytes]).stream().pipeThrough(new T('deflate-raw'))).arrayBuffer().then(b => new Uint8Array(b));
+  const sum4 = str => ('0000' + hash('tt' + str).toString(36)).slice(-4);
+  async function makeCode() {
+    const d = JSON.parse(JSON.stringify(P));
+    delete d.ids;   // 2度数えないための印はいらない（短くするため）
+    const one = o => { const r = {}; Object.keys(o || {}).forEach(k => { r[k] = 1; }); return r; };   // 時刻は使っていないので 1 に
+    d.ach = one(d.ach);
+    if (d.wk) d.wk.done = one(d.wk.done);
+    let bytes = new TextEncoder().encode(JSON.stringify(d)), z = false;
+    if (window.CompressionStream) { try { bytes = await pipe(bytes, CompressionStream); z = true; } catch (e) { /* 縮めずに */ } }
+    const body = b64u(bytes);
+    return `TT${z ? 'Z' : 'J'}1.${body}.${sum4(body)}`;
+  }
+  async function readCode(code) {
+    const m = String(code || '').replace(/\s+/g, '').match(/^TT([ZJ])1\.([A-Za-z0-9_-]+)\.([0-9a-z]{4})$/);
+    if (!m) throw new Error('引き継ぎコードの形ではありません。「TTZ1.」で始まる文字を、最後まで全部貼り付けてください。');
+    if (sum4(m[2]) !== m[3]) throw new Error('コードの一部が欠けているか、まちがっています。もう一度、最後まで全部貼り付けてください。');
+    let bytes = unb64u(m[2]);
+    if (m[1] === 'Z') {
+      if (!window.DecompressionStream) throw new Error('このブラウザでは読めないコードです。新しめのブラウザ（Chrome・Safari・Firefox など）で開いてください。');
+      bytes = await pipe(bytes, DecompressionStream);
+    }
+    const d = JSON.parse(new TextDecoder().decode(bytes));
+    if (!d || d.v !== 1 || typeof d.xp !== 'number') throw new Error('チューリング・テーブルの記録ではないようです。');
+    return d;
+  }
+  const brief = d => { const lv = levelOf(d.xp || 0).L; return `Lv ${lv}（${rankOf(lv).name}）・コイン ${fmt(d.co || 0)}・着せ替え ${ITEMS.filter(i => !i.base && (d.inv || {})[i.id]).length}/${ITEMS.filter(i => !i.base).length}・実績 ${ACH.filter(a => (d.ach || {})[a.id]).length}/${ACH.length}・${fmt(d.n || 0)}局`; };
+  function openTransfer() {
+    style();
+    sync();
+    if (document.querySelector('.ttj-xfer')) return;
+    const ov = make('div', 'ttj-ov ttj-draw ttj-xfer');
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-label', '引き継ぎコード');
+    ov.innerHTML = `<div class="ttj-sheet">
+      <button class="ttj-close" type="button" aria-label="閉じる">×</button>
+      <h2>引き継ぎコード</h2>
+      <p class="ttj-note">ログインはありません。記録はこの端末のこのブラウザに残ります。別の端末へ移すときや、ブラウザのデータが消えたときは、このコードで戻せます。</p>
+      <h3>この端末の記録を持ち出す</h3>
+      <p class="ttj-now">${esc(brief(P))}</p>
+      <textarea class="ttj-code ttj-out" readonly rows="4" aria-label="この端末の引き継ぎコード">作っています…</textarea>
+      <div class="ttj-btns"><button type="button" class="ttj-bt ttj-pri ttj-copy" disabled>コピー</button>${navigator.share ? '<button type="button" class="ttj-bt ttj-share" disabled>共有（メモ・LINE など）</button>' : ''}</div>
+      <p class="ttj-note">メモ・メール・LINE などに貼って取っておいてください。コードは遊ぶたびに変わるので、ときどき作り直すと安心です。コードを知っている人は、だれでもこの記録を自分の端末に入れられます。</p>
+      <h3>コードから記録を戻す</h3>
+      <textarea class="ttj-code ttj-in" rows="4" placeholder="TTZ1. で始まる引き継ぎコードを貼り付け" aria-label="引き継ぎコードを貼り付け"></textarea>
+      <div class="ttj-btns"><button type="button" class="ttj-bt ttj-pri ttj-read">読み込む</button></div>
+      <div class="ttj-res" aria-live="polite"></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const $q = sel => ov.querySelector(sel);
+    const close = () => { window.removeEventListener('keydown', key, true); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
+    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); } };
+    window.addEventListener('keydown', key, true);
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    $q('.ttj-close').addEventListener('click', close);
+    let code = '';
+    makeCode().then(c => { code = c; $q('.ttj-out').value = c; ov.querySelectorAll('.ttj-copy, .ttj-share').forEach(b => { b.disabled = false; }); })
+      .catch(() => { $q('.ttj-out').value = 'コードを作れませんでした。'; });
+    $q('.ttj-out').addEventListener('focus', e => e.target.select());
+    $q('.ttj-copy').addEventListener('click', async e => {
+      const b = e.currentTarget;
+      try { await navigator.clipboard.writeText(code); } catch (x) { $q('.ttj-out').select(); try { document.execCommand('copy'); } catch (y) { /* 自分で選んでコピーしてもらう */ } }
+      b.textContent = 'コピーしました';
+      SFX.pop();
+      setTimeout(() => { b.textContent = 'コピー'; }, 1800);
+    });
+    const sh = $q('.ttj-share');
+    if (sh) sh.addEventListener('click', () => { navigator.share({ title: 'チューリング・テーブルの引き継ぎコード', text: code }).catch(() => {}); });
+    $q('.ttj-read').addEventListener('click', async () => {
+      const res = $q('.ttj-res');
+      try {
+        const d = await readCode($q('.ttj-in').value);
+        res.innerHTML = `<div class="ttj-pick"><b>コードの記録</b><span>${esc(brief(d))}</span><b>この端末の記録</b><span>${esc(brief(P))}</span>
+          <p class="ttj-note">「この記録にする」を押すと、この端末の今の記録は、コードの記録に置きかわります。</p>
+          <div class="ttj-btns"><button type="button" class="ttj-bt ttj-pri ttj-apply">この記録にする</button><button type="button" class="ttj-bt ttj-cancel">やめる</button></div></div>`;
+        res.querySelector('.ttj-cancel').addEventListener('click', () => { res.innerHTML = ''; });
+        res.querySelector('.ttj-apply').addEventListener('click', () => {
+          P = Object.assign(blank(), d, { ids: P.ids || [] });
+          save();
+          sync();
+          emit();
+          close();
+          toast(`<span class="ttj-ic">${ICON.trophy}</span><span><span class="ttj-k">引き継ぎ</span><span class="ttj-n">記録を引き継ぎました</span></span><span class="ttj-x">Lv ${levelOf(P.xp).L}</span>`, { ms: 3600 });
+          cannon(60);
+          SFX.level();
+        });
+      } catch (err) {
+        res.innerHTML = `<p class="ttj-err">${esc(err && err.message ? err.message : 'コードを読めませんでした。')}</p>`;
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- ガチャとコレクションの画面（トップの「コイン」から。ゲームの結果からも行ける）
   let gTab = 'cf';
   function openGacha() {
@@ -1212,10 +1322,11 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
         <h3>コレクション<small>${have}/${all}</small></h3>
         <div class="ttj-tabs">${KINDS.map(([k, n]) => `<button type="button" data-k="${k}" aria-pressed="${gTab === k}">${n}</button>`).join('')}</div>
         <div class="ttj-items">${items.map(it => { const ok = owned(it.id), on = eq(it.k) === it.id, r = RAR[it.rar]; return `<button type="button" class="ttj-it${ok ? '' : ' ttj-no'}${on ? ' ttj-on' : ''}" data-id="${it.id}" style="--rc:${r[1]}"${ok ? '' : ' disabled'}>${on ? '<span class="ttj-chk">使用中</span>' : ''}<span class="ttj-pv">${ok ? sample(it) : '<span class="ttj-q">？</span>'}</span>${ok && it.k === 'tt' ? '' : `<span>${ok ? esc(it.name) : '？？？'}</span>`}<span class="ttj-r">${r[0]}${ok && P.inv[it.id] > 1 ? ` ×${P.inv[it.id]}` : ''}</span></button>`; }).join('')}</div>
-        <div class="ttj-row" style="border:0;margin-top:8px;padding-top:0"><span>着せ替えは見た目だけです。お金はかかりません。記録はこの端末のブラウザだけに残ります。</span></div>
+        <div class="ttj-row"><span>着せ替えは見た目だけで、お金はかかりません。集めたものはこの端末のブラウザに残ります。ほかの端末へ移すには</span><button type="button" class="ttj-xf">引き継ぎコード</button></div>
       </div>`;
       ov.querySelector('.ttj-close').addEventListener('click', close);
       ov.querySelector('.ttj-q2').addEventListener('click', () => tour(GACHA_TOUR));
+      ov.querySelector('.ttj-xf').addEventListener('click', openTransfer);
       ov.querySelectorAll('.ttj-tabs button').forEach(b => b.addEventListener('click', () => { gTab = b.dataset.k; render(); }));
       ov.querySelectorAll('.ttj-it:not(.ttj-no)').forEach(b => b.addEventListener('click', () => {
         equip(b.dataset.id);
@@ -1386,7 +1497,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
   window.TTJuice = {
     GAMES, here: HERE, result, hype, burst, rain, cannon, shake, flash, toast, daily, openAchievements, openGacha, equip, setMotion, badge, paint, state, offer, RAR, COIN,
     giftSeen() { P.gift = 1; save(); },
-    tour, seen: wasSeen, markSeen,
+    tour, seen: wasSeen, markSeen, openTransfer,
     sfx: SFX, get motion() { return motion(); },
     on(f) { subs.add(f); return () => subs.delete(f); },
   };

@@ -144,6 +144,7 @@ footer a { color: inherit; }
   .tile .em { font-size: 64px; bottom: -12px; }
   .lead { font-size: 15px; }
   .hbtn { top: -8px; }
+  .kicker { display: block; padding-right: 80px; letter-spacing: .16em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* 右上の「遊び方」「音」のボタンにかからないように */
   .snd { padding: 4px 7px; }   /* 見出し（チューリング・テーブル）の右端にかからないよう、上の小さな行の高さに */
   .snd .t { display: none; }
 }
@@ -267,7 +268,7 @@ footer a { color: inherit; }
     { el: '#prof', t: 'レベルと XP', d: 'CPU やオンラインの相手に勝つと XP がたまってレベルが上がります。強い CPU ほど・連勝するほど、たくさんもらえます。押すと実績と記録が見られます。' },
     { el: '#coin', t: 'コインとガチャ', d: 'XP と一緒にコインもたまります（はじめに 300 枚）。100 枚でガチャを1回。勝ったときの紙吹雪や「勝利」の文字の色などの着せ替えが出ます。見た目だけで、お金はかかりません。' },
     { el: '#gift', t: '毎日のボーナス', d: '1日1回、ルーレットで XP とコインがもらえます。続けて来るほど増えます。' },
-    { el: '#help', t: '記録について', d: 'レベル・コイン・着せ替えは、この端末のこのブラウザに残ります（ログインなし）。閉じて開き直しても続きからです。' },
+    { el: '#help', t: '記録について', d: 'レベル・コイン・着せ替えは、この端末のこのブラウザに残ります（ログインなし）。閉じて開き直しても続きからです。別の端末へ移すときは、レベルを押した「実績と記録」の下の「引き継ぎコード」で。' },
   ];
   $('help').addEventListener('click', () => J.tour(HUB_TOUR));
   const fromGacha = location.hash === '#gacha';   // ゲームの結果の「ガチャを引く」から来たとき
