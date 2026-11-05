@@ -8,6 +8,27 @@
 // 項目の .lab と .seg・選んでいるボタンの aria-pressed="true"）をそのまま読むだけなので、ゲームの側は何もしなくてよい
 (function () {
   'use strict';
+  // AI補助（評価・おすすめの手などの表示）は、さいしょは出さない。「AI補助」ボタンを押したら出る（押して付けたものは覚える）
+  // ユーザーから「AI補助はデフォルトはなしで、ボタン押したら出てくるように」。ゲームが設定 '<slug>-settings' を読む前（このファイルは app.js より先）に、
+  // 各ゲームの AI補助の項目（app.js の aiOn() が見ているもの）を一度だけオフにする
+  const AIK = {
+    gungi: ['showEval', 'arrow'], reversi: ['showEval', 'best', 'nums'], renju: ['showEval', 'best', 'threat'], koikoi: ['wp', 'best'], holdem: ['eq', 'rec'],
+    shogi: ['showEval', 'arrow'], chess: ['showEval', 'arrow'], mahjong: ['showEval', 'showWaits'], go: ['showEval', 'cands', 'own'], backgammon: ['showEval', 'arrow'],
+    daifugo: ['showProb', 'showBest'], xiangqi: ['showEval', 'arrow'], yacht: ['ai'], amazons: ['showEval', 'terr', 'best'], gunjin: ['showEval', 'arrow'],
+  };
+  const PFX = slug => (slug === 'backgammon' ? 'bg-' : slug + '-');   // ゲームが localStorage に使う頭の文字（バックギャモンだけ bg-）
+  (() => {
+    const slug = (window.TTJuice || {}).here, keys = AIK[slug];
+    if (!keys) return;
+    try {
+      const flag = 'tt-aioff1:' + slug, k = PFX(slug) + 'settings';
+      if (localStorage.getItem(flag)) return;
+      const v = JSON.parse(localStorage.getItem(k) || '{}') || {};
+      keys.forEach(x => { v[x] = false; });
+      localStorage.setItem(k, JSON.stringify(v));
+      localStorage.setItem(flag, '1');
+    } catch (e) { /* 覚えられないときは、ゲームのいつもの設定のまま */ }
+  })();
   const dlg = document.getElementById('dlg-new');
   const box = dlg && dlg.querySelector('.dialog');
   const start = document.getElementById('ng-start');
@@ -309,7 +330,7 @@
   // ゲームが残している途中の対局を読む（'<slug>-game'。ホールデムは卓 'holdem-table'）→ { done, at, who } か null
   function lastGame() {
     let g = null;
-    try { g = JSON.parse(localStorage.getItem(`${SLUG}-${SLUG === 'holdem' ? 'table' : 'game'}`)); } catch (e) { return null; }
+    try { g = JSON.parse(localStorage.getItem(PFX(SLUG) + (SLUG === 'holdem' ? 'table' : 'game'))); } catch (e) { return null; }
     if (!g || typeof g !== 'object' || g.online || g.mode === 'online') return null;   // オンラインは各ゲームが相手との状態で戻す
     const keys = [].concat(g.seats || [], (g.cfg || {}).cpu || []).map(x => (x && typeof x === 'object' ? x.level || x.kind : x));
     const cpu = keys.find(k => LVN[k]), humans = (g.seats || []).filter(x => x === 'human' || (x && x.kind === 'human')).length;

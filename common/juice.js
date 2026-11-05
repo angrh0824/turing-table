@@ -51,7 +51,7 @@
   // co コイン（はじめは 300）・inv 着せ替えの持ち物（id → 枚数）・eq 使っている着せ替え（種類 → id）・pity レジェンドが出ていない回数（天井）・pulls ガチャの回数
   // wk 今週のお題 { id 週の月曜, p 進み, done 済み, kinds 勝ったゲーム }・gift はじめのコインを知らせたか
   const blank = () => ({ v: 1, xp: 0, g: {}, streak: 0, best: 0, day: '', run: 0, bonus: '', first: '', ach: {}, n: 0, w: 0, nw: 0, jack: 0, ids: [],
-    co: 300, inv: {}, eq: {}, pity: 0, pulls: 0, wk: null, gift: 0 });
+    co: 300, inv: {}, eq: {}, pity: 0, pulls: 0, wk: null, gift: 0, seen: {} });
   const load = () => { try { const o = JSON.parse(localStorage.getItem(KEY)); if (o && o.v === 1) return Object.assign(blank(), o); } catch (e) { /* 壊れていたら最初から */ } return blank(); };
   let P = load();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e) { /* 覚えられないときはこのページだけ */ } };
@@ -367,6 +367,20 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
 .ttj-new{position:absolute;top:6px;left:6px;padding:0 6px;border-radius:999px;font-size:9px;font-weight:800;letter-spacing:.08em;color:#2b1700;background:#ffe07a}
 .ttj-rvb{position:relative;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
 .ttj-rvb[hidden]{display:none}
+.ttj-tour{position:fixed;inset:0;z-index:2147483680;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ttj-spot{position:fixed;border-radius:14px;pointer-events:none;box-shadow:0 0 0 9999px rgba(8,6,3,.74),0 0 0 2px #ffd45a,0 0 22px 4px rgba(255,212,90,.5);transition:left .3s cubic-bezier(.2,.8,.2,1),top .3s cubic-bezier(.2,.8,.2,1),width .3s cubic-bezier(.2,.8,.2,1),height .3s cubic-bezier(.2,.8,.2,1)}
+.ttj-tip{position:fixed;width:min(330px,calc(100vw - 24px));padding:13px 16px 12px;border-radius:16px;cursor:auto;color:#fff;font:13px/1.65 ${FONT};
+  background:linear-gradient(180deg,#2d2517,#17140e);border:1px solid rgba(255,214,110,.5);box-shadow:0 18px 44px -12px #000}
+.ttj-step{font-size:10px;letter-spacing:.2em;color:#ffd45a;font-weight:700}
+.ttj-tt{display:block;font:800 17px/1.3 ${SERIF};margin:2px 0 4px}
+.ttj-td{margin:0 0 10px;color:rgba(255,255,255,.86)}
+.ttj-tb{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ttj-tb span{display:flex;gap:6px}
+.ttj-tb button{padding:7px 14px;border-radius:999px;border:0;font:800 12.5px ${FONT};cursor:pointer}
+.ttj-tb button[hidden]{display:none}
+.ttj-skip,.ttj-prev{background:transparent;color:rgba(255,255,255,.62)}
+.ttj-next{background:linear-gradient(180deg,#ffe07a,#ffb347);color:#2b1700}
+.ttj-sheet .ttj-q2{right:52px;font-weight:800;font-size:16px}
 .ttj-ov.ttj-rv{background:radial-gradient(ellipse at 50% 40%,rgba(34,26,44,.92),rgba(0,0,0,.95))}
 .ttj-toast .ttj-ic .ttj-coin-i{font-size:20px}
 @media (max-width:480px){.ttj-ten .ttj-front .ttj-r{display:none}.ttj-ten .ttj-front .ttj-nm{font-size:9px}.ttj-ten .ttj-ttl{font-size:9px}.ttj-ten .ttj-pv{transform:scale(.6);min-height:26px}
@@ -397,7 +411,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
   // ---------------------------------------------------------------- 音（Web Audio でその場で作る。全体の音の元栓 mute.js と、ゲームの「音」オフに従う）
   let ac = null, quiet = false;
   // ゲームの設定の「音」（localStorage '<slug>-settings' の sound）がオフなら鳴らさない
-  const gameMuted = () => { try { const v = JSON.parse(localStorage.getItem(HERE + '-settings')); return !!v && v.sound === false; } catch (e) { return false; } };
+  const gameMuted = () => { try { const v = JSON.parse(localStorage.getItem((HERE === 'backgammon' ? 'bg-' : HERE + '-') + 'settings')); return !!v && v.sound === false; } catch (e) { return false; } };
   function audio() {
     if (quiet || (window.TTSound && TTSound.muted) || gameMuted()) return null;
     if (!ac) { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; try { ac = new C(); } catch (e) { return null; } }
@@ -1106,6 +1120,69 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     }, 600 + i * 800);
   }
 
+
+  // ---------------------------------------------------------------- 遊び方の案内（その場所を光らせて、順に説明する）。ユーザーから「ガチャとか増えてよく分からなくなったので、チュートリアルを」
+  // steps: [{ el: セレクタか要素（なければ真ん中に説明だけ）, t: 見出し, d: 説明 }]。done は最後まで見たとき・とばしたとき
+  function tour(steps, done) {
+    style();
+    sync();
+    if (document.querySelector('.ttj-tour')) return;
+    const ov = make('div', 'ttj-tour');
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-label', '遊び方の案内');
+    ov.innerHTML = '<div class="ttj-spot"></div><div class="ttj-tip"><span class="ttj-step"></span><b class="ttj-tt"></b><p class="ttj-td"></p><div class="ttj-tb"><button type="button" class="ttj-skip">とばす</button><span><button type="button" class="ttj-prev">もどる</button><button type="button" class="ttj-next">次へ</button></span></div></div>';
+    document.body.appendChild(ov);
+    const spot = ov.querySelector('.ttj-spot'), tip = ov.querySelector('.ttj-tip');
+    let i = 0;
+    const place = () => {
+      const st = steps[i], el = typeof st.el === 'string' ? document.querySelector(st.el) : st.el;
+      if (el && el.getClientRects().length) {
+        const r0 = el.getBoundingClientRect();
+        if (r0.top < 0 || r0.bottom > innerHeight) el.scrollIntoView({ block: 'center' });   // ガチャの画面の中など、見えていなければ見える所へ
+      }
+      const r = el && el.getClientRects().length ? el.getBoundingClientRect() : null;
+      ov.querySelector('.ttj-step').textContent = `${i + 1} / ${steps.length}`;
+      ov.querySelector('.ttj-tt').textContent = st.t;
+      ov.querySelector('.ttj-td').textContent = st.d;
+      ov.querySelector('.ttj-next').textContent = i === steps.length - 1 ? 'はじめる' : '次へ';
+      ov.querySelector('.ttj-prev').hidden = i === 0;
+      if (r) Object.assign(spot.style, { left: r.left - 6 + 'px', top: r.top - 6 + 'px', width: r.width + 12 + 'px', height: r.height + 12 + 'px', opacity: '1' });
+      else Object.assign(spot.style, { left: innerWidth / 2 + 'px', top: innerHeight * 0.4 + 'px', width: '0px', height: '0px', opacity: '1' });
+      const tw = tip.offsetWidth, th = tip.offsetHeight, m = 12;
+      let x = innerWidth / 2 - tw / 2, y = innerHeight * 0.4 - th / 2;
+      if (r) {
+        x = Math.max(m, Math.min(innerWidth - tw - m, r.left + r.width / 2 - tw / 2));
+        y = r.bottom + 14 + th <= innerHeight - m ? r.bottom + 14 : Math.max(m, r.top - 14 - th);
+      }
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+      anim(tip, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
+      ov.querySelector('.ttj-next').focus({ preventScroll: true });
+    };
+    const end = () => { if (!ov.isConnected) return; window.removeEventListener('keydown', key, true); window.removeEventListener('resize', place); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 160 }).then(() => ov.remove()); if (!motion()) ov.remove(); if (done) done(); };
+    const go = d => { i += d; if (i < 0) i = 0; if (i >= steps.length) end(); else { SFX.sel(i); place(); } };
+    const key = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); end(); }
+      else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); go(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopImmediatePropagation(); go(-1); }
+    };
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('resize', place);
+    ov.addEventListener('click', e => {
+      e.stopPropagation();
+      if (e.target.closest('.ttj-skip')) end();
+      else if (e.target.closest('.ttj-prev')) go(-1);
+      else if (e.target.closest('.ttj-next') || !e.target.closest('.ttj-tip')) go(1);   // 暗いところを押しても次へ
+    });
+    place();
+  }
+  const GACHA_TOUR = [
+    { el: '.ttj-gacha .ttj-gtop', t: 'コイン', d: '勝つたびにたまります（もらった XP の 1/5）。今週のお題・実績・毎日のボーナスでも入ります。' },
+    { el: '.ttj-gacha .ttj-mis', t: '今週のお題', d: '3つのお題を達成すると、その場でコインがもらえます。毎週月曜に入れかわります。' },
+    { el: '.ttj-gacha .ttj-pulls', t: 'ガチャを引く', d: '1回 100 枚。10回まとめて引くと、エピック以上が1つ必ず入ります。40回レジェンドが出なければ、次は必ずレジェンド。ダブったらコインに戻ります。' },
+    { el: '.ttj-gacha .ttj-tabs', t: '出たものを使う', d: '出た着せ替えは下に並びます。押すと「使用中」になり、次に勝ったときの紙吹雪・勝利の文字などが変わります。見た目だけで、お金はかかりません。' },
+  ];
+
   // ---------------------------------------------------------------- ガチャとコレクションの画面（トップの「コイン」から。ゲームの結果からも行ける）
   let gTab = 'cf';
   function openGacha() {
@@ -1123,7 +1200,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
       const w = wkState(), ms = missions(), have = ITEMS.filter(i => !i.base && P.inv[i.id]).length, all = ITEMS.filter(i => !i.base).length;
       const items = ITEMS.filter(i => i.k === gTab);
       ov.innerHTML = `<div class="ttj-sheet">
-        <button class="ttj-close" type="button" aria-label="閉じる">×</button>
+        <button class="ttj-close" type="button" aria-label="閉じる">×</button><button class="ttj-close ttj-q2" type="button" aria-label="ガチャの遊び方">？</button>
         <h2>ガチャ</h2>
         <div class="ttj-gtop"><span class="ttj-coins">${COIN}<b>${fmt(P.co)}</b></span><span class="ttj-gh">勝つとコイン（XP の 1/5）・お題と実績でも入ります</span></div>
         <h3>今週のお題<small>（月曜に入れかわり）</small></h3>
@@ -1138,6 +1215,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
         <div class="ttj-row" style="border:0;margin-top:8px;padding-top:0"><span>着せ替えは見た目だけです。お金はかかりません。記録はこの端末のブラウザだけに残ります。</span></div>
       </div>`;
       ov.querySelector('.ttj-close').addEventListener('click', close);
+      ov.querySelector('.ttj-q2').addEventListener('click', () => tour(GACHA_TOUR));
       ov.querySelectorAll('.ttj-tabs button').forEach(b => b.addEventListener('click', () => { gTab = b.dataset.k; render(); }));
       ov.querySelectorAll('.ttj-it:not(.ttj-no)').forEach(b => b.addEventListener('click', () => {
         equip(b.dataset.id);
@@ -1152,7 +1230,10 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     render();
     anim(ov.querySelector('.ttj-sheet'), [{ opacity: 0, scale: 0.94, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
+    if (!wasSeen('gacha')) setTimeout(() => tour(GACHA_TOUR, () => markSeen('gacha')), 450);
   }
+  const wasSeen = k => !!(P.seen || {})[k];
+  function markSeen(k) { P.seen = P.seen || {}; P.seen[k] = 1; save(); }
 
   // 引いたものを1枚ずつめくる。札の裏の光で、めくる前からレア度が分かる（レジェンドは虹色に光って揺れる）
   function reveal(r, done) {
@@ -1305,6 +1386,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
   window.TTJuice = {
     GAMES, here: HERE, result, hype, burst, rain, cannon, shake, flash, toast, daily, openAchievements, openGacha, equip, setMotion, badge, paint, state, offer, RAR, COIN,
     giftSeen() { P.gift = 1; save(); },
+    tour, seen: wasSeen, markSeen,
     sfx: SFX, get motion() { return motion(); },
     on(f) { subs.add(f); return () => subs.delete(f); },
   };

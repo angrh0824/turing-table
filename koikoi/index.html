@@ -81,6 +81,9 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2
 .brand h1 small { font-size: .62em; letter-spacing: .08em; color: var(--accent); margin-right: .3em; }
 .brand a { color: var(--muted); font-size: 11px; letter-spacing: .14em; white-space: nowrap; text-decoration: none; }
 .brand a:hover { color: var(--accent); }
+/* トップへ戻る「‹」（ほかのゲームと同じ。スマホでも出す） */
+.brand .home { align-self: center; color: var(--muted); font-size: 26px; letter-spacing: 0; line-height: 1; padding: 0 2px 3px; border-radius: 6px; }
+.brand .home:hover, .brand .home:focus-visible { color: var(--ink); }
 .tabs { display: flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 999px; }
 .tabs button { border: 0; background: transparent; padding: 5px 13px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 500; white-space: nowrap; }
 .tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.14); }
@@ -477,7 +480,8 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 5px 8p
   .top { gap: 6px; padding-block: 7px 6px; }
   .brand h1 { font-size: 19px; letter-spacing: .04em; }
   .brand h1 small { display: block; font-size: 10px; letter-spacing: .3em; margin: 0 0 1px; }
-  .brand a { display: none; }
+  .brand a:not(.home) { display: none; }
+  .brand .home { font-size: 24px; }
   .tabs button { padding: 4px 9px; font-size: 13px; }
   .iconbtn { width: 34px; height: 34px; }
   .onbtn { height: 34px; padding: 0 9px; gap: 5px; font-size: 12px; }
@@ -512,7 +516,7 @@ body.land.short .play { grid-template-columns: minmax(0, 1fr) 132px; gap: 6px; }
 </head>
 <body>
 <header class="top">
-  <div class="brand"><h1><small>花札</small>こいこい</h1><a href="../" title="チューリング・テーブル（ゲームの一覧）">チューリング・テーブル</a></div>
+  <div class="brand"><a class="home" href="../" title="チューリング・テーブル（ゲームの一覧）" aria-label="チューリング・テーブル（ゲームの一覧）へ">‹</a><h1><small>花札</small>こいこい</h1><a href="../" title="チューリング・テーブル（ゲームの一覧）">チューリング・テーブル</a></div>
   <nav class="tabs" role="tablist" aria-label="ページ">
     <button role="tab" aria-selected="true" data-tab="play">対局</button>
     <button role="tab" aria-selected="false" data-tab="rules">ルール</button>

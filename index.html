@@ -118,7 +118,9 @@ body::before { content: ""; position: fixed; inset: -20%; pointer-events: none; 
 .tile.soon .nm::after { content: "近日公開"; display: inline-block; margin-left: 8px; vertical-align: 3px; font: 700 10px var(--font-body); letter-spacing: .1em; color: var(--muted); border: 1px dashed var(--line); border-radius: 999px; padding: 0 7px; }
 header { position: relative; }
 /* 全ゲームの音の元栓（common/mute.js） */
-.snd { position: absolute; top: -4px; right: 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 12px var(--font-body); cursor: pointer; }
+/* 右上のボタン（遊び方の案内・音の元栓） */
+.hbtn { position: absolute; top: -4px; right: 0; display: flex; gap: 6px; }
+.snd { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 12px var(--font-body); cursor: pointer; }
 .snd:hover, .snd:focus-visible { border-color: var(--gold); outline: none; }
 .snd svg { width: 16px; height: 16px; flex: none; }
 .snd .off, .snd[aria-pressed="true"] .on { display: none; }
@@ -141,7 +143,8 @@ footer a { color: inherit; }
   .tile .ft .pl { display: none; }
   .tile .em { font-size: 64px; bottom: -12px; }
   .lead { font-size: 15px; }
-  .snd { padding: 4px 7px; top: -8px; }   /* 見出し（チューリング・テーブル）の右端にかからないよう、上の小さな行の高さに */
+  .hbtn { top: -8px; }
+  .snd { padding: 4px 7px; }   /* 見出し（チューリング・テーブル）の右端にかからないよう、上の小さな行の高さに */
   .snd .t { display: none; }
 }
 @media (max-width: 360px) {
@@ -177,7 +180,10 @@ footer a { color: inherit; }
 <div class="wrap">
   <header>
     <span class="kicker">Software singularity is here</span>
-    <button class="snd" id="snd" type="button" aria-pressed="false" aria-label="すべてのゲームの音を消す" title="すべてのゲームの音を消す／戻す"><svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg><svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m16 9 6 6M22 9l-6 6"/></svg><span class="t">音 オン</span></button>
+    <div class="hbtn">
+      <button class="snd" id="help" type="button" aria-label="遊び方の案内" title="遊び方の案内（ガチャ・レベル・毎日のボーナス）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .8c0 1.8-2.5 2.2-2.5 3.8"/><path d="M12 17.2h.01"/></svg><span class="t">遊び方</span></button>
+  <button class="snd" id="snd" type="button" aria-pressed="false" aria-label="すべてのゲームの音を消す" title="すべてのゲームの音を消す／戻す"><svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg><svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m16 9 6 6M22 9l-6 6"/></svg><span class="t">音 オン</span></button>
+    </div>
     <h1>チューリング・テーブル<small>TURING TABLE</small></h1>
     <p class="lead">AI が作った AI に、<em>人類は勝てるか。</em></p>
   </header>
@@ -254,10 +260,18 @@ footer a { color: inherit; }
   $('prof').addEventListener('click', () => J.openAchievements());
   $('ach').addEventListener('click', () => J.openAchievements());
   $('coin').addEventListener('click', () => J.openGacha());
-  // ゲームの結果の「ガチャを引く」から来たとき
-  if (location.hash === '#gacha') { history.replaceState(null, '', location.pathname); setTimeout(() => J.openGacha(), 350); }
-  // はじめて来た人に、はじめのコインを知らせる
-  if (!J.state().gift) { J.giftSeen(); setTimeout(() => J.toast(`<span class="ttj-ic">${J.COIN}</span><span><span class="ttj-k">ようこそ</span><span class="ttj-n">はじめのコイン 300 でガチャを引けます</span></span><span class="ttj-x">300</span>`, { ms: 4600, color: '#c9a0ff' }), 2400); }
+  // 遊び方の案内（はじめて来たときに1回。右上の「遊び方」でいつでも）。ユーザーから「ガチャとか増えてよく分からなくなったので、チュートリアルを」
+  const HUB_TOUR = [
+    { t: 'ようこそ', d: 'AI が自己対局だけで強くなったゲーム集です。この画面の見かたを30秒で案内します（右上の「遊び方」でいつでも見られます）。' },
+    { el: '#grid', t: 'ゲームを選ぶ', d: '遊びたいゲームを押すと始まります。金色に光るのは「本日のピックアップ」で、勝つと XP が1.5倍。王冠は「最強」に勝ったゲームです。' },
+    { el: '#prof', t: 'レベルと XP', d: 'CPU やオンラインの相手に勝つと XP がたまってレベルが上がります。強い CPU ほど・連勝するほど、たくさんもらえます。押すと実績と記録が見られます。' },
+    { el: '#coin', t: 'コインとガチャ', d: 'XP と一緒にコインもたまります（はじめに 300 枚）。100 枚でガチャを1回。勝ったときの紙吹雪や「勝利」の文字の色などの着せ替えが出ます。見た目だけで、お金はかかりません。' },
+    { el: '#gift', t: '毎日のボーナス', d: '1日1回、ルーレットで XP とコインがもらえます。続けて来るほど増えます。' },
+    { el: '#help', t: '記録について', d: 'レベル・コイン・着せ替えは、この端末のこのブラウザに残ります（ログインなし）。閉じて開き直しても続きからです。' },
+  ];
+  $('help').addEventListener('click', () => J.tour(HUB_TOUR));
+  const fromGacha = location.hash === '#gacha';   // ゲームの結果の「ガチャを引く」から来たとき
+  if (fromGacha) { history.replaceState(null, '', location.pathname); setTimeout(() => J.openGacha(), 350); }
   $('gift').addEventListener('click', () => {
     if (J.state().daily) J.daily();
     else J.toast(`<span class="ttj-ic">${ICON_CLOCK}</span><span><span class="ttj-k">デイリーボーナス</span><span class="ttj-n">今日はもう受け取りました。また明日！</span></span><span></span>`);
@@ -265,7 +279,13 @@ footer a { color: inherit; }
   J.on(() => { renderMe(); render(); });
   renderMe();
   setInterval(renderMe, 60000);
-  if (J.state().daily) setTimeout(() => J.toast(`<span class="ttj-ic">${ICON_GIFT}</span><span><span class="ttj-k">デイリーボーナス</span><span class="ttj-n">今日のボーナスを受け取れます</span></span><span class="ttj-x">最大1,000 XP</span>`, { ms: 4200 }), 900);
+  // はじめのコイン・今日のボーナスの知らせ（案内を見ている間は出さず、見終わってから）
+  function greet() {
+    if (!J.state().gift) { J.giftSeen(); setTimeout(() => J.toast(`<span class="ttj-ic">${J.COIN}</span><span><span class="ttj-k">ようこそ</span><span class="ttj-n">はじめのコイン 300 でガチャを引けます</span></span><span class="ttj-x">300</span>`, { ms: 4600, color: '#c9a0ff' }), 1600); }
+    if (J.state().daily) setTimeout(() => J.toast(`<span class="ttj-ic">${ICON_GIFT}</span><span><span class="ttj-k">デイリーボーナス</span><span class="ttj-n">今日のボーナスを受け取れます</span></span><span class="ttj-x">最大1,000 XP</span>`, { ms: 4200 }), 500);
+  }
+  if (!J.seen('hub') && !fromGacha) setTimeout(() => J.tour(HUB_TOUR, () => { J.markSeen('hub'); greet(); }), 900);
+  else greet();
 
   // 傾くタイル（マウスのとき。指した所に光）
   $('grid').addEventListener('pointermove', e => {
