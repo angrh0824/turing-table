@@ -24,7 +24,7 @@
     { slug: 'yacht', em: '骰', accent: '#c0622a', name: 'ヨット', en: 'Yacht' },
     { slug: 'amazons', em: '矢', accent: '#3d7a46', name: 'アマゾンズ', en: 'Amazons', ultra: 1 },
     { slug: 'gunjin', em: '兵', accent: '#5e6640', name: '軍人将棋', en: 'Gunjin Shogi' },
-    { slug: 'kansoku', em: '観', accent: '#1b7f8c', name: '観測将棋', en: 'Kansoku Shogi', soon: 1, tagline: '動かすまで正体が決まらない駒で指す、自作の将棋' },
+    { slug: 'kansoku', em: '量', accent: '#1b7f8c', name: '量子観測将棋', short: '量子観測', en: 'Quantum Kansoku Shogi', soon: 1, tagline: '動かすほど駒の正体が絞られ、確定した王を詰ませる自作の将棋' },
     { slug: 'goita', em: '能', accent: '#2b4a6f', name: 'ごいた', en: 'Goita', soon: 1, tagline: '能登に伝わる、将棋の駒で遊ぶ2対2の札あそび' },
     { slug: 'dudo', em: '嘘', accent: '#8c2f4b', name: 'うそつきダイス', short: 'うそダイス', en: 'Dudo', soon: 1, tagline: '伏せたサイコロの数を言い合い、はったりを見抜く' },
   ];
