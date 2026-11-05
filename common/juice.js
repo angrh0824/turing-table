@@ -64,7 +64,7 @@
     [40, 'ダイヤモンド', '#78b4ff'], [50, 'マスター', '#b77cff'], [70, 'レジェンド', '#ff6584'], [100, 'シンギュラリティ', '#ffffff']];
   const rankOf = L => { let r = RANKS[0]; for (const x of RANKS) if (L >= x[0]) r = x; return { name: r[1], color: r[2], min: r[0], top: r === RANKS[RANKS.length - 1] }; };
   // レベルの紋章（六角形。色はランク）。トップでも使う
-  const badge = (L, cls = '') => { const r = rankOf(L); return `<span class="ttj-badge${r.top ? ' rb' : ''}${cls ? ' ' + cls : ''}" style="--rk:${r.color}" aria-label="レベル${L}"><small>Lv</small>${L}</span>`; };
+  const badge = (L, cls = '') => { const r = rankOf(L); return `<span class="ttj-badge${r.top ? ' ttj-rb' : ''}${cls ? ' ' + cls : ''}" style="--rk:${r.color}" aria-label="レベル${L}"><small>Lv</small>${L}</span>`; };
 
   // ---------------------------------------------------------------- 実績（一覧から作る。ゲームが増えても書き足さなくてよい）
   const RAR = { c: ['コモン', '#9fb3c8', 50], r: ['レア', '#4ea8ff', 150], e: ['エピック', '#b977ff', 400], l: ['レジェンド', '#ffc53d', 1000] };
@@ -146,6 +146,23 @@
     return { out, lines, base, x, luck, gain, before, after: P.xp, ach, slug, round: !!o.round, multi, place: o.place, streak: P.streak, stars: o.stars || 0, online: !!o.online, title: o.title, into: o.into };
   }
 
+  // 勝ったらもらえる XP の見込み（運は入れない）と、上乗せ・取れる実績。「新しい対局」の画面で見せる
+  function offer(stars, online, slug = HERE) {
+    const g = P.g[slug] || {}, tags = [];
+    let x = online ? 2 : stars >= 2 ? STAR_X[stars] : 1;
+    const streak = P.streak + 1;
+    if (streak >= 2) { const m = +(1 + 0.1 * Math.min(streak - 1, 10)).toFixed(1); x *= m; tags.push(`${streak}連勝 ×${m}`); }
+    if (P.first !== today()) { x *= 2; tags.push('本日初勝利 ×2'); }
+    if (slug === pickup()) { x *= 1.5; tags.push('ピックアップ ×1.5'); }
+    const unlock = [];
+    const want = id => { const a = ACH.find(q => q.id === id); if (a && !P.ach[a.id]) unlock.push({ name: a.name, xp: RAR[a.rar][2], rar: a.rar }); };
+    if (!P.w) want('first');
+    want('w:' + slug);
+    if (online) want('net');
+    else { if (stars >= 4) want('m:' + slug); if (stars >= 5) want('u:' + slug); }
+    return { xp: Math.round(100 * x), tags, unlock, top: g.top || 0, n: g.n || 0, w: g.w || 0 };
+  }
+
   // ---------------------------------------------------------------- 見た目（このファイルが1回だけ入れる）
   const FONT = '"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif';
   const SERIF = '"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif';
@@ -153,10 +170,10 @@
 .ttj-fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2147483600}
 .ttj-ov{position:fixed;inset:0;z-index:2147483500;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:16px;overflow:hidden;
   background:radial-gradient(ellipse at 50% 38%,rgba(34,26,10,.6),rgba(0,0,0,.82));color:#fff;font:14px/1.5 ${FONT};cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
-.ttj-ov.draw{background:radial-gradient(ellipse at 50% 38%,rgba(20,26,36,.6),rgba(0,0,0,.82))}
+.ttj-ov.ttj-draw{background:radial-gradient(ellipse at 50% 38%,rgba(20,26,36,.6),rgba(0,0,0,.82))}
 .ttj-rays{position:absolute;left:50%;top:34%;width:240vmax;height:240vmax;margin:-120vmax 0 0 -120vmax;pointer-events:none;
   background:repeating-conic-gradient(rgba(255,212,90,.17) 0 7deg,transparent 7deg 15deg);-webkit-mask:radial-gradient(circle,#000,transparent 34%);mask:radial-gradient(circle,#000,transparent 34%)}
-.ttj-ov.draw .ttj-rays{background:repeating-conic-gradient(rgba(200,216,240,.12) 0 7deg,transparent 7deg 15deg)}
+.ttj-ov.ttj-draw .ttj-rays{background:repeating-conic-gradient(rgba(200,216,240,.12) 0 7deg,transparent 7deg 15deg)}
 .ttj-move .ttj-rays{animation:ttj-spin 24s linear infinite}
 @keyframes ttj-spin{to{rotate:360deg}}
 .ttj-banner{position:relative;text-align:center;line-height:1;filter:drop-shadow(0 8px 20px rgba(0,0,0,.55))}
@@ -164,76 +181,76 @@
   background-image:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.95) 50%,transparent 58%),linear-gradient(180deg,#fff8d6 0%,#ffd75e 44%,#df9612 56%,#ffe48a 100%);background-size:250% 100%,100% 100%;background-position:150% 0,0 0;background-repeat:no-repeat}
 .ttj-move .ttj-banner b{animation:ttj-shine 2.4s .5s ease-in-out infinite}
 @keyframes ttj-shine{0%{background-position:150% 0,0 0}60%,100%{background-position:-50% 0,0 0}}
-.ttj-ov.draw .ttj-banner b{background-image:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.95) 50%,transparent 58%),linear-gradient(180deg,#fff 0%,#d3dcea 48%,#8e9cb2 56%,#eef2f8 100%)}
+.ttj-ov.ttj-draw .ttj-banner b{background-image:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.95) 50%,transparent 58%),linear-gradient(180deg,#fff 0%,#d3dcea 48%,#8e9cb2 56%,#eef2f8 100%)}
 .ttj-banner small{display:block;margin-top:10px;font-size:clamp(13px,3.6vw,17px);font-weight:700;letter-spacing:.22em;color:#ffe7a0}
-.ttj-ov.draw .ttj-banner small{color:#dfe7f3}
+.ttj-ov.ttj-draw .ttj-banner small{color:#dfe7f3}
 .ttj-card{position:relative;width:min(400px,100%);padding:16px 18px 14px;border-radius:20px;display:grid;gap:12px;
   background:linear-gradient(180deg,rgba(44,36,22,.94),rgba(18,16,12,.96));border:1px solid rgba(255,214,110,.32);box-shadow:0 24px 70px -20px #000,inset 0 1px 0 rgba(255,255,255,.08)}
 .ttj-lines{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:26px}
 .ttj-ln{display:inline-flex;align-items:baseline;gap:6px;padding:2px 10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);font-size:12.5px;white-space:nowrap}
 .ttj-ln b{font-variant-numeric:tabular-nums;color:#ffe08a;font-size:13.5px}
-.ttj-ln.hot{background:linear-gradient(90deg,rgba(255,92,60,.3),rgba(255,176,60,.3));border-color:rgba(255,150,80,.65)}
-.ttj-ln.luck{background:linear-gradient(90deg,#ffd447,#ff8d3a);border-color:#fff1a8;color:#2b1700;font-weight:700;box-shadow:0 0 18px rgba(255,190,60,.7)}
-.ttj-ln.luck b{color:#2b1700}
+.ttj-ln.ttj-hot{background:linear-gradient(90deg,rgba(255,92,60,.3),rgba(255,176,60,.3));border-color:rgba(255,150,80,.65)}
+.ttj-ln.ttj-luck{background:linear-gradient(90deg,#ffd447,#ff8d3a);border-color:#fff1a8;color:#2b1700;font-weight:700;box-shadow:0 0 18px rgba(255,190,60,.7)}
+.ttj-ln.ttj-luck b{color:#2b1700}
 .ttj-reel{position:relative;height:46px;border-radius:12px;overflow:hidden;background:#0c0b08;box-shadow:inset 0 0 0 1px rgba(255,214,110,.35),inset 0 8px 14px rgba(0,0,0,.6)}
 .ttj-reel::before,.ttj-reel::after{content:"";position:absolute;top:0;bottom:0;width:30%;z-index:1;pointer-events:none}
 .ttj-reel::before{left:0;background:linear-gradient(90deg,#0c0b08,transparent)}.ttj-reel::after{right:0;background:linear-gradient(-90deg,#0c0b08,transparent)}
 .ttj-reel i{position:absolute;left:50%;top:3px;bottom:3px;width:58px;margin-left:-29px;border-radius:9px;border:2px solid #ffd45a;box-shadow:0 0 14px rgba(255,200,70,.7);z-index:2}
 .ttj-strip{position:absolute;left:0;top:0;bottom:0;display:flex;will-change:transform}
 .ttj-strip span{flex:0 0 60px;display:grid;place-items:center;font-weight:800;font-size:19px;color:#cfc6b0;font-variant-numeric:tabular-nums}
-.ttj-strip .t2{color:#7fd0ff}.ttj-strip .t3{color:#ffd45a}.ttj-strip .t4{color:#ff7aa8;text-shadow:0 0 10px rgba(255,90,140,.7)}
-.ttj-reel.big{height:64px}.ttj-reel.big i{width:84px;margin-left:-42px}.ttj-reel.big .ttj-strip span{flex-basis:88px;font-size:22px}
-.ttj-reel.hit i{animation:ttj-blink .18s 5 alternate}
+.ttj-strip .ttj-t2{color:#7fd0ff}.ttj-strip .ttj-t3{color:#ffd45a}.ttj-strip .ttj-t4{color:#ff7aa8;text-shadow:0 0 10px rgba(255,90,140,.7)}
+.ttj-reel.ttj-big{height:64px}.ttj-reel.ttj-big i{width:84px;margin-left:-42px}.ttj-reel.ttj-big .ttj-strip span{flex-basis:88px;font-size:22px}
+.ttj-reel.ttj-hit i{animation:ttj-blink .18s 5 alternate}
 @keyframes ttj-blink{to{border-color:#fff;box-shadow:0 0 26px #ffd45a}}
 .ttj-gain{text-align:center;font-weight:800;font-size:clamp(38px,11vw,54px);line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 0 20px rgba(255,200,80,.55)}
 .ttj-gain small{font-size:.38em;margin-left:6px;color:#ffe08a;letter-spacing:.12em}
 .ttj-lv{position:relative;display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
 .ttj-lvt{display:flex;justify-content:space-between;gap:8px;margin-top:5px;font-size:11px;color:rgba(255,255,255,.66)}
-.ttj-lvt .rk{color:var(--rk);font-weight:700;letter-spacing:.08em}
+.ttj-lvt .ttj-rk{color:var(--rk);font-weight:700;letter-spacing:.08em}
 .ttj-bar{position:relative;display:block;height:10px;border-radius:999px;background:rgba(127,127,127,.25);overflow:hidden}
 .ttj-bar i{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--rk,#f0bd3a),#fff5c4);box-shadow:0 0 10px var(--rk,#f0bd3a)}
 .ttj-badge{--rk:#c98a55;flex:none;display:inline-grid;place-items:center;align-content:center;width:46px;height:50px;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);
   background:linear-gradient(160deg,#fff 0%,var(--rk) 34%,color-mix(in srgb,var(--rk) 50%,#000) 100%);color:#fff;font:800 17px/1 ${FONT};text-shadow:0 1px 2px rgba(0,0,0,.65);font-variant-numeric:tabular-nums}
 .ttj-badge small{display:block;font-size:8px;letter-spacing:.12em;opacity:.92;margin-bottom:1px}
-.ttj-badge.rb{background:conic-gradient(from 200deg,#ff6584,#ffc53d,#5fd6cf,#78b4ff,#b77cff,#ff6584)}
-.ttj-badge.sm{width:32px;height:35px;font-size:12px}.ttj-badge.sm small{font-size:6.5px}
+.ttj-badge.ttj-rb{background:conic-gradient(from 200deg,#ff6584,#ffc53d,#5fd6cf,#78b4ff,#b77cff,#ff6584)}
+.ttj-badge.ttj-sm{width:32px;height:35px;font-size:12px}.ttj-badge.ttj-sm small{font-size:6.5px}
 .ttj-up{position:absolute;left:0;bottom:100%;margin-bottom:2px;font:800 15px/1 ${FONT};letter-spacing:.14em;color:#fff3b0;text-shadow:0 0 12px #ffb400,0 2px 3px #000;white-space:nowrap;pointer-events:none}
 .ttj-tap{font-size:11px;letter-spacing:.24em;color:rgba(255,255,255,.55);opacity:0;transition:opacity .3s}
-.ttj-ov.done .ttj-tap{opacity:1}
+.ttj-ov.ttj-done .ttj-tap{opacity:1}
 .ttj-toasts{position:fixed;left:50%;top:max(10px,env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:2147483700;display:grid;gap:8px;width:min(380px,calc(100vw - 24px));pointer-events:none}
 .ttj-toast{--rc:#ffd45a;position:relative;overflow:hidden;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 14px;border-radius:14px;
   background:rgba(20,17,12,.95);color:#fff;border:1px solid var(--rc);box-shadow:0 12px 32px -12px #000,0 0 22px -6px var(--rc);font:13px/1.35 ${FONT};pointer-events:auto;cursor:pointer}
 .ttj-toast::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.25) 50%,transparent 65%);transform:translateX(-100%);pointer-events:none}
 .ttj-move .ttj-toast::after{animation:ttj-sweep 1.1s .25s ease-out forwards}
 @keyframes ttj-sweep{to{transform:translateX(100%)}}
-.ttj-toast .ic{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:color-mix(in srgb,var(--rc) 22%,transparent);color:var(--rc)}
-.ttj-toast .ic svg{width:20px;height:20px}
-.ttj-toast .k{display:block;font-size:10px;letter-spacing:.18em;color:var(--rc);font-weight:700}
-.ttj-toast .n{display:block;font-weight:700;font-size:14px}
-.ttj-toast .x{font-weight:800;color:#ffe08a;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ttj-toast .ttj-ic{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:color-mix(in srgb,var(--rc) 22%,transparent);color:var(--rc)}
+.ttj-toast .ttj-ic svg{width:20px;height:20px}
+.ttj-toast .ttj-k{display:block;font-size:10px;letter-spacing:.18em;color:var(--rc);font-weight:700}
+.ttj-toast .ttj-n{display:block;font-weight:700;font-size:14px}
+.ttj-toast .ttj-x{font-weight:800;color:#ffe08a;font-variant-numeric:tabular-nums;white-space:nowrap}
 .ttj-toast .ttj-bar{height:6px;margin-top:4px}
 .ttj-hype{position:fixed;z-index:2147483550;pointer-events:none;white-space:nowrap;font:800 30px/1 ${SERIF};letter-spacing:.06em;color:transparent;-webkit-background-clip:text;background-clip:text;
   background-image:linear-gradient(180deg,#fff8d6,#ffd75e 45%,#df9612 55%,#ffe48a);filter:drop-shadow(0 3px 0 rgba(60,30,0,.55)) drop-shadow(0 0 14px rgba(255,190,50,.6))}
 .ttj-mini{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:8px 12px;border-radius:12px;background:color-mix(in srgb,currentColor 6%,transparent);border:1px solid color-mix(in srgb,currentColor 14%,transparent);font-size:12px;line-height:1.3}
-.ttj-mini .g{font-weight:800;font-size:16px;font-variant-numeric:tabular-nums}
-.ttj-mini .m{flex:1;min-width:0}
-.ttj-mini .s{display:flex;justify-content:space-between;gap:8px;opacity:.75;margin-top:4px;font-size:11px}
+.ttj-mini .ttj-g{font-weight:800;font-size:16px;font-variant-numeric:tabular-nums}
+.ttj-mini .ttj-m{flex:1;min-width:0}
+.ttj-mini .ttj-s{display:flex;justify-content:space-between;gap:8px;opacity:.75;margin-top:4px;font-size:11px}
 .ttj-mini .ttj-bar{height:7px}
 .ttj-sheet{position:relative;width:min(560px,100%);max-height:min(82vh,760px);overflow-y:auto;overscroll-behavior:contain;padding:18px;border-radius:20px;cursor:auto;user-select:text;-webkit-user-select:text;
   background:linear-gradient(180deg,rgba(40,34,24,.97),rgba(16,14,11,.98));border:1px solid rgba(255,214,110,.3);box-shadow:0 30px 80px -24px #000}
 .ttj-sheet h2{margin:0 0 4px;font:800 22px/1.2 ${SERIF};letter-spacing:.06em}
-.ttj-sheet .x{position:absolute;right:10px;top:10px;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font-size:18px;line-height:1;cursor:pointer}
+.ttj-sheet .ttj-close{position:absolute;right:10px;top:10px;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#fff;font-size:18px;line-height:1;cursor:pointer}
 .ttj-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0 14px}
 .ttj-stats div{padding:8px 4px;border-radius:12px;background:rgba(255,255,255,.06);text-align:center;font-size:10.5px;color:rgba(255,255,255,.65)}
 .ttj-stats b{display:block;font-size:19px;color:#fff;font-variant-numeric:tabular-nums}
 .ttj-sheet h3{margin:14px 0 8px;font-size:12px;letter-spacing:.2em;color:#ffe08a}
 .ttj-achs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
 .ttj-ach{--rc:#9fb3c8;display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid color-mix(in srgb,var(--rc) 55%,transparent);font-size:12px;line-height:1.3}
-.ttj-ach .ic{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:color-mix(in srgb,var(--rc) 24%,transparent);color:var(--rc)}
-.ttj-ach .ic svg{width:16px;height:16px}
+.ttj-ach .ttj-ic{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:color-mix(in srgb,var(--rc) 24%,transparent);color:var(--rc)}
+.ttj-ach .ttj-ic svg{width:16px;height:16px}
 .ttj-ach b{display:block;font-size:12.5px}
 .ttj-ach small{display:block;color:rgba(255,255,255,.6);font-size:10.5px}
-.ttj-ach.no{border-color:rgba(255,255,255,.1);filter:grayscale(1);opacity:.5}
+.ttj-ach.ttj-no{border-color:rgba(255,255,255,.1);filter:grayscale(1);opacity:.5}
 .ttj-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);font-size:12px;color:rgba(255,255,255,.75)}
 .ttj-row button{padding:6px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font:700 12px ${FONT};cursor:pointer}
 .ttj-prize{display:grid;justify-items:center;gap:6px}
@@ -246,7 +263,10 @@
     if (document.getElementById('tt-juice-css')) return;
     const s = document.createElement('style');
     s.id = 'tt-juice-css';
-    s.textContent = CSS;
+    // トップとゲームの行き来は、ページどうしをなめらかに入れ替える（対応するブラウザだけ。動きオンのとき）
+    s.textContent = CSS + (motion() ? '@view-transition{navigation:auto}' +
+      '::view-transition-old(root){animation:.2s ease-in both ttj-vt-out}::view-transition-new(root){animation:.28s cubic-bezier(.2,.8,.2,1) both ttj-vt-in}' +
+      '@keyframes ttj-vt-out{to{opacity:0;transform:scale(.985)}}@keyframes ttj-vt-in{from{opacity:0;transform:scale(1.015)}}' : '');
     document.head.appendChild(s);
   }
   // 動くときだけ <html> に ttj-move（光の流れ・ボタンの手ごたえなど、CSS の動きをまとめて止められるように）
@@ -262,8 +282,10 @@
 
   // ---------------------------------------------------------------- 音（Web Audio でその場で作る。全体の音の元栓 mute.js と、ゲームの「音」オフに従う）
   let ac = null, quiet = false;
+  // ゲームの設定の「音」（localStorage '<slug>-settings' の sound）がオフなら鳴らさない
+  const gameMuted = () => { try { const v = JSON.parse(localStorage.getItem(HERE + '-settings')); return !!v && v.sound === false; } catch (e) { return false; } };
   function audio() {
-    if (quiet || (window.TTSound && TTSound.muted)) return null;
+    if (quiet || (window.TTSound && TTSound.muted) || gameMuted()) return null;
     if (!ac) { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; try { ac = new C(); } catch (e) { return null; } }
     if (ac.state === 'suspended') ac.resume().catch(() => {});
     return ac;
@@ -295,6 +317,8 @@
     unlock: () => [19, 24, 28, 31].forEach((s, i) => tone(N(s), N(s), 0.32, 0.04, 'sine', i * 0.06)),
     miss: () => tone(N(2), N(-3), 0.22, 0.04, 'triangle'),
     pop: () => tone(N(12), N(19), 0.09, 0.05, 'triangle'),
+    sel: i => { const f = N(12 + (i || 0) * 2); tone(f, f * 1.5, 0.06, 0.03, 'triangle'); },
+    vs: () => { tone(160, 50, 0.45, 0.12, 'sawtooth'); tone(N(7), N(7), 0.5, 0.05, 'triangle', 0.04); tone(N(19), N(19), 0.6, 0.03, 'sine', 0.08); },
   };
 
   // ---------------------------------------------------------------- 紙吹雪・火花・コイン・星（使っている間だけ置く1枚の canvas）
@@ -471,7 +495,7 @@
   function achToast(a, i) {
     setTimeout(() => {
       const r = RAR[a.rar];
-      const t = toast(`<span class="ic">${ICON.trophy}</span><span><span class="k">実績解除・${r[0]}</span><span class="n">${esc(a.name)}</span></span><span class="x">+${r[2]} XP</span>`, { color: r[1], ms: 3400 });
+      const t = toast(`<span class="ttj-ic">${ICON.trophy}</span><span><span class="ttj-k">実績解除・${r[0]}</span><span class="ttj-n">${esc(a.name)}</span></span><span class="ttj-x">+${r[2]} XP</span>`, { color: r[1], ms: 3400 });
       SFX.unlock();
       if (a.rar === 'e' || a.rar === 'l') { burst(t, { kind: 'star', n: a.rar === 'l' ? 40 : 22, colors: [r[1], '#fff'], speed: 7 }); }
       if (a.rar === 'l') { flash(r[1], 0.3); burst(t, { kind: 'confetti', n: 50, speed: 10, dir: Math.PI / 2, spread: 2.4 }); }
@@ -481,11 +505,11 @@
   // ---------------------------------------------------------------- レベルの表示（結果のカード・トップ・毎日のボーナスで共通）
   function paint(el, L, frac, left) {
     const r = rankOf(L), b = el.querySelector('.ttj-badge');
-    if (b) { b.style.setProperty('--rk', r.color); b.classList.toggle('rb', r.top); b.innerHTML = `<small>Lv</small>${L}`; b.setAttribute('aria-label', `レベル${L}`); }
+    if (b) { b.style.setProperty('--rk', r.color); b.classList.toggle('ttj-rb', r.top); b.innerHTML = `<small>Lv</small>${L}`; b.setAttribute('aria-label', `レベル${L}`); }
     el.style.setProperty('--rk', r.color);
     const i = el.querySelector('.ttj-bar i');
     if (i) i.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%';
-    const rk = el.querySelector('.rk'), nx = el.querySelector('.nx');
+    const rk = el.querySelector('.ttj-rk'), nx = el.querySelector('.ttj-nx');
     if (rk) rk.textContent = r.name;
     if (nx) nx.textContent = `次のレベルまで ${fmt(left)} XP`;
   }
@@ -501,7 +525,7 @@
       anim(u, [{ opacity: 0, transform: 'translateY(8px) scale(.6)' }, { opacity: 1, transform: 'translateY(-4px) scale(1.1)', offset: 0.3 }, { opacity: 1, transform: 'translateY(-8px)', offset: 0.75 }, { opacity: 0, transform: 'translateY(-14px)' }],
         { duration: seq && seq.skip ? 1 : 1500, easing: 'ease-out' }).then(() => u.remove());
       if (!motion()) setTimeout(() => u.remove(), 1500);
-    } else toast(`<span class="ic">${ICON.up}</span><span><span class="k">${rankUp ? 'ランクアップ' : 'LEVEL UP'}</span><span class="n">レベル ${L}${rankUp ? '・' + esc(r.name) : ''}</span></span><span></span>`, { color: r.color });   // 小さな知らせのときは、もう1枚の知らせで
+    } else toast(`<span class="ttj-ic">${ICON.up}</span><span><span class="ttj-k">${rankUp ? 'ランクアップ' : 'LEVEL UP'}</span><span class="ttj-n">レベル ${L}${rankUp ? '・' + esc(r.name) : ''}</span></span><span></span>`, { color: r.color });   // 小さな知らせのときは、もう1枚の知らせで
     if (rankUp) { flash(r.color, 0.35); rain({ kind: 'confetti', n: 90, colors: [r.color, '#fff', '#ffe08a'], ms: 900 }); }
   }
   // from → to の XP を、バーを伸ばしながら見せる（上がるたびに LEVEL UP）
@@ -521,7 +545,7 @@
       }
     }
   }
-  const lvHTML = () => `<div class="ttj-lv">${badge(levelOf(P.xp).L)}<div><div class="ttj-bar"><i></i></div><div class="ttj-lvt"><span class="rk"></span><span class="nx"></span></div></div></div>`;
+  const lvHTML = () => `<div class="ttj-lv">${badge(levelOf(P.xp).L)}<div><div class="ttj-bar"><i></i></div><div class="ttj-lvt"><span class="ttj-rk"></span><span class="ttj-nx"></span></div></div></div>`;
 
   // ---------------------------------------------------------------- スロットのリール（勝ったときの「×?」・毎日のボーナス）
   // items（文字の HTML の並び）を回して stop 番目で止める。tick ごとにカチカチ鳴らす
@@ -557,7 +581,7 @@
 
   function small(r) {
     const head = r.round ? (r.lines[0].t) : r.multi ? `${r.place}位` : 'おつかれさま';
-    const t = toast(`${badge(levelOf(r.before).L, 'sm')}<span class="m"><span class="n">${esc(head)}${r.luck > 1 ? ' <span style="color:#ffd45a">おまけ ×' + r.luck + '</span>' : ''}</span><span class="ttj-bar"><i></i></span></span><span class="x">+${fmt(r.gain)} XP</span>`, { ms: 2800 });
+    const t = toast(`${badge(levelOf(r.before).L, 'ttj-sm')}<span class="ttj-m"><span class="ttj-n">${esc(head)}${r.luck > 1 ? ' <span style="color:#ffd45a">おまけ ×' + r.luck + '</span>' : ''}</span><span class="ttj-bar"><i></i></span></span><span class="ttj-x">+${fmt(r.gain)} XP</span>`, { ms: 2800 });
     if (r.luck > 1) { SFX.coin(); burst(t, { kind: 'coin', n: 16, speed: 7, colors: PAL.gold }); }
     grow(t, r.before, r.after, null, 700);
     r.ach.forEach(achToast);
@@ -568,7 +592,7 @@
     if (cur) cur.close(true);
     const moving = motion();
     const win = r.out === 'win';
-    const ov = make('div', 'ttj-ov ' + (win ? 'win' : 'draw'));
+    const ov = make('div', 'ttj-ov ' + (win ? 'ttj-win' : 'ttj-draw'));
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-label', 'ごほうび');
     const title = r.title || (r.multi ? `${r.place}位` : win ? '勝利' : '引き分け');
@@ -618,7 +642,7 @@
       let total = 1;
       for (let i = 0; i < r.lines.length; i++) {
         const l = r.lines[i];
-        const chip = make('span', 'ttj-ln' + (l.k ? ' ' + l.k : ''), `${esc(l.t)} <b>${esc(l.v)}</b>`);
+        const chip = make('span', 'ttj-ln' + (l.k ? ' ttj-' + l.k : ''), `${esc(l.t)} <b>${esc(l.v)}</b>`);
         lines.appendChild(chip);
         total = i === 0 ? r.base : total * parseFloat(l.v.slice(1));
         if (!seq.skip && moving) {
@@ -639,10 +663,10 @@
         const stop = 24;
         items[stop] = r.luck;
         if (r.luck === 1) { items[stop + 1] = 5; items[stop - 1] = 2; }   // あと少しで ×5
-        await spin(reel, items.map(v => `<span class="${v >= 5 ? 't4' : v >= 2 ? 't3' : ''}">×${v}</span>`), stop, seq, 1400);
+        await spin(reel, items.map(v => `<span class="${v >= 5 ? 'ttj-t4' : v >= 2 ? 'ttj-t3' : ''}">×${v}</span>`), stop, seq, 1400);
         if (r.luck > 1) {
-          reel.classList.add('hit');
-          const chip = make('span', 'ttj-ln luck', `${r.luck >= 5 ? '超大当たり' : '大当たり'} <b>×${r.luck}</b>`);
+          reel.classList.add('ttj-hit');
+          const chip = make('span', 'ttj-ln ttj-luck', `${r.luck >= 5 ? '超大当たり' : '大当たり'} <b>×${r.luck}</b>`);
           lines.appendChild(chip);
           if (!seq.skip) {
             (r.luck >= 5 ? SFX.jackpot : SFX.coin)();
@@ -658,7 +682,7 @@
       await grow(lv, r.before, r.after, seq, 900);
       r.ach.forEach(achToast);
       seq.done = true;
-      ov.classList.add('done');
+      ov.classList.add('ttj-done');
       timer = setTimeout(() => close(), (r.ach.length ? 1200 : 0) + (moving ? 2600 : 4200));
     })();
   }
@@ -670,7 +694,7 @@
     let m = d.querySelector(':scope > .ttj-mini');
     if (!m) { m = make('div', 'ttj-mini'); d.insertBefore(m, d.firstChild); }
     const lv = levelOf(r.after);
-    m.innerHTML = `${badge(lv.L, 'sm')}<span class="m"><span><span class="g">+${fmt(r.gain)}</span> XP${r.luck > 1 ? `（×${r.luck}）` : ''}${r.streak >= 2 && r.out === 'win' ? `・${r.streak}連勝中` : ''}</span><span class="ttj-bar"><i></i></span><span class="s"><span class="rk"></span><span class="nx"></span></span></span>`;
+    m.innerHTML = `${badge(lv.L, 'ttj-sm')}<span class="ttj-m"><span><span class="ttj-g">+${fmt(r.gain)}</span> XP${r.luck > 1 ? `（×${r.luck}）` : ''}${r.streak >= 2 && r.out === 'win' ? `・${r.streak}連勝中` : ''}</span><span class="ttj-bar"><i></i></span><span class="ttj-s"><span class="ttj-rk"></span><span class="ttj-nx"></span></span></span>`;
     paint(m, lv.L, lv.cur / lv.need, lv.need - lv.cur);
   }
 
@@ -717,13 +741,13 @@
     save();
     emit();
     const moving = motion();
-    const tier = v => (v >= 1000 ? 't4' : v >= 300 ? 't3' : v >= 150 ? 't2' : '');
-    const ov = make('div', 'ttj-ov win');
+    const tier = v => (v >= 1000 ? 'ttj-t4' : v >= 300 ? 'ttj-t3' : v >= 150 ? 'ttj-t2' : '');
+    const ov = make('div', 'ttj-ov ttj-win');
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-label', '毎日のボーナス');
     ov.innerHTML = `<div class="ttj-rays"></div>
       <div class="ttj-banner"><b style="font-size:clamp(40px,11vw,76px)">デイリー</b><small>連続 ${run} 日目${boost > 1 ? `・ボーナス ×${boost}` : ''}</small></div>
-      <div class="ttj-card"><div class="ttj-reel big"><div class="ttj-strip"></div><i></i></div>
+      <div class="ttj-card"><div class="ttj-reel ttj-big"><div class="ttj-strip"></div><i></i></div>
         <div class="ttj-gain">+<span>0</span><small>XP</small></div>${lvHTML()}</div>
       <div class="ttj-tap">タップで閉じる</div>`;
     document.body.appendChild(ov);
@@ -748,14 +772,14 @@
       await new Promise(res => setTimeout(res, moving ? 300 : 0));
       await spin(ov.querySelector('.ttj-reel'), items.map(v => `<span class="${tier(v)}">${v}</span>`), stop, seq, 2600);
       const reel = ov.querySelector('.ttj-reel');
-      reel.classList.add('hit');
+      reel.classList.add('ttj-hit');
       if (prize >= 500) { SFX.jackpot(); flash('#ffd45a', 0.45); shake(8); rain({ kind: 'coin', n: prize >= 1000 ? 120 : 70, ms: 1400 }); } else SFX.coin();
       burst(reel, { kind: 'coin', n: prize >= 300 ? 34 : 18, speed: 10, colors: PAL.gold });
       await tween(800, t => { gainEl.textContent = fmt(gain * t); }, seq);
       await grow(lv, before, before + gain + ach.reduce((a, x) => a + RAR[x.rar][2], 0), seq, 900);
       ach.forEach(achToast);
       seq.done = true;
-      ov.classList.add('done');
+      ov.classList.add('ttj-done');
       timer = setTimeout(close, moving ? 3000 : 4200);
       return gain;
     })();
@@ -766,19 +790,19 @@
     style();
     sync();
     const st = state();
-    const ov = make('div', 'ttj-ov draw');
+    const ov = make('div', 'ttj-ov ttj-draw');
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-label', '実績と記録');
-    const item = a => { const r = RAR[a.rar], ok = !!P.ach[a.id]; return `<div class="ttj-ach${ok ? '' : ' no'}" style="--rc:${r[1]}" title="${esc(r[0])}"><span class="ic">${ok ? ICON.trophy : ICON.lock}</span><span><b>${esc(a.name)}</b><small>${esc(a.desc)}・${r[0]}</small></span></div>`; };
+    const item = a => { const r = RAR[a.rar], ok = !!P.ach[a.id]; return `<div class="ttj-ach${ok ? '' : ' ttj-no'}" style="--rc:${r[1]}" title="${esc(r[0])}"><span class="ttj-ic">${ok ? ICON.trophy : ICON.lock}</span><span><b>${esc(a.name)}</b><small>${esc(a.desc)}・${r[0]}</small></span></div>`; };
     const general = ACH.filter(a => !a.game), per = ACH.filter(a => a.game);
     ov.innerHTML = `<div class="ttj-sheet">
-      <button class="x" type="button" aria-label="閉じる">×</button>
+      <button class="ttj-close" type="button" aria-label="閉じる">×</button>
       <h2>実績と記録</h2>
       ${lvHTML()}
       <div class="ttj-stats"><div><b>${fmt(st.n)}</b>局</div><div><b>${fmt(st.w)}</b>勝</div><div><b>${fmt(st.best)}</b>最多連勝</div><div><b>${st.achDone}<small style="font-size:11px;color:rgba(255,255,255,.6)">/${st.achTotal}</small></b>実績</div></div>
       <h3>全体</h3><div class="ttj-achs">${general.map(item).join('')}</div>
       <h3>ゲームごと</h3><div class="ttj-achs">${per.map(item).join('')}</div>
-      <div class="ttj-row"><span>演出・アニメーション（全ゲーム共通）</span><button type="button" class="mo">${motion() ? 'オン' : 'オフ'}</button></div>
+      <div class="ttj-row"><span>演出・アニメーション（全ゲーム共通）</span><button type="button" class="ttj-mo">${motion() ? 'オン' : 'オフ'}</button></div>
       <div class="ttj-row" style="border:0;margin-top:6px;padding-top:0"><span>記録はこの端末のブラウザだけに残ります。</span></div>
     </div>`;
     document.body.appendChild(ov);
@@ -787,11 +811,11 @@
     const close = () => { window.removeEventListener('keydown', key, true); anim(ov, [{ opacity: 1 }, { opacity: 0 }], { duration: 180 }).then(() => ov.remove()); if (!motion()) ov.remove(); };
     const key = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
-    ov.querySelector('.x').addEventListener('click', close);
-    ov.querySelector('.mo').addEventListener('click', e => { setMotion(!motion()); e.target.textContent = motion() ? 'オン' : 'オフ'; });
+    ov.querySelector('.ttj-close').addEventListener('click', close);
+    ov.querySelector('.ttj-mo').addEventListener('click', e => { setMotion(!motion()); e.target.textContent = motion() ? 'オン' : 'オフ'; });
     window.addEventListener('keydown', key, true);
     anim(ov.querySelector('.ttj-sheet'), [{ opacity: 0, scale: 0.94, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
-    ov.querySelector('.x').focus();
+    ov.querySelector('.ttj-close').focus();
   }
   function setMotion(v) {
     if (window.TTMotion) TTMotion.set(v);
@@ -832,7 +856,7 @@
   }
 
   window.TTJuice = {
-    GAMES, here: HERE, result, hype, burst, rain, cannon, shake, flash, toast, daily, openAchievements, setMotion, badge, paint, state,
+    GAMES, here: HERE, result, hype, burst, rain, cannon, shake, flash, toast, daily, openAchievements, setMotion, badge, paint, state, offer, RAR,
     sfx: SFX, get motion() { return motion(); },
     on(f) { subs.add(f); return () => subs.delete(f); },
   };

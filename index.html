@@ -86,7 +86,7 @@ body::before { content: ""; position: fixed; inset: -20%; pointer-events: none; 
 .prof .ttj-badge { width: 38px; height: 42px; font-size: 15px; }
 .pm { flex: 1; min-width: 0; display: grid; gap: 5px; }
 .pt { display: flex; align-items: baseline; gap: 10px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; }
-.pt .rk { font-weight: 800; letter-spacing: .1em; font-size: 12px; color: color-mix(in srgb, var(--rk) 70%, var(--ink)); }
+.pt .ttj-rk { font-weight: 800; letter-spacing: .1em; font-size: 12px; color: color-mix(in srgb, var(--rk) 70%, var(--ink)); }
 .pt .xp { margin-left: auto; font-variant-numeric: tabular-nums; }
 .pill { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 700 12px var(--font-body); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pill:hover, .pill:focus-visible { border-color: var(--gold); outline: none; }
@@ -157,12 +157,12 @@ footer a { color: inherit; }
   .me { gap: 6px; }
   .prof { padding: 4px 10px 4px 4px; gap: 8px; }
   .prof .ttj-badge { width: 32px; height: 35px; font-size: 13px; }
-  .pt .nx { display: none; }
+  .pt .ttj-nx { display: none; }
   .pill { padding: 7px 9px; }
   .pill .t { display: none; }
   .tile .cr { top: 6px; right: 6px; width: 16px; height: 16px; }
 }
-@media (max-height: 520px) and (orientation: landscape) { .pt .nx { display: none; } }
+@media (max-height: 520px) and (orientation: landscape) { .pt .ttj-nx { display: none; } }
 </style>
 </head>
 <body>
@@ -174,7 +174,7 @@ footer a { color: inherit; }
     <p class="lead">AI が作った AI に、<em>人類は勝てるか。</em></p>
   </header>
   <div class="me" id="me">
-    <button class="prof" id="prof" type="button" aria-label="実績と記録を見る"><span class="ttj-badge"></span><span class="pm"><span class="pt"><span class="rk"></span><span class="nx"></span><span class="xp" id="xp"></span></span><span class="ttj-bar"><i></i></span></span></button>
+    <button class="prof" id="prof" type="button" aria-label="実績と記録を見る"><span class="ttj-badge"></span><span class="pm"><span class="pt"><span class="ttj-rk"></span><span class="ttj-nx"></span><span class="xp" id="xp"></span></span><span class="ttj-bar"><i></i></span></span></button>
     <span class="pill fire" id="streak" hidden title="連勝中（勝つたびに XP が増えます）"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c1 4 5 5.5 5 11a5 5 0 0 1-10 0c0-2.5 1.2-4 2.5-5 .2 2 1 3 2 3.3C11 8 12 5 12 2z"/></svg><b id="n-streak"></b><span class="t">連勝</span></span>
     <button class="pill" id="ach" type="button" title="実績と記録"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 3h10v2h3v3a5 5 0 0 1-4.6 5A5 5 0 0 1 13 15.9V18h3v3H8v-3h3v-2.1A5 5 0 0 1 8.6 13 5 5 0 0 1 4 8V5h3zm0 4H6v1a3 3 0 0 0 1.2 2.4A7 7 0 0 1 7 9zm10 0v2a7 7 0 0 1-.2 1.4A3 3 0 0 0 18 8V7z"/></svg><span id="n-ach"></span></button>
     <button class="pill gift" id="gift" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11h16v10H4zM3 7h18v4H3zM12 7v14M12 7c-1.5-3-5-4-5-1.5S10 7 12 7zm0 0c1.5-3 5-4 5-1.5S14 7 12 7z"/></svg><span class="t" id="gift-t"></span></button>
@@ -242,12 +242,12 @@ footer a { color: inherit; }
   $('ach').addEventListener('click', () => J.openAchievements());
   $('gift').addEventListener('click', () => {
     if (J.state().daily) J.daily();
-    else J.toast(`<span class="ic">${ICON_CLOCK}</span><span><span class="k">デイリーボーナス</span><span class="n">今日はもう受け取りました。また明日！</span></span><span></span>`);
+    else J.toast(`<span class="ttj-ic">${ICON_CLOCK}</span><span><span class="ttj-k">デイリーボーナス</span><span class="ttj-n">今日はもう受け取りました。また明日！</span></span><span></span>`);
   });
   J.on(() => { renderMe(); render(); });
   renderMe();
   setInterval(renderMe, 60000);
-  if (J.state().daily) setTimeout(() => J.toast(`<span class="ic">${ICON_GIFT}</span><span><span class="k">デイリーボーナス</span><span class="n">今日のボーナスを受け取れます</span></span><span class="x">最大1,000 XP</span>`, { ms: 4200 }), 900);
+  if (J.state().daily) setTimeout(() => J.toast(`<span class="ttj-ic">${ICON_GIFT}</span><span><span class="ttj-k">デイリーボーナス</span><span class="ttj-n">今日のボーナスを受け取れます</span></span><span class="ttj-x">最大1,000 XP</span>`, { ms: 4200 }), 900);
 
   // 傾くタイル（マウスのとき。指した所に光）
   $('grid').addEventListener('pointermove', e => {
