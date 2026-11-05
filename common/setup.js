@@ -23,6 +23,7 @@
   const CROWN = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/></svg>';
 
   const CSS = `
+#dlg-new.tts-under{visibility:hidden!important}
 #dlg-new .tts-act{position:sticky;bottom:calc(-1*var(--tts-pb,0px));z-index:3;margin-bottom:calc(-1*var(--tts-pb,0px));padding-top:8px;padding-bottom:var(--tts-pb,0px);
   background:var(--tts-bg);box-shadow:0 -16px 14px -6px var(--tts-bg);flex-wrap:wrap}
 .tts-dup{display:none!important}
@@ -294,5 +295,83 @@
       setTimeout(() => { J.flash('#fff', 0.35, 220); J.shake(6); J.burst(V, { kind: 'spark', n: 26, speed: 12 }); if (n >= 4) J.burst(R, { kind: 'star', n: 18, colors: [LV[n], '#fff'], speed: 7 }); }, 390);
     }
     setTimeout(() => v.remove(), 1400);
+  }
+
+  // ---------------------------------------------------------------- 前回の続き: しばらくぶりに開いたら「続きから／はじめから」を聞く
+  // ユーザーから「ブラウザバックで終わったところからそのまま始まるけど、何も覚えていないので、はじめからするか聞いてほしい」
+  // 10分以上あいて開いた（読み込み直し・戻るボタンで戻った）とき、途中の対局が残っていれば聞く。聞いている間は、ゲームの「新しい対局」を
+  // 裏で開いておく（どのゲームも、それが開いている間は CPU が指さない）。続きから → その画面を閉じる。はじめから → その画面を見せる
+  const SLUG = J ? J.here : '';
+  const SEEN = 'tt-seen:' + SLUG, AWAY = 10 * 60 * 1000;
+  const LVN = { easy: 'やさしい', normal: 'ふつう', strong: 'つよい', max: '最強', ultra: '超最強' };
+  const seen = () => { try { return +localStorage.getItem(SEEN) || 0; } catch (e) { return 0; } };
+  const mark = () => { try { localStorage.setItem(SEEN, String(Date.now())); } catch (e) { /* 覚えられないときは毎回聞かない */ } };
+  // ゲームが残している途中の対局を読む（'<slug>-game'。ホールデムは卓 'holdem-table'）→ { done, at, who } か null
+  function lastGame() {
+    let g = null;
+    try { g = JSON.parse(localStorage.getItem(`${SLUG}-${SLUG === 'holdem' ? 'table' : 'game'}`)); } catch (e) { return null; }
+    if (!g || typeof g !== 'object' || g.online || g.mode === 'online') return null;   // オンラインは各ゲームが相手との状態で戻す
+    const keys = [].concat(g.seats || [], (g.cfg || {}).cpu || []).map(x => (x && typeof x === 'object' ? x.level || x.kind : x));
+    const cpu = keys.find(k => LVN[k]), humans = (g.seats || []).filter(x => x === 'human' || (x && x.kind === 'human')).length;
+    const who = cpu ? `CPU（${LVN[cpu]}）との対局` : humans > 1 ? 'ふたりでの対局' : '';
+    let n = 0, done = false, at = '';
+    if (Array.isArray(g.moves)) { n = g.moves.length; done = !!g.result; at = `${n}手まで進んだところです。`; }   // 盤のゲーム
+    else if (SLUG === 'koikoi' && g.match) { n = (g.match.history || []).length + 1; done = n > g.match.months; at = `${Math.min(n, g.match.months)}/${g.match.months}か月目`; }
+    else if (SLUG === 'mahjong' && g.g) { n = (g.g.rounds || []).length + 1; done = !!g.g.ended; at = `${'東南西北'[g.g.roundWind || 0]}${(g.g.kyoku || 0) + 1}局`; }
+    else if (SLUG === 'daifugo') { n = g.round || 0; done = !!g.ended; at = n ? `第${n}回戦` : ''; }
+    else if (SLUG === 'backgammon' && Array.isArray(g.games)) { n = g.games.length; at = `第${(g.gi || 0) + 1}局`; }
+    else if (SLUG === 'yacht' && g.g) { n = (g.g.round || 0) + ((g.g.rolls || 0) ? 1 : 0); done = !!g.g.over; at = `${Math.min(12, (g.g.round || 0) + 1)}/12ラウンド`; }
+    else if (SLUG === 'holdem') { n = g.handNo || 0; done = !!g.over || !(g.seats || []).length; at = n ? `${n}ハンド目` : ''; }
+    if (!n) return null;   // まだ1手も進んでいない
+    if (at && !/。$/.test(at)) at += 'の途中です。';
+    return { done, at, who };
+  }
+  const ago = ms => (ms < 3600e3 ? `${Math.max(10, Math.round(ms / 60e3))}分前` : ms < 86400e3 ? `${Math.round(ms / 3600e3)}時間前` : `${Math.round(ms / 86400e3)}日前`);
+  // ゲームの「新しい対局」を開く部品（12ゲームは #btn-new、ホールデム・麻雀はメニューの中、軍人将棋は data-act）
+  const opener = () => document.querySelector('#btn-new, [data-menu="new"], [data-act="new"]');
+  let asking = false;
+  function ask(away) {
+    if (asking || !SLUG || !dlg.hidden) return;
+    if ([...document.querySelectorAll('.overlay')].some(o => !o.hidden)) return;   // ほかの画面（結果など）が出ているときは聞かない
+    const last = lastGame(), op = opener();
+    if (!last || !op) return;
+    asking = true;
+    op.click();   // 裏で「新しい対局」を開いて、CPU を止めておく
+    if (dlg.hidden) { asking = false; return; }
+    dlg.classList.add('tts-under');
+    const ov = document.createElement('div');
+    ov.className = 'overlay tts-resume';
+    const ac = [...act.classList].filter(c => c !== 'tts-act').join(' ') || 'actions';
+    ov.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="tts-rz" style="width:min(420px,100%)">
+      <p class="hint" style="margin:0 0 4px">${esc([away ? ago(away) : '前回', last.who].filter(Boolean).join('・'))}</p>
+      <h2 id="tts-rz" style="margin:0 0 6px">${last.done ? '前回の対局は終わっています' : '前回の続きがあります'}</h2>
+      <p style="margin:0 0 16px">${last.done ? '盤をもう一度見るか、新しい対局を始めるか選んでください。' : `${esc(last.at)}続きから遊びますか？ それとも、はじめからにしますか？`}</p>
+      <div class="${esc(ac)}"><button type="button" class="btn" data-rz="go">${last.done ? '盤を見る' : '続きから'}</button><button type="button" class="btn primary" data-rz="new">${last.done ? '新しい対局' : 'はじめから'}</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const end = go => {
+      if (!ov.isConnected) return;
+      ov.remove();
+      window.removeEventListener('keydown', key, true);
+      asking = false;
+      if (go) { const c = document.getElementById('ng-cancel'); if (c && !dlg.hidden) c.click(); if (!dlg.hidden) dlg.hidden = true; dlg.classList.remove('tts-under'); return; }
+      dlg.classList.remove('tts-under');
+      anim(box, [{ opacity: 0, scale: 0.94, translate: '0 16px' }, { opacity: 1, scale: 1, translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3,1.4,.5,1)' });
+      start.focus();
+    };
+    const key = e => { if (e.key === 'Escape') { eat(e); end(true); } };
+    window.addEventListener('keydown', key, true);
+    ov.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-rz]'); if (b) end(b.dataset.rz === 'go'); });
+    const primary = ov.querySelector('[data-rz="new"]');
+    if (primary) primary.focus();
+  }
+  // 開いたとき・戻るボタンで戻ってきたとき（ページがそのまま残っていた）に、どれだけあいたかを見る
+  const check = () => { const t = seen(), away = t ? Date.now() - t : 0; mark(); if (!t || away >= AWAY) setTimeout(() => ask(t ? away : 0), 450); };
+  if (SLUG) {
+    if (document.readyState === 'complete') check(); else window.addEventListener('load', check, { once: true });
+    window.addEventListener('pageshow', e => { if (e.persisted) check(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) mark(); });
+    window.addEventListener('pagehide', mark);
+    setInterval(() => { if (!document.hidden) mark(); }, 60e3);
   }
 })();
