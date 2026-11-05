@@ -49,7 +49,7 @@ h1 small { display: block; font-family: var(--font-body); font-weight: 500; font
 .live b { color: var(--ink); font-size: 18px; font-variant-numeric: tabular-nums; margin-right: 2px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .5; display: inline-block; margin-right: 6px; vertical-align: 1px; }
 .live[data-st="on"] .dot { background: var(--good); opacity: 1; box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 22%, transparent); }
-.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); grid-auto-rows: 1fr; gap: 12px; align-content: stretch; }
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); grid-auto-rows: 1fr; gap: 12px; align-content: stretch; }
 .tile {
   position: relative; display: grid; grid-template-rows: auto 1fr auto; gap: 4px; padding: 14px 16px; border-radius: 16px; min-height: 0; overflow: hidden;
   background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 8%), var(--surface));
@@ -130,15 +130,18 @@ footer a { color: inherit; }
 /* スマホ縦: 3列のタイル、説明は省いて名前と人数だけ */
 @media (max-width: 560px) {
   .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-  .tile { padding: 10px; border-radius: 12px; grid-template-rows: auto 1fr auto; }
+  .tile { padding: 8px 9px; gap: 3px; border-radius: 12px; grid-template-rows: auto 1fr auto; }
   .tile .tg { display: none; }
-  .tile .nm { font-size: 14px; }
+  .tile .nm { font-size: 14px; line-height: 1.15; }
+  .tile .ft { gap: 4px; font-size: 10px; flex-wrap: nowrap; overflow: hidden; }
+  .tile .ft .chip { padding: 0 6px; line-height: 1.45; }
+  .tile .chip .lg { display: none; }
   .tile .nm small, .tile .nm .n-l { display: none; }
   .tile .nm .n-s { display: inline; }
   h1 { font-size: min(28px, calc((100vw - 32px) / 12)); letter-spacing: .02em; white-space: nowrap; }
   .live { gap: 10px; font-size: 12px; }
   .live b { font-size: 16px; }
-  .tile.soon .nm::after { display: block; margin: 4px 0 0; width: max-content; }
+  .tile.soon .nm::after { display: block; margin: 3px 0 0; width: max-content; line-height: 1.45; }
   .tile .ft .pl { display: none; }
   .tile .em { font-size: 64px; bottom: -12px; }
   .lead { font-size: 15px; }
@@ -147,14 +150,32 @@ footer a { color: inherit; }
   .snd { padding: 4px 7px; }
   .snd .t { display: none; }
 }
+@media (max-width: 560px) and (max-height: 700px) {
+  .wrap { padding-top: 12px; gap: 10px; }
+  footer { font-size: 10px; line-height: 1.45; gap: 2px 12px; }
+}
+/* さらに背の低い画面（600px 未満）は1画面に収めず、タイルの高さを保ってページを縦に送る */
+@media (max-width: 560px) and (max-height: 599px) {
+  body { height: auto; min-height: 100dvh; overflow: auto; }
+  .wrap { flex: none; }
+  .grid { flex: none; grid-auto-rows: 52px; }
+}
 @media (max-width: 360px) {
-  .tile { padding: 8px; }
+  .tile { padding: 7px 8px; }
   .tile .nm { font-size: 13px; }
   .live { gap: 8px; font-size: 11px; }
 }
 @media (max-height: 520px) and (orientation: landscape) {
-  .grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
-  .tile { padding: 8px 10px; border-radius: 12px; }
+  body { height: auto; min-height: 100dvh; overflow: auto; }
+  .wrap { flex: none; }
+  .grid { flex: none; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 60px; gap: 8px; }
+  .tile .ft .pl { display: none; }
+  .tile { padding: 8px 10px; gap: 3px; border-radius: 12px; }
+  .tile .ft { gap: 4px; font-size: 10px; flex-wrap: nowrap; overflow: hidden; }
+  .tile .ft .chip { padding: 0 6px; line-height: 1.45; }
+  .tile .chip .lg { display: none; }
+  h1 { font-size: 32px; }
+  .lead { font-size: 14px; margin: 0; }
   .tile .em { font-size: 48px; bottom: -10px; }
   .tile.soon .nm::after { display: block; margin: 4px 0 0; width: max-content; }
   .tile .tg, .tile .nm small, .tile .nm .n-l { display: none; }
@@ -226,7 +247,7 @@ footer a { color: inherit; }
       const c = counts && counts.byGame[g.slug];
       const live = c && (c.wait || c.play) ? `${c.wait ? `<span class="chip wait">待ち${c.wait}</span>` : ''}${c.play ? `<span class="chip">対局中${c.play}</span>` : ''}` : '';
       const me = st.games[g.slug] || {}, pick = ready && st.pickup === g.slug;
-      const mine = `${pick ? '<span class="chip hot">本日 XP×1.5</span>' : ''}${me.w ? `<span class="chip won">${me.w}勝</span>` : ''}`;
+      const mine = `${pick ? '<span class="chip hot"><span class="lg">本日 </span>XP×1.5</span>' : ''}${me.w ? `<span class="chip won">${me.w}勝</span>` : ''}`;
       const crown = me.top >= 4 ? `<span class="cr${me.top >= 5 ? ' u' : ''}" title="${me.top >= 5 ? '超最強' : '最強'}に勝った">${CROWN}</span>` : '';
       const inner = `${crown}
         <span class="em" aria-hidden="true">${esc(g.em)}</span>
@@ -317,7 +338,7 @@ footer a { color: inherit; }
   showSnd();
 
   // 各ゲームの manifest.json（公開されているものだけある）
-  Promise.all(GAMES.map(g => fetch(`${g.slug}/manifest.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null)))
+  Promise.all(GAMES.map(g => (g.soon ? Promise.resolve(null) : fetch(`${g.slug}/manifest.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null))))
     .then(ms => { ms.forEach((m, i) => { if (m) Object.assign(GAMES[i], { name: m.name || GAMES[i].name, tagline: m.tagline, players: m.players, status: m.status, en: m.en || GAMES[i].en }); }); loaded = true; render(); listed(); });
 
   // 全体のオンライン人数（このページを見ている人も「オンライン」に数える）

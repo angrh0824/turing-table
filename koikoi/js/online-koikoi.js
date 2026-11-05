@@ -422,7 +422,7 @@
       } else if (msg.t === 'ai') { o.opp.ai = msg.ai | 0; saveLocal(); A.renderBars(); }
       else if (msg.t === 'hint') { o.opp.hints = (o.opp.hints | 0) + 1; saveLocal(); A.renderBars(); }
       else if (msg.t === 'ev') gotEv(msg.i, msg.k, msg.b);
-      // 保持メッセージ（common/online.js の saveState は時刻を t に入れるので、t が 'state' でなく数のこともある）
+      // 保持メッセージ（いまの common/online.js は t:'state'・時刻は ts。前は時刻が t に入っていたので、数の t も受ける）
       else if ((msg.t === 'state' || typeof msg.t === 'number') && msg.v === 1 && msg.mid === o.mid && msg.rounds && typeof msg.rounds === 'object') {   // ほかの対局の保持メッセージは混ぜない
         for (const [i, ev] of Object.entries(msg.rounds)) {
           if (!ev || typeof ev !== 'object') continue;

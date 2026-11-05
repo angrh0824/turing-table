@@ -7,6 +7,7 @@
 (function () {
   'use strict';
   // ゲームの一覧（トップの並び順・紋章・色。実績の名前にも使う）。ultra: 「超最強」がある
+  // soon: まだ公開していない（トップは manifest.json を読みに行かず「近日公開」と tagline を出す）。公開するときにオーケストレーターが外す
   const GAMES = [
     { slug: 'gungi', em: '軍', accent: '#b8862b', name: '軍儀', en: 'Gungi', ultra: 1 },
     { slug: 'reversi', em: '石', accent: '#2f4f9a', name: 'リバーシ', en: 'Reversi' },
@@ -23,9 +24,13 @@
     { slug: 'yacht', em: '骰', accent: '#c0622a', name: 'ヨット', en: 'Yacht' },
     { slug: 'amazons', em: '矢', accent: '#3d7a46', name: 'アマゾンズ', en: 'Amazons', ultra: 1 },
     { slug: 'gunjin', em: '兵', accent: '#5e6640', name: '軍人将棋', en: 'Gunjin Shogi' },
+    { slug: 'kansoku', em: '観', accent: '#1b7f8c', name: '観測将棋', en: 'Kansoku Shogi', soon: 1, tagline: '動かすまで正体が決まらない駒で指す、自作の将棋' },
+    { slug: 'goita', em: '能', accent: '#2b4a6f', name: 'ごいた', en: 'Goita', soon: 1, tagline: '能登に伝わる、将棋の駒で遊ぶ2対2の札あそび' },
+    { slug: 'dudo', em: '嘘', accent: '#8c2f4b', name: 'うそつきダイス', short: 'うそダイス', en: 'Dudo', soon: 1, tagline: '伏せたサイコロの数を言い合い、はったりを見抜く' },
   ];
   const BY = {};
   GAMES.forEach(g => { BY[g.slug] = g; });
+  const LIVE = GAMES.filter(g => !g.soon);   // 遊べるゲーム（ピックアップ・実績・今週のお題はここから）
   const HERE = (() => { const p = location.pathname.split('/'); for (let i = p.length - 1; i >= 0; i--) if (BY[p[i]]) return p[i]; return ''; })();
 
   const mq = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -39,7 +44,7 @@
   const today = () => dayOf(new Date());
   const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return dayOf(d); };
   const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
-  const pickup = () => GAMES[hash('tt' + today()) % GAMES.length].slug;   // 本日のピックアップ（日ごとに1つ。だれが見ても同じ）
+  const pickup = () => LIVE[hash('tt' + today()) % LIVE.length].slug;   // 本日のピックアップ（日ごとに1つ。だれが見ても同じ）
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = n => Math.round(n).toLocaleString();
   const make = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -75,7 +80,7 @@
   const ACH = [];
   const A = (id, name, desc, rar, test, game) => ACH.push({ id, name, desc, rar, test, game });
   const gs = (p, s) => p.g[s] || {};
-  const count = (p, f) => GAMES.filter(g => f(gs(p, g.slug))).length;
+  const count = (p, f) => LIVE.filter(g => f(gs(p, g.slug))).length;
   A('first', 'はじめの一勝', 'CPU かオンラインの相手にはじめて勝つ', 'c', p => p.w >= 1);
   A('n10', '常連', '10局あそぶ', 'c', p => p.n >= 10);
   A('n50', '卓の主', '50局あそぶ', 'r', p => p.n >= 50);
@@ -84,8 +89,8 @@
   A('s5', '5連勝', '5回つづけて勝つ', 'e', p => p.best >= 5);
   A('s10', '10連勝', '10回つづけて勝つ', 'l', p => p.best >= 10);
   A('g5', '五つの卓', '5種類のゲームであそぶ', 'c', p => count(p, x => x.n > 0) >= 5);
-  A('gall', '全卓めぐり', `${GAMES.length}種類すべてであそぶ`, 'e', p => count(p, x => x.n > 0) >= GAMES.length);
-  A('wall', '全卓制覇', 'すべてのゲームで1回は勝つ', 'l', p => count(p, x => x.w > 0) >= GAMES.length);
+  A('gall', '全卓めぐり', `${LIVE.length}種類すべてであそぶ`, 'e', p => count(p, x => x.n > 0) >= LIVE.length);
+  A('wall', '全卓制覇', 'すべてのゲームで1回は勝つ', 'l', p => count(p, x => x.w > 0) >= LIVE.length);
   A('max3', '最強狩り', '3つのゲームで「最強」に勝つ', 'e', p => count(p, x => x.top >= 4) >= 3);
   A('net', '人類代表', 'オンラインで人に勝つ', 'r', p => p.nw >= 1);
   A('jack', '大当たり', '勝ちのボーナスで ×5 を引く', 'r', p => p.jack >= 1);
@@ -93,7 +98,7 @@
   A('d7', '皆勤賞', '7日つづけてあそぶ', 'r', p => p.run >= 7);
   A('d30', '習慣の人', '30日つづけてあそぶ', 'l', p => p.run >= 30);
   [[10, 'c'], [20, 'r'], [30, 'e'], [50, 'l']].forEach(([L, r]) => A('lv' + L, `${rankOf(L).name}到達`, `レベル${L}になる`, r, p => levelOf(p.xp).L >= L));
-  GAMES.forEach(g => {
+  LIVE.forEach(g => {
     A('w:' + g.slug, `${g.name} 初勝利`, `${g.name}で勝つ`, 'c', p => gs(p, g.slug).w >= 1, g.slug);
     A('m:' + g.slug, `${g.name} 最強撃破`, `${g.name}で CPU「最強」に勝つ`, 'e', p => gs(p, g.slug).top >= 4, g.slug);
     if (g.ultra) A('u:' + g.slug, `${g.name} 超最強撃破`, `${g.name}で CPU「超最強」に勝つ`, 'l', p => gs(p, g.slug).top >= 5, g.slug);
@@ -1127,7 +1132,7 @@ html.ttj-move[data-tfr="flame"] .ttj-bw:not([data-fr]),.ttj-move .ttj-bw[data-fr
     for (const m of order) {
       if (seen.has(m.t) || (m.t === 'win' && seen.has('win'))) continue;
       seen.add(m.t);
-      const g = m.t === 'game' ? GAMES[hash('g' + wk) % GAMES.length].slug : null;
+      const g = m.t === 'game' ? LIVE[hash('g' + wk) % LIVE.length].slug : null;
       list.push({ id: m.t + m.n + (g || ''), t: m.t, n: m.n, rw: m.rw, g, text: m.tx(g) });
       if (list.length === 3) break;
     }
