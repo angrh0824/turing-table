@@ -79,6 +79,14 @@
       client = window.mqtt.connect(BROKERS[brokerIdx], {
         clientId: me.id, clean: true, keepalive: 30, reconnectPeriod: 4000, connectTimeout: 8000,
         will: { topic: T(`p/${me.id}`), payload: '', retain: true, qos: 1 },
+        // 閉じかけ・閉じた WebSocket には書かない。mqtt.js は回線が切れて再接続するあいだに、閉じた WebSocket へ ping や接続の要求を
+        // 書くことがあり（送られずに捨てられる）、そのたびに console に「WebSocket is already in CLOSING or CLOSED state.」が出る。
+        // 長く開いたままのページで数百件たまっていた。つながる前（CONNECTING）は今までどおり（mqtt.js はつながるまで書かない）
+        createWebsocket: (url, protocols) => {
+          const ws = new WebSocket(url, protocols), send = ws.send.bind(ws);
+          ws.send = d => { if (ws.readyState < 2) send(d); };
+          return ws;
+        },
       });
       let ever = false;
       const failTimer = setTimeout(() => {

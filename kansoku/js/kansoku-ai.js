@@ -131,15 +131,28 @@ function KansokuAI(S) {
       if (W && W.w) for (let i = 0; i < Math.min(NF, W.w.length); i++) this.w[i] = W.w[i];
       this.gen = (W && W.gen) || 0;
       this.zero = this.w.every(v => v === 0);
-      // 手の並べ替え・静止探索の見積もりに使う駒の価値（評価値の単位）。学んだ重みから作る
+      // 手の並べ替え・静止探索の見積もり（SEE）に使う駒の価値（評価値の単位）。学んだ重みから作り、評価と同じ値にそろえる
+      //   確定した駒: その段の価値（det + psq。段は持ち主から見た向き）・量子駒: qrank（段）+ qcand（候補ごと）+ qprom
+      //   （det と psq は足すと同じになる組がいくつもあるので、det だけでは駒の価値にならない）
       const w = this.w, E = EVAL_SCALE;
-      this.handV = new Int32Array(8); this.poolV = new Int32Array(9); this.detV = new Int32Array(16);
+      this.handV = new Int32Array(8); this.poolV = new Int32Array(9);
       for (let t = 1; t <= 7; t++) { this.handV[t] = Math.round((w[F.hand + t - 1] + w[F.hand1 + t - 1] * 0.5) * E); this.poolV[t] = Math.round(w[F.pool + t - 1] * E); }
-      for (const t of DCODES) this.detV[t] = Math.round(w[F.det + DIDX[t]] * E);
-      // 量子駒を取るときに選ぶ正体の順（取ったときの得 = 持ち駒の価値 + 相手の残りから消える価値）
+      this.detRV = new Int32Array(16 * 9);
+      for (const t of DCODES) for (let r = 0; r < 9; r++) this.detRV[t * 9 + r] = Math.round((w[F.det + DIDX[t]] + w[F.psq + DIDX[t] * 9 + r]) * E);
+      this.qrankV = new Int32Array(9);
+      for (let r = 0; r < 9; r++) this.qrankV[r] = Math.round(w[F.qrank + r] * E);
+      this.qpromV = Math.round(w[F.qprom] * E);
+      this.qcandSum = new Int32Array(256);   // 候補の組（8ビット）ごとの qcand の合計
+      for (let m = 1; m < 256; m++) { let v = 0; for (let t = 1; t <= 8; t++) if (m & bitOf(t)) v += w[F.qcand + t - 1]; this.qcandSum[m] = Math.round(v * E); }
+      // 量子駒を取るときに選ぶ正体の順と、その正体を選んだときの上乗せ（持ち駒の価値 + 相手の残りから消える価値。負のこともある）
       this.measOrder = [1, 2, 3, 4, 5, 6, 7].sort((a, b) => (this.handV[b] + this.poolV[b]) - (this.handV[a] + this.poolV[a]));
       this.measGain = new Int32Array(8);
-      for (let t = 1; t <= 7; t++) this.measGain[t] = Math.max(0, this.handV[t] + this.poolV[t]);
+      for (let t = 1; t <= 7; t++) this.measGain[t] = this.handV[t] + this.poolV[t];
+      // 評価の大きさの目安（持ち駒の価値の平均 ÷ 200）。枝刈りの幅・評価のゆらぎ・序盤を散らす温度をこれに合わせる
+      // （学び直すと評価の大きさが変わる。幅を固定のままにすると、同じ形の評価でも読み方が変わって弱くなる）
+      let hm = 0;
+      for (let t = 1; t <= 7; t++) hm += this.handV[t];
+      this.k = Math.min(4, Math.max(0.25, hm / 7 / 200));
     }
   }
   const FIDX = new Int32Array(NF + 8), FVAL = new Float64Array(NF + 8);
@@ -227,9 +240,10 @@ function KansokuAI(S) {
     evaluate() {
       let v = evaluate(this.pos, this.W);
       if (this.noise) {
+        const nz = Math.max(1, Math.round(this.noise * this.W.k));
         let h = Math.imul(this.pos.h1 ^ this.salt, 0x9E3779B1) ^ this.pos.h2;
         h = Math.imul(h ^ (h >>> 15), 0x85EBCA77);
-        v += ((h >>> 8) % (2 * this.noise + 1)) - this.noise;
+        v += ((h >>> 8) % (2 * nz + 1)) - nz;
       }
       return v;
     }
@@ -257,42 +271,56 @@ function KansokuAI(S) {
       if (!pos.legalAfter()) { pos.unmake(); return false; }
       return true;
     }
-    // 取る手の得の見積もり（評価値の単位）
+    // 駒の価値（評価値の単位）: 持ち主 c の駒をマス sq に置いたとき、相手が取ると相手の評価がどれだけ上がるか
+    //   = 盤から消える価値（評価と同じ値）＋ 取った側の持ち駒の価値。量子駒は、取った側がいちばん得な正体（玉以外）を選ぶ
+    // 確定した駒（code は成りを含む種類）
+    detVal(code, c, sq) {
+      const y = (sq / 9) | 0, W = this.W;
+      return Math.max(0, W.detRV[code * 9 + (c === BLACK ? y : 8 - y)] + W.handV[unpromote(code)]);
+    }
+    // 量子駒（候補 mask・成っているか prom）
+    quVal(mask, prom, c, sq) {
+      const y = (sq / 9) | 0, W = this.W;
+      return Math.max(0, W.qcandSum[mask] + W.qrankV[c === BLACK ? y : 8 - y] + (prom ? W.qpromV : 0) + this.setV(mask));
+    }
+    // 取る手の得の見積もり（量子駒は、その手で宣言する正体 T で）
     capGain(m) {
       const s = this.pos.s, to = m & 127, q = s[to], W = this.W;
       if (!q) return 0;
-      const t = q & 15;
-      if (t === QU) { const T = (m >> 15) & 7; return W.measGain[T]; }
-      return Math.max(0, W.detV[t] + W.handV[unpromote(t)]);
+      const t = q & 15, c = q >> 4;
+      if (t === QU) {
+        const y = (to / 9) | 0, T = (m >> 15) & 7;
+        return Math.max(0, W.qcandSum[s[81 + to]] + W.qrankV[c === BLACK ? y : 8 - y] + (s[162 + to] ? W.qpromV : 0) + W.measGain[T]);
+      }
+      return this.detVal(t, c, to);
     }
-    // 量子駒の候補 m を取ったときに取った側が得る価値（一番高い正体を選ぶ）
+    // 量子駒の候補 m を取った側が正体を選んで足せる分（いちばん大きいもの。玉は選べない）
     setV(m) {
       const W = this.W;
-      let best = 0;
+      let best = -INF;
       m &= ~OUBIT;
       while (m) { const tt = lowType(m); m &= m - 1; if (W.measGain[tt] > best) best = W.measGain[tt]; }
-      return best;
+      return best === -INF ? 0 : best;
     }
-    // マス sq の駒を相手が取ったときに相手が得る価値（確定した玉は取れないので一番高く）
-    pieceV(sq) {
-      const s = this.pos.s, t = s[sq] & 15, W = this.W;
+    // マス sq の駒を相手が取ったときに相手が得る価値（確定した玉は取れないので一番高く）。at を渡すと、その駒がマス at に移ったときの価値
+    pieceV(sq, at = sq) {
+      const s = this.pos.s, p = s[sq], t = p & 15;
       if (t === OU) return 30000;
-      if (t === QU) return this.setV(s[81 + sq]);
-      return Math.max(0, W.detV[t] + W.handV[unpromote(t)]);
+      if (t === QU) return this.quVal(s[81 + sq], s[162 + sq], p >> 4, at);
+      return this.detVal(t, p >> 4, at);
     }
-    moverV(from) { const v = this.pieceV(from); return (this.pos.s[from] & 15) === QU && (this.pos.s[81 + from] & OUBIT) ? v + 200 : v; }
-    // 指したあとの動かした駒の価値（量子駒は絞られたあとの候補で）
+    moverV(from) { const v = this.pieceV(from); return (this.pos.s[from] & 15) === QU && (this.pos.s[81 + from] & OUBIT) ? v + Math.round(200 * this.W.k) : v; }
+    // 指したあとの動かした駒の価値（行った先の段で。量子駒は絞られたあとの候補で）
     valAfter(m) {
-      const pos = this.pos, s = pos.s, from = (m >> 7) & 127, p = s[from], t = p & 15, W = this.W, promo = (m >> 14) & 1;
+      const pos = this.pos, s = pos.s, from = (m >> 7) & 127, to = m & 127, p = s[from], t = p & 15, c = p >> 4, promo = (m >> 14) & 1;
       if (t === OU) return 30000;
       if (t === QU) {
-        const nm = pos.narrowed(m);
-        if (nm & (nm - 1)) return this.setV(nm);
-        const tt = lowType(nm), code = promo || pos.qp[from] ? tt + 8 : tt;
-        return tt === OU ? 30000 : Math.max(0, W.detV[code] + W.handV[tt]);
+        const nm = pos.narrowed(m), prom = promo || pos.qp[from];
+        if (nm & (nm - 1)) return this.quVal(nm, prom, c, to);
+        const tt = lowType(nm);
+        return tt === OU ? 30000 : this.detVal(prom ? tt + 8 : tt, c, to);
       }
-      const code = promo ? t + 8 : t;
-      return Math.max(0, W.detV[code] + W.handV[unpromote(code)]);
+      return this.detVal(promo ? t + 8 : t, c, to);
     }
     // 取り合いの見積もり（SEE）: その手で始まる取り合いを、両方が一番安い駒から取り返すとして読んだ得
     see(m) {
@@ -396,7 +424,7 @@ function KansokuAI(S) {
         if (!inCheck) {
           if (last >= 0 && (m & 127) !== last) continue;
           // 取っても届かない手・損な取り合い（SEE が負）は読まない。2手目からは得になる取り合いだけ
-          if (stand + this.capGain(m) + 300 < alpha && !((m >> 14) & 1)) continue;
+          if (stand + this.capGain(m) + 300 * this.W.k < alpha && !((m >> 14) & 1)) continue;
           const sv = this.see(m);
           if (sv < 0 || (qd >= 1 && sv <= 0)) continue;
         }
@@ -458,7 +486,7 @@ function KansokuAI(S) {
       this.evS[sp] = ev;
       const improving = !inCheck && sp >= 2 && ev > this.evS[sp - 2];
       if (!pvNode && !inCheck && !isMate(beta) && !this.W.zero) {
-        if (depth <= 5 && ev - (improving ? 100 : 140) * depth >= beta) return ev;
+        if (depth <= 5 && ev - (improving ? 100 : 140) * depth * this.W.k >= beta) return ev;
         if (nullOk && depth >= 3 && ev >= beta) {
           const R = 3 + (depth >> 2);
           pos.makeNull();
@@ -488,7 +516,7 @@ function KansokuAI(S) {
         const quiet = !cap && !promo;
         if (!pvNode && !inCheck && legal > 0 && quiet && best > -MATE_IN_MAX) {
           if (depth <= 4 && quiets >= (improving ? 8 : 5) + depth * depth * 3) break;
-          if (depth <= 3 && !this.W.zero && ev + 160 * depth + 80 <= alpha) break;
+          if (depth <= 3 && !this.W.zero && ev + (160 * depth + 80) * this.W.k <= alpha) break;
         }
         if (!this.makeLegal(m)) continue;
         legal++;
