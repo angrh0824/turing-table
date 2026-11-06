@@ -26,7 +26,7 @@
     { slug: 'gunjin', em: '兵', accent: '#5e6640', name: '軍人将棋', en: 'Gunjin Shogi' },
     { slug: 'kansoku', em: '量', accent: '#1b7f8c', name: '量子観測将棋', short: '量子観測', en: 'Quantum Kansoku Shogi', soon: 1, tagline: '動かすほど駒の正体が絞られ、確定した王を詰ませる自作の将棋' },
     { slug: 'goita', em: '能', accent: '#2b4a6f', name: 'ごいた', en: 'Goita', soon: 1, tagline: '能登に伝わる、将棋の駒で遊ぶ2対2の札あそび' },
-    { slug: 'dudo', em: '嘘', accent: '#8c2f4b', name: 'うそつきダイス', short: 'うそダイス', en: 'Dudo', soon: 1, tagline: '伏せたサイコロの数を言い合い、はったりを見抜く' },
+    { slug: 'dudo', em: '嘘', accent: '#8c2f4b', name: 'うそつきダイス', short: 'うそダイス', en: 'Dudo' },
   ];
   const BY = {};
   GAMES.forEach(g => { BY[g.slug] = g; });

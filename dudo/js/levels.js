@@ -1,0 +1,2 @@
+/* CPU の段階どうしの対戦の結果（train/levels.js が書き出す） */
+var DUDO_LEVELS = {"gen":15,"pairs":[{"a":"normal","b":"easy","games":240,"win":0.8167,"even":0.3611,"share":0.9007,"note":"第15世代の重み・2〜4人の卓で上の段を1席"},{"a":"strong","b":"normal","games":240,"win":0.5042,"even":0.3611,"share":0.6604,"note":"第15世代の重み・2〜4人の卓で上の段を1席"},{"a":"max","b":"strong","games":240,"win":0.9042,"even":0.3611,"share":0.9403,"note":"第15世代の重み・2〜4人の卓で上の段を1席"},{"a":"ultra","b":"max","games":240,"win":0.3708,"even":0.3611,"share":0.5139,"note":"第15世代の重み・2〜4人の卓で上の段を1席"}]};

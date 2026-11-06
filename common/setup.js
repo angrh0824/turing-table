@@ -15,6 +15,7 @@
     gungi: ['showEval', 'arrow'], reversi: ['showEval', 'best', 'nums'], renju: ['showEval', 'best', 'threat'], koikoi: ['wp', 'best'], holdem: ['eq', 'rec'],
     shogi: ['showEval', 'arrow'], chess: ['showEval', 'arrow'], mahjong: ['showEval', 'showWaits'], go: ['showEval', 'cands', 'own'], backgammon: ['showEval', 'arrow'],
     daifugo: ['showProb', 'showBest'], xiangqi: ['showEval', 'arrow'], yacht: ['ai'], amazons: ['showEval', 'terr', 'best'], gunjin: ['showEval', 'arrow'],
+    kansoku: ['showEval', 'arrow'], dudo: ['prob', 'rec'], goita: ['rec', 'count'],
   };
   const PFX = slug => (slug === 'backgammon' ? 'bg-' : slug + '-');   // ゲームが localStorage に使う頭の文字（バックギャモンだけ bg-）
   (() => {
@@ -359,6 +360,8 @@
       else if (SLUG === 'backgammon' && Array.isArray(g.games)) { n = g.games.reduce((a, x) => a + len(x && x.actions), 0); done = !!g.over; at = `第${(g.gi || 0) + 1}局`; }
       else if (SLUG === 'yacht' && g.g) { n = (g.g.round || 0) + ((g.g.rolls || 0) ? 1 : 0); done = !!g.g.over; at = `${Math.min(12, (g.g.round || 0) + 1)}/12ラウンド`; }
       else if (SLUG === 'holdem') { n = g.handNo || 0; done = !!g.over || !seats.length; at = n ? `${n}ハンド目` : ''; }
+      else if (SLUG === 'dudo' && g.g) { n = g.g.round || 0; done = !!g.g.over; at = n ? `第${n}ラウンド` : ''; }
+      else if (SLUG === 'goita' && g.m) { n = g.m.handNo || 0; done = !!g.m.over; at = n ? `第${n}手（${(g.m.scores || [0, 0]).join('対')}）` : ''; }
       if (!n) return null;   // まだ1手も進んでいない
       if (at && !/。$/.test(at)) at += 'の途中です。';
       return { done, at, who, watch };
