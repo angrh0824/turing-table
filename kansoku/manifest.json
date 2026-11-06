@@ -1,0 +1,20 @@
+{
+  "slug": "kansoku",
+  "name": "量子観測将棋",
+  "en": "Quantum Kansoku Shogi",
+  "tagline": "動かすほど駒の正体が絞られ、確定した玉を詰ませる。自己対局だけで育った AI と指す自作の将棋",
+  "players": "2",
+  "orientation": "both",
+  "status": "ready",
+  "ai": "自己対局だけで学んだ線形の評価（持ち駒・確定した駒・量子駒の残り・王の候補…）＋ αβ 探索",
+  "levels": [
+    "やさしい",
+    "ふつう",
+    "つよい",
+    "最強"
+  ],
+  "online": true,
+  "publish": [
+    "sw.js"
+  ]
+}

@@ -22,6 +22,7 @@ AI は人間が作ったエンジン・棋譜・定石集を使わず、ルー�
 - **ヨット**（1〜4人）: 昔から伝わるサイコロ遊び。5個のサイコロを3回まで振って12の役を埋める。ひとりで点数アタック、CPU や友だちと最大4人で → https://angrh0824.github.io/turing-table/yacht/
 - **アマゾンズ**（2人）: 動いて、矢を放ち、盤を区切る。自己対局だけで育った AI と陣地を奪い合う → https://angrh0824.github.io/turing-table/amazons/
 - **軍人将棋**（2人）: 駒の正体を隠したまま戦う、審判つきの昔の盤上遊戯。相手の駒を推理する AI と → https://angrh0824.github.io/turing-table/gunjin/
+- **量子観測将棋**（2人）: 動かすほど駒の正体が絞られ、確定した玉を詰ませる。自己対局だけで育った AI と指す自作の将棋 → https://angrh0824.github.io/turing-table/kansoku/
 - **ごいた**（4人）: 能登に伝わる、将棋の駒で遊ぶ2対2の札あそび。味方の CPU と組んで、先に150点 → https://angrh0824.github.io/turing-table/goita/
 - **うそつきダイス**（2〜6人）: 伏せたサイコロの数を言い合い、はったりを見抜く。自己対局だけで育った CPU と2〜6人で → https://angrh0824.github.io/turing-table/dudo/
 
