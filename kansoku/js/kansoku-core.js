@@ -3,19 +3,23 @@
  *
  * マス: sq = y*9 + x（x = 0 が 9筋・x = 8 が 1筋、y = 0 が一段目）。先手（▲）は下から上へ進む
  * 駒: 種類 t | 手番 c << 4。t は将棋と同じ（1 歩 2 香 3 桂 4 銀 5 金 6 角 7 飛 8 玉、成ると +8）、13 = 量子駒（正体が決まっていない駒）
- *   量子駒の候補は qs[sq]（種類 t をビット t-1 で表す。玉は 128）、成っているかは qp[sq]
- * 指し手: to | from << 7 | 成り << 14 | 観測 << 15（量子駒を取る手で、取った側が決める正体 1..7）。打つ手は from = 81 + 種類
+ *   量子駒の候補は qs[sq]（種類 t をビット t-1 で表す。玉は 128）、成っているかは qp[sq]、もとの持ち主（どちらの20枚の1枚か）は qo[sq]
+ *   量子の持ち駒（候補のまま持っている駒）は手番ごとの並び qh（値 = 候補 7ビット | もとの持ち主 << 7。小さい順）
+ * 指し手: to | from << 7 | 成り << 14。確定した駒を打つ手は from = 81 + 種類、量子の持ち駒を打つ手は
+ *   from = 89 + (値 >> 3)・(値 & 7) << 15（どの手も 18 ビットに収まる）
  *
  * 決まり（README と画面のルールにも同じことを書く）
  *  - 並びは平手の将棋と同じ。どの駒も最初は8種類すべての候補を持つ（各側に 玉1 飛1 角1 金2 銀2 桂2 香2 歩9）
  *  - 量子駒は候補のどれかの動きで動ける。動かすと、その動きができる種類だけが候補に残る
- *  - 各側の量子駒の候補は、まだ正体の決まっていない駒の数（残り）と割り当てが必ず合うように絞る（ホールの定理で、合わなくなる候補を全部消す）
+ *  - 各側の20枚の量子駒の候補は、まだ正体の決まっていない駒の数（残り）と割り当てが必ず合うように絞る（ホールの定理で、
+ *    合わなくなる候補を全部消す）。相手に取られて持ち駒・盤の駒になっていても、もとの持ち主の20枚として数える
  *  - 候補が1つになった駒は正体が決まる（確定）
  *  - 敵陣に入る・出る・中で動くときに成れる。成ると金・玉は候補から外れる。成らずに行き所のなくなる種類（最後の段の歩・香、最後の2段の桂）も外れる
- *  - 量子駒を取ると、取った側がその正体を決める（候補のうち玉以外）。決めた駒を持ち駒にする。決まった分だけ相手の残りの候補も絞られる
+ *  - 量子駒を取ると、玉ではないことだけが分かる（候補から玉が消える）。その駒は残りの候補のまま取った側の持ち駒になり、
+ *    打つと量子駒として盤に出る（行き所のなくなる種類は候補から外れる）。候補が1つになれば確定した持ち駒
  *  - 王手と詰みは玉が確定してから。確定した玉は取れず、王手を放っておく手は指せない。相手の確定した玉を詰ませたら勝ち
  *  - 量子駒の利きは、候補のどれか1つでも届くマス
- *  - 二歩は確定した歩だけで数える。打ち歩詰め・千日手（連続王手は王手をかけた側の負け）・手数制限は将棋と同じ
+ *  - 二歩・打ち歩詰めは確定した歩だけで数える。千日手（連続王手は王手をかけた側の負け）・手数制限は将棋と同じ
  */
 function KansokuCore(S) {
   'use strict';
@@ -29,11 +33,16 @@ function KansokuCore(S) {
   const MAX_GAME_PLY = 512;            // これを超えたら引き分け（手数制限）
   const MAXPLY = 1400;                 // 局面の履歴の長さ（対局＋探索）
   const ALLPROMO = 2, CAPS = 1;        // 指し手の生成のフラグ: 意味のない不成も出す / 取る手だけ
-  const mvTo = m => m & 127, mvFrom = m => (m >> 7) & 127, mvPromo = m => (m >> 14) & 1, mvMeas = m => (m >> 15) & 7;
+  const QDROP = 89;                    // 量子の持ち駒を打つ手の from の始まり（89..120）
+  const QHCAP = 38;                    // 量子の持ち駒の並びの長さ（玉以外の駒は両側で38枚）
+  const mvTo = m => m & 127, mvFrom = m => (m >> 7) & 127, mvPromo = m => (m >> 14) & 1;
   const isDrop = m => ((m >> 7) & 127) > 80;
-  const mvDrop = m => ((m >> 7) & 127) - 81;
-  const mkMove = (from, to, promo, meas) => to | (from << 7) | (promo << 14) | (meas << 15);
+  const isQDrop = m => ((m >> 7) & 127) >= QDROP;
+  const mvDrop = m => ((m >> 7) & 127) - 81;                                  // 確定した駒を打つ手の種類
+  const mvQV = m => ((((m >> 7) & 127) - QDROP) << 3) | ((m >> 15) & 7);     // 量子の持ち駒を打つ手の値（候補 | もとの持ち主 << 7）
+  const mkMove = (from, to, promo) => to | (from << 7) | ((promo ? 1 : 0) << 14);
   const mkDrop = (t, to) => to | ((81 + t) << 7);
+  const mkQDrop = (v, to) => to | ((QDROP + (v >> 3)) << 7) | ((v & 7) << 15);
   const canPromoteType = t => t <= 7 && t !== KI;
   const unpromote = t => (t > 8 && t !== QU ? t - 8 : t);
   const inZone = (c, y) => (c === BLACK ? y <= 2 : y >= 6);
@@ -121,10 +130,13 @@ function KansokuCore(S) {
   const ZH1 = mkZ(16 * 20), ZH2 = mkZ(16 * 20);          // 持ち駒
   const ZL1 = mkZ(18 * 10), ZL2 = mkZ(18 * 10);          // 残り（正体の決まっていない種類の数）
   const ZS1 = R() | 1, ZS2 = R();
+  const ZO1 = mkZ(81), ZO2 = mkZ(81);                    // 盤の量子駒のもとの持ち主が相手（取って打った駒）
+  const ZQH1 = mkZ(2 * QHCAP * 256), ZQH2 = mkZ(2 * QHCAP * 256);   // 量子の持ち駒（小さい順の並びの何番目に何があるか）
 
   // ------------------------------------------------------------------ 局面
   // 状態はひとつの Uint8Array に並べる（指すたびに丸ごと写して、戻すときは写しを戻す）
-  const QS = 81, QP = 162, HD = 243, PL = 259, KG = 277, NST = 280;
+  //   0 盤・81 候補・162 成り・243 持ち駒・259 残り・277 玉・280 もとの持ち主・361 量子の持ち駒の数・363 量子の持ち駒の並び
+  const QS = 81, QP = 162, HD = 243, PL = 259, KG = 277, QO = 280, QN = 361, QH = 363, NST = QH + 2 * QHCAP;
   const NONE = 255;
   const START_SQ = (() => {
     const out = [];
@@ -140,8 +152,11 @@ function KansokuCore(S) {
       this.qs = s.subarray(QS, QS + 81);
       this.qp = s.subarray(QP, QP + 81);
       this.hand = s.subarray(HD, HD + 16);    // hand[c*8 + t]（t = 1..7）
-      this.pool = s.subarray(PL, PL + 18);    // pool[c*9 + t]（t = 1..8）: c の量子駒にまだ割り当てていない種類の数
+      this.pool = s.subarray(PL, PL + 18);    // pool[c*9 + t]（t = 1..8）: c の20枚の量子駒にまだ割り当てていない種類の数
       this.kingA = s.subarray(KG, KG + 2);    // 確定した玉のマス（まだなら 255）
+      this.qo = s.subarray(QO, QO + 81);      // 盤の量子駒のもとの持ち主
+      this.qn = s.subarray(QN, QN + 2);       // 量子の持ち駒の数
+      this.qh = s.subarray(QH, QH + 2 * QHCAP); // 量子の持ち駒の並び qh[c*QHCAP + i]（値 = 候補 | もとの持ち主 << 7、小さい順）
       this.kingA.fill(NONE);
       this.stk = new Uint8Array(NST * (MAXPLY + 1));
       this.stm = BLACK;
@@ -151,6 +166,9 @@ function KansokuCore(S) {
       this.k1S = new Int32Array(MAXPLY + 1);
       this.k2S = new Int32Array(MAXPLY + 1);
       this.chkS = new Uint8Array(MAXPLY + 1);
+      // その手で割り当てがどうやっても合わなくなった（取った駒が玉でなければならなかった）。legalAfter で指せない手にする
+      this.badS = new Uint8Array(MAXPLY + 1);
+      this.bad = false;
       // 候補の絞り込みの作業用
       this.wHist = new Int32Array(256); this.wCnt = new Int32Array(256); this.wPool = new Int32Array(256);
       this.wTight = new Int32Array(256); this.wSq = new Int32Array(81); this.wR = new Int16Array(256);
@@ -158,7 +176,7 @@ function KansokuCore(S) {
     }
     static initial() {
       const p = new Position();
-      for (const [sq, c] of START_SQ) { p.board[sq] = QU | (c << 4); p.qs[sq] = ALLSET; }
+      for (const [sq, c] of START_SQ) { p.board[sq] = QU | (c << 4); p.qs[sq] = ALLSET; p.qo[sq] = c; }
       for (let c = 0; c < 2; c++) for (let t = 1; t <= 8; t++) p.pool[c * 9 + t] = START_COUNT[t];
       p.rehash();
       return p;
@@ -194,6 +212,25 @@ function KansokuCore(S) {
     get h2() { return this.k2S[this.ply]; }
     king(c) { const k = this.kingA[c]; return k === NONE ? -1 : k; }
     handCount(c, t) { return this.hand[c * 8 + t]; }
+    // c の量子の持ち駒の値の並び（小さい順。同じ値は同じ駒として扱う）
+    qHand(c) { return Array.from(this.qh.subarray(c * QHCAP, c * QHCAP + this.qn[c])); }
+    qHandCount(c, v) { let n = 0; for (let i = 0; i < this.qn[c]; i++) if (this.qh[c * QHCAP + i] === v) n++; return n; }
+    // 量子の持ち駒を足す・減らす（小さい順を保つ。使っていない場所は 0 のまま）
+    qhAdd(c, v) {
+      const s = this.s, b = QH + c * QHCAP, n = s[QN + c];
+      if (n >= QHCAP) throw new Error('量子の持ち駒が多すぎます');
+      let i = n;
+      while (i > 0 && s[b + i - 1] > v) { s[b + i] = s[b + i - 1]; i--; }
+      s[b + i] = v; s[QN + c] = n + 1;
+    }
+    qhRemove(c, v) {
+      const s = this.s, b = QH + c * QHCAP, n = s[QN + c];
+      let i = 0;
+      while (i < n && s[b + i] !== v) i++;
+      if (i === n) throw new Error('その量子の持ち駒はありません');
+      for (; i < n - 1; i++) s[b + i] = s[b + i + 1];
+      s[b + n - 1] = 0; s[QN + c] = n - 1;
+    }
     inCheck() { return this.chkS[this.ply] === 1; }
     isQ(sq) { return (this.board[sq] & 15) === QU; }
     // 盤の駒の候補（確定した駒は1種類だけのビット）
@@ -216,10 +253,15 @@ function KansokuCore(S) {
         if ((p & 15) === QU) {
           const z = ((p >> 4) * 2 + s[QP + sq]) * 81 + sq, zm = sq * 256 + s[QS + sq];
           h1 ^= ZQ1[z] ^ ZM1[zm]; h2 ^= ZQ2[z] ^ ZM2[zm];
+          if (s[QO + sq] !== (p >> 4)) { h1 ^= ZO1[sq]; h2 ^= ZO2[sq]; }
         } else { h1 ^= ZP1[p * 81 + sq]; h2 ^= ZP2[p * 81 + sq]; }
       }
       for (let i = 0; i < 16; i++) { const n = s[HD + i]; if (n) { h1 ^= ZH1[i * 20 + n]; h2 ^= ZH2[i * 20 + n]; } }
       for (let i = 0; i < 18; i++) { const n = s[PL + i]; if (n) { h1 ^= ZL1[i * 10 + n]; h2 ^= ZL2[i * 10 + n]; } }
+      for (let c = 0; c < 2; c++) for (let i = 0, n = s[QN + c]; i < n; i++) {
+        const z = (c * QHCAP + i) * 256 + s[QH + c * QHCAP + i];
+        h1 ^= ZQH1[z]; h2 ^= ZQH2[z];
+      }
       if (this.stm) { h1 ^= ZS1; h2 ^= ZS2; }
       this.k1S[this.ply] = h1; this.k2S[this.ply] = h2;
     }
@@ -231,16 +273,21 @@ function KansokuCore(S) {
     }
 
     // ---------------------------------------------------------------- 候補の絞り込み
-    // c の量子駒の候補から、残り（pool）との割り当てがどうやっても合わない種類を消す。
+    // もとの持ち主が X の量子駒（盤のどちらの駒でも・どちらの持ち駒でも）の候補から、X の残り（pool）との割り当てが
+    // どうやっても合わない種類を消す。
     // ホールの定理: 割り当てが合う ⇔ どの種類の組 U でも「候補が U の中に収まる駒の数 ≦ U の残りの数」。
     // 駒 p を種類 t にできない ⇔ 等号の U（ぎりぎりの組）で、t を含み、p の候補が U に収まらないものがある
-    propagate(c) {
+    propagate(X) {
       const s = this.s, hist = this.wHist, cnt = this.wCnt, pu = this.wPool, tight = this.wTight, sqs = this.wSq, rc = this.wR;
       hist.fill(0);
-      let nq = 0;
-      const code = QU | (c << 4);
-      for (let sq = 0; sq < 81; sq++) if (s[sq] === code) { hist[s[QS + sq]]++; sqs[nq++] = sq; }
-      if (!nq) return;
+      let nq = 0, nh = 0;
+      for (let sq = 0; sq < 81; sq++) if ((s[sq] & 15) === QU && s[QO + sq] === X) { hist[s[QS + sq]]++; sqs[nq++] = sq; }
+      for (let c = 0; c < 2; c++) for (let i = 0, b = QH + c * QHCAP, n = s[QN + c]; i < n; i++) {
+        const v = s[b + i];
+        if ((v >> 7) === X) { hist[v & 127]++; nh++; }
+      }
+      if (!nq && !nh) return;
+      const c = X;
       cnt.set(hist);
       for (let b = 1; b < 256; b <<= 1) for (let U = 0; U < 256; U++) if (U & b) cnt[U] += cnt[U ^ b];
       const pb = PL + c * 9;
@@ -249,11 +296,12 @@ function KansokuCore(S) {
       let nt = 0;
       for (let U = 1; U < 255; U++) {
         if (cnt[U] === pu[U]) tight[nt++] = U;
-        else if (cnt[U] > pu[U]) throw new Error('量子駒の割り当てが合いません');
+        // 合わない: 1手で同じ持ち主の駒が2枚同時に絞られたとき（動いた駒と、玉ではないと分かった取られた駒）だけ起きる。
+        // その手は「玉を取る手」と同じなので指せない（make が badS に印を付け、legalAfter が外す）
+        else if (cnt[U] > pu[U]) { this.bad = true; return; }
       }
       rc.fill(-1);
-      for (let i = 0; i < nq; i++) {
-        const sq = sqs[i], m = s[QS + sq];
+      const reduce = m => {
         let r = rc[m];
         if (r < 0) {
           r = 0;
@@ -261,19 +309,38 @@ function KansokuCore(S) {
           rc[m] = r;
         }
         const nm = m & ~r;
-        if (nm === m) continue;
         if (!nm) throw new Error('候補がなくなりました');
-        s[QS + sq] = nm;
-      }
-      // 候補が1つになった駒は確定させる
+        return nm;
+      };
+      for (let i = 0; i < nq; i++) { const sq = sqs[i]; s[QS + sq] = reduce(s[QS + sq]); }
+      // 候補が1つになった駒は確定させる（盤の駒は持ち主の駒に。玉の候補はもとの持ち主の盤の駒にしかない）
       for (let i = 0; i < nq; i++) {
         const sq = sqs[i], m = s[QS + sq];
         if (m & (m - 1)) continue;
-        const t = lowType(m);
-        s[sq] = codeOf(t, s[QP + sq]) | (c << 4);
-        s[QS + sq] = 0; s[QP + sq] = 0;
+        const t = lowType(m), owner = s[sq] >> 4;
+        s[sq] = codeOf(t, s[QP + sq]) | (owner << 4);
+        s[QS + sq] = 0; s[QP + sq] = 0; s[QO + sq] = 0;
         s[pb + t]--;
         if (t === OU) s[KG + c] = sq;
+      }
+      // 持ち駒: 絞って、候補が1つになったものは確定した持ち駒へ。並びは小さい順に直す
+      if (nh) for (let o = 0; o < 2; o++) {
+        const b = QH + o * QHCAP, n = s[QN + o];
+        let k = 0, touched = false;
+        const keep = [];
+        for (let i = 0; i < n; i++) {
+          const v = s[b + i];
+          if ((v >> 7) !== X) { keep.push(v); continue; }
+          const nm = reduce(v & 127);
+          if (nm !== (v & 127) || !(nm & (nm - 1))) touched = true;
+          if (nm & (nm - 1)) keep.push(nm | (X << 7));
+          else { const t = lowType(nm); s[HD + o * 8 + t]++; s[pb + t]--; }
+        }
+        if (!touched) continue;
+        keep.sort((a, b2) => a - b2);
+        for (; k < keep.length; k++) s[b + k] = keep[k];
+        for (let i = k; i < n; i++) s[b + i] = 0;
+        s[QN + o] = k;
       }
     }
 
@@ -299,38 +366,49 @@ function KansokuCore(S) {
       const i = this.ply, c = this.stm, s = this.s;
       this.stk.set(s, i * NST);
       this.mvS[i] = m;
+      this.bad = false;
       const to = m & 127, from = (m >> 7) & 127;
-      if (from > 80) {
+      if (from >= QDROP) {
+        // 量子の持ち駒を打つ: 量子駒として盤に出る（行き所のなくなる種類は候補から外れる）
+        const v = mvQV(m), mask = v & 127, o = v >> 7;
+        this.qhRemove(c, v);
+        const nm = mask & ~DEAD[c * 9 + ((to / 9) | 0)];
+        s[to] = QU | (c << 4); s[QS + to] = nm; s[QP + to] = 0; s[QO + to] = o;
+        if (nm !== mask) this.propagate(o);
+      } else if (from > 80) {
         const t = from - 81;
         s[HD + c * 8 + t]--;
         s[to] = t | (c << 4);
       } else {
         const p = s[from], cap = s[to];
-        let propOpp = false, propSelf = false;
+        let need = 0;   // 絞り込みが要る「もとの持ち主」（ビット）
         if (cap) {
           if ((cap & 15) === QU) {
-            const T = (m >> 15) & 7;
-            s[PL + (c ^ 1) * 9 + T]--; s[HD + c * 8 + T]++;
-            s[QS + to] = 0; s[QP + to] = 0;
-            propOpp = true;
+            // 量子駒を取る: 玉ではないことだけが分かる。残りの候補のまま持ち駒に（候補が1つなら確定した持ち駒）
+            const m0 = s[QS + to], mask = m0 & ~OUBIT, o = s[QO + to];
+            s[QS + to] = 0; s[QP + to] = 0; s[QO + to] = 0;
+            if (mask & (mask - 1)) this.qhAdd(c, mask | (o << 7));
+            else { const t = lowType(mask); s[HD + c * 8 + t]++; s[PL + o * 9 + t]--; }
+            if (mask !== m0) need |= 1 << o;
           } else s[HD + c * 8 + unpromote(cap & 15)]++;
         }
         const promo = (m >> 14) & 1;
         if ((p & 15) === QU) {
-          const mask = s[QS + from], P = s[QP + from];
+          const mask = s[QS + from], P = s[QP + from], o = s[QO + from];
           let nm = mask & this.moveMask(c, P, from, to);
           if (promo) nm &= PROMSET; else if (!P) nm &= ~DEAD[c * 9 + ((to / 9) | 0)];
-          s[from] = 0; s[QS + from] = 0; s[QP + from] = 0;
-          s[to] = p; s[QS + to] = nm; s[QP + to] = P | promo;
-          if (nm !== mask) propSelf = true;
+          s[from] = 0; s[QS + from] = 0; s[QP + from] = 0; s[QO + from] = 0;
+          s[to] = p; s[QS + to] = nm; s[QP + to] = P | promo; s[QO + to] = o;
+          if (nm !== mask) need |= 1 << o;
         } else {
           s[from] = 0;
           s[to] = promo ? p + 8 : p;
           if ((p & 15) === OU) s[KG + c] = to;
         }
-        if (propOpp) this.propagate(c ^ 1);
-        if (propSelf) this.propagate(c);
+        if (need & 1) this.propagate(0);
+        if ((need & 2) && !this.bad) this.propagate(1);
       }
+      this.badS[i + 1] = this.bad ? 1 : 0;
       this.stm = c ^ 1; this.ply = i + 1;
       this.hashNow();
       const k = s[KG + (c ^ 1)];
@@ -346,12 +424,13 @@ function KansokuCore(S) {
       const i = this.ply;
       this.stk.set(this.s, i * NST);
       this.mvS[i] = 0;
-      this.k1S[i + 1] = this.k1S[i] ^ ZS1; this.k2S[i + 1] = this.k2S[i] ^ ZS2; this.chkS[i + 1] = 0;
+      this.k1S[i + 1] = this.k1S[i] ^ ZS1; this.k2S[i + 1] = this.k2S[i] ^ ZS2; this.chkS[i + 1] = 0; this.badS[i + 1] = 0;
       this.stm ^= 1; this.ply = i + 1;
     }
     unmakeNull() { this.ply--; this.stm ^= 1; }
     // 直前に指した側の確定した玉が取られる形になっていないか（make の後に呼ぶ）
     legalAfter() {
+      if (this.badS[this.ply]) return false;
       const c = this.stm ^ 1, k = this.s[KG + c];
       return k === NONE || !this.attacked(k, this.stm);
     }
@@ -431,9 +510,8 @@ function KansokuCore(S) {
     }
 
     // ---------------------------------------------------------------- 指し手の生成
-    // 盤上の駒の手。flags: CAPS = 取る手だけ、ALLPROMO = 成れるのに成らない歩・角・飛も出す。
-    // meas: 量子駒を取るときの正体の選び方（null = 選べるものすべて、配列 = その順で最初に選べる1つだけ）
-    genBoard(out, n, flags, meas) {
+    // 盤上の駒の手。flags: CAPS = 取る手だけ、ALLPROMO = 成れるのに成らない歩・角・飛も出す
+    genBoard(out, n, flags) {
       const s = this.s, c = this.stm, caps = flags & CAPS;
       for (let from = 0; from < 81; from++) {
         const p = s[from];
@@ -450,7 +528,7 @@ function KansokuCore(S) {
               if (q && (q >> 4) === c) break;
               if (q || !caps) {
                 const nm = mask & (k ? TMF[tb + d] : TMN[tb + d]);
-                if (nm) n = this.addQ(out, n, from, to, nm, P, fz, q, flags, meas);
+                if (nm) n = this.addQ(out, n, from, to, nm, P, fz, q, flags);
               }
               if (q) break;
             }
@@ -460,7 +538,7 @@ function KansokuCore(S) {
             if (to < 0) continue;
             const q = s[to];
             if (q && (q >> 4) === c) continue;
-            if (q || !caps) n = this.addQ(out, n, from, to, KEBIT, 0, fz, q, flags, meas);
+            if (q || !caps) n = this.addQ(out, n, from, to, KEBIT, 0, fz, q, flags);
           }
           continue;
         }
@@ -472,7 +550,7 @@ function KansokuCore(S) {
           for (let k = 0; k < lim; k++) {
             const to = RAY[base * 8 + k], q = s[to];
             if (q && (q >> 4) === c) break;
-            if (q || !caps) n = this.addD(out, n, from, to, t, fz, q, flags, meas);
+            if (q || !caps) n = this.addD(out, n, from, to, t, fz, q, flags);
             if (q) break;
           }
         }
@@ -481,35 +559,21 @@ function KansokuCore(S) {
           if (to < 0) continue;
           const q = s[to];
           if (q && (q >> 4) === c) continue;
-          if (q || !caps) n = this.addD(out, n, from, to, t, fz, q, flags, meas);
+          if (q || !caps) n = this.addD(out, n, from, to, t, fz, q, flags);
         }
       }
       return n;
     }
-    // 取る駒が量子駒なら、正体の選び方ごとに手を作る
-    measChoices(to, meas) {
-      const q = this.s[to];
-      if (!q || (q & 15) !== QU) return 0;
-      const ms = this.s[QS + to] & ~OUBIT;
-      if (!meas) return ms;
-      for (let i = 0; i < meas.length; i++) if (ms & bitOf(meas[i])) return bitOf(meas[i]);
-      return ms & -ms;
-    }
-    addD(out, n, from, to, t, fz, q, flags, meas) {
+    addD(out, n, from, to, t, fz, q, flags) {
       if (q && (q & 15) === OU) return n;
       const c = this.stm, ty = (to / 9) | 0;
       const pr = canPromoteType(t) && (fz || inZone(c, ty));
       const np = pr ? !deadSq(c, t, ty) && ((flags & ALLPROMO) || !(ALWAYS_PROMOTE & bitOf(t))) : true;
-      let ms = this.measChoices(to, meas);
-      do {
-        const T = ms ? lowType(ms) : 0;
-        if (pr) out[n++] = mkMove(from, to, 1, T);
-        if (np) out[n++] = mkMove(from, to, 0, T);
-        ms &= ms - 1;
-      } while (ms);
+      if (pr) out[n++] = mkMove(from, to, 1);
+      if (np) out[n++] = mkMove(from, to, 0);
       return n;
     }
-    addQ(out, n, from, to, nm, P, fz, q, flags, meas) {
+    addQ(out, n, from, to, nm, P, fz, q, flags) {
       if (q && (q & 15) === OU) return n;
       const c = this.stm, ty = (to / 9) | 0;
       let pr = false, np = true;
@@ -518,34 +582,38 @@ function KansokuCore(S) {
         const keep = nm & ~DEAD[c * 9 + ty];
         np = keep !== 0 && ((flags & ALLPROMO) || (keep & ~ALWAYS_PROMOTE) !== 0);
       }
-      let ms = this.measChoices(to, meas);
-      do {
-        const T = ms ? lowType(ms) : 0;
-        if (pr) out[n++] = mkMove(from, to, 1, T);
-        if (np) out[n++] = mkMove(from, to, 0, T);
-        ms &= ms - 1;
-      } while (ms);
+      if (pr) out[n++] = mkMove(from, to, 1);
+      if (np) out[n++] = mkMove(from, to, 0);
       return n;
     }
-    // 打つ手（行き所のない駒・二歩（確定した歩だけ）・打ち歩詰めを除く）
+    // 打つ手。確定した持ち駒: 行き所のない駒・二歩（確定した歩だけ）・打ち歩詰めを除く。
+    // 量子の持ち駒: 同じ値は1つにまとめ、行き所のない種類を除いて候補が残るマスだけ（二歩・打ち歩詰めは確定した歩だけの決まり）
     genDrops(out, n) {
-      const s = this.s, c = this.stm, hb = HD + c * 8;
+      const s = this.s, c = this.stm, hb = HD + c * 8, qb = QH + c * QHCAP, qn = s[QN + c];
       let any = 0;
       for (let t = 1; t <= 7; t++) if (s[hb + t]) any |= 1 << t;
-      if (!any) return n;
+      if (!any && !qn) return n;
       let pawnFiles = 0;
       if (any & (1 << FU)) for (let sq = 0; sq < 81; sq++) if (s[sq] === (FU | (c << 4))) pawnFiles |= 1 << (sq % 9);
       const ek = s[KG + (c ^ 1)], pawnCheckSq = ek !== NONE ? ek + (c === BLACK ? 9 : -9) : -1;
       for (let to = 0; to < 81; to++) {
         if (s[to]) continue;
         const y = (to / 9) | 0;
-        for (let t = 1; t <= 7; t++) {
+        if (any) for (let t = 1; t <= 7; t++) {
           if (!((any >> t) & 1) || deadSq(c, t, y)) continue;
           if (t === FU) {
             if ((pawnFiles >> (to % 9)) & 1) continue;
             if (to === pawnCheckSq && this.isUchifuzume(to)) continue;
           }
           out[n++] = mkDrop(t, to);
+        }
+        if (qn) {
+          const dead = DEAD[c * 9 + y];
+          for (let i = 0; i < qn; i++) {
+            const v = s[qb + i];
+            if ((i && v === s[qb + i - 1]) || !(v & 127 & ~dead)) continue;
+            out[n++] = mkQDrop(v, to);
+          }
         }
       }
       return n;
@@ -625,10 +693,16 @@ function KansokuCore(S) {
       const m = this.mvS[this.ply - 1];
       return m ? m & 127 : -1;
     }
-    // 画面用の表記（▲７六量・△同角成・▲２二角＝飛（取った量子駒を飛と観測）・▲５五角打）。指す前の局面で呼ぶ
+    // 量子の持ち駒を打つ手の書き方の後ろ半分: 〔候補〕（もとの持ち主が打つ側なら「・自」）
+    qDropTag(m) {
+      const v = mvQV(m), ts = typesOf(v & 127).reverse();
+      return `〔${ts.map(t => NAME[t]).join('')}${(v >> 7) === this.stm ? '・自' : ''}〕`;
+    }
+    // 画面用の表記（▲７六量・△同角成・▲５五角打・▲５五量打〔飛角銀〕）。指す前の局面で呼ぶ
     moveText(m) {
       const c = this.stm, mark = c ? '△' : '▲';
       const to = mvTo(m), from = mvFrom(m), drop = isDrop(m);
+      if (isQDrop(m)) return mark + sqName(to) + '量打' + this.qDropTag(m);
       const t = drop ? mvDrop(m) : this.board[from] & 15;
       let s = mark + (this.lastTo() === to ? '同' : sqName(to)) + NAME[t];
       if (drop) {
@@ -639,7 +713,6 @@ function KansokuCore(S) {
       else s += `(${9 - (from % 9)}${((from / 9) | 0) + 1})`;
       if (mvPromo(m)) s += '成';
       else if (this.promoAsked(m)) s += '不成';
-      if (mvMeas(m)) s += '＝' + NAME[mvMeas(m)];
       return s;
     }
     // その手で成る・成らないを選べたか
@@ -676,9 +749,10 @@ function KansokuCore(S) {
       const same = others.filter(f => dirOf(f) === mine), pos2 = posOf(same);
       return pos2 === '直' ? '直' : pos2 + mine;
     }
-    // 棋譜ファイルの指し手（７六量(77)・同　角成(88)＝飛・５五角打）。指す前の局面で呼ぶ
+    // 棋譜ファイルの指し手（７六量(77)・同　角成(88)・５五角打・５五量打〔飛角銀〕）。指す前の局面で呼ぶ
     kifText(m) {
-      const c = this.stm, to = mvTo(m), from = mvFrom(m), drop = isDrop(m);
+      const to = mvTo(m), from = mvFrom(m), drop = isDrop(m);
+      if (isQDrop(m)) return sqName(to) + '量打' + this.qDropTag(m);
       const t = drop ? mvDrop(m) : this.board[from] & 15, nm = NAME[t];
       let s = this.lastTo() === to ? (nm.length === 1 ? '同　' : '同') : sqName(to);
       s += nm;
@@ -686,8 +760,6 @@ function KansokuCore(S) {
       if (mvPromo(m)) s += '成';
       else if (this.promoAsked(m)) s += '不成';
       s += `(${9 - (from % 9)}${((from / 9) | 0) + 1})`;
-      if (mvMeas(m)) s += '＝' + NAME[mvMeas(m)];
-      void c;
       return s;
     }
   }
@@ -704,7 +776,8 @@ function KansokuCore(S) {
     const d = game.date ? new Date(game.date) : new Date();
     const z = n => String(n).padStart(2, '0');
     const lines = ['# ---- チューリング・テーブル 量子観測将棋 棋譜ファイル ----',
-      '# 量子観測将棋はチューリング・テーブルの自作の将棋です（量は正体の決まっていない駒、＝のあとは取った駒の観測）',
+      '# 量子観測将棋はチューリング・テーブルの自作の将棋です（量は正体の決まっていない駒、〔〕は打った量子の持ち駒の候補・「自」はもとが自分の駒）',
+      '# ルール: 取った量子駒は候補のまま持ち駒になる版（2026-11-07 から）',
       `開始日時：${d.getFullYear()}/${z(d.getMonth() + 1)}/${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,
       '手合割：量子観測将棋',
       `先手：${(game.names && game.names[0]) || ''}`, `後手：${(game.names && game.names[1]) || ''}`,
@@ -720,7 +793,7 @@ function KansokuCore(S) {
     }
     return lines.join('\n') + '\n';
   }
-  // 棋譜ファイルを読む（この形式の「(77)」の元のマスと「＝」の観測で手を決める）
+  // 棋譜ファイルを読む（この形式の「(77)」の元のマスと、量子の持ち駒の「〔候補〕」で手を決める）
   function parseKIF(text) {
     const p = Position.initial(), moves = [];
     const digit = ch => '１２３４５６７８９'.indexOf(ch) + 1 || +ch;
@@ -736,17 +809,26 @@ function KansokuCore(S) {
         if (/^投了/.test(body)) result = { winner: p.stm ^ 1, reason: '投了' };
         break;
       }
-      const m2 = body.match(/^(?:([１-９1-9])([一二三四五六七八九1-9])|同\s*)(成香|成桂|成銀|[歩香桂銀金角飛玉と馬龍量])(成|不成|打)?(?:\((\d)(\d)\))?(?:＝([歩香桂銀金角飛]))?/);
-      if (!m2) throw new Error(`${moves.length + 1}手目「${body}」が読めません`);
-      const to = m2[1] ? (kanji(m2[2]) - 1) * 9 + (9 - digit(m2[1])) : p.lastTo();
-      if (to < 0) throw new Error(`${moves.length + 1}手目「${body}」: 「同」の前の手がありません`);
-      const fl = m2[4] || '';
+      if (/＝[歩香桂銀金角飛]/.test(body)) throw new Error(`${moves.length + 1}手目「${body}」: 取った駒の正体を選んでいた前のルールの棋譜は読めません`);
+      const qd = body.match(/^([１-９1-9])([一二三四五六七八九1-9])量打〔([歩香桂銀金角飛]+)(・自)?〕/);
       let m;
-      if (fl === '打') m = mkDrop(PT[m2[3]], to);
-      else {
-        if (!m2[5]) throw new Error(`${moves.length + 1}手目「${body}」: 元のマスがありません`);
-        const from = (+m2[6] - 1) * 9 + (9 - +m2[5]);
-        m = mkMove(from, to, fl === '成' ? 1 : 0, m2[7] ? PT[m2[7]] : 0);
+      if (qd) {
+        let mask = 0;
+        for (const ch of qd[3]) mask |= bitOf(PT[ch]);
+        const to = (kanji(qd[2]) - 1) * 9 + (9 - digit(qd[1]));
+        m = mkQDrop(mask | ((qd[4] ? p.stm : p.stm ^ 1) << 7), to);
+      } else {
+        const m2 = body.match(/^(?:([１-９1-9])([一二三四五六七八九1-9])|同\s*)(成香|成桂|成銀|[歩香桂銀金角飛玉と馬龍量])(成|不成|打)?(?:\((\d)(\d)\))?/);
+        if (!m2) throw new Error(`${moves.length + 1}手目「${body}」が読めません`);
+        const to = m2[1] ? (kanji(m2[2]) - 1) * 9 + (9 - digit(m2[1])) : p.lastTo();
+        if (to < 0) throw new Error(`${moves.length + 1}手目「${body}」: 「同」の前の手がありません`);
+        const fl = m2[4] || '';
+        if (fl === '打') m = mkDrop(PT[m2[3]], to);
+        else {
+          if (!m2[5]) throw new Error(`${moves.length + 1}手目「${body}」: 元のマスがありません`);
+          const from = (+m2[6] - 1) * 9 + (9 - +m2[5]);
+          m = mkMove(from, to, fl === '成' ? 1 : 0);
+        }
       }
       if (!p.legalMoves().includes(m)) throw new Error(`${moves.length + 1}手目「${body}」は指せない手です`);
       moves.push(m);
@@ -757,8 +839,8 @@ function KansokuCore(S) {
 
   Object.assign(S, {
     BLACK, WHITE, FU, KY, KE, GI, KI, KA, HI, OU, TO, NY, NK, NG, QU, UM, RY, MAX_GAME_PLY, MAXPLY, ALLPROMO, CAPS,
-    ALLSET, OUBIT, KEBIT, KIBIT, PROMSET, START_COUNT, NONE, NST,
-    mvTo, mvFrom, mvPromo, mvMeas, isDrop, mvDrop, mkMove, mkDrop, canPromoteType, unpromote, inZone, deadSq, bitOf, popcnt, lowType, typesOf, codeOf,
+    ALLSET, OUBIT, KEBIT, KIBIT, PROMSET, START_COUNT, NONE, NST, QS, QP, HD, PL, KG, QO, QN, QH, QHCAP, QDROP,
+    mvTo, mvFrom, mvPromo, isDrop, isQDrop, mvDrop, mvQV, mkMove, mkDrop, mkQDrop, canPromoteType, unpromote, inZone, deadSq, bitOf, popcnt, lowType, typesOf, codeOf,
     DX, DY, RAY, RAYLEN, KNT, STEP, SLIDE, USTEP, USLIDE, UKNIGHT, TMN, TMF, DEAD,
     Position, NAME, GLYPH, FW, KN, sqName, toKIF, parseKIF,
   });

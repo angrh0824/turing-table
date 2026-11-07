@@ -1,5 +1,6 @@
 /* 量子観測将棋 Webアプリ: 盤面UI・CPU（Web Worker）・形勢表示・棋譜・オンライン
- * 将棋の画面（../shogi/js/app.js）をもとに、量子駒の候補の表示・取ったときの観測・候補の絞り込みと確定の見せ方を足した */
+ * 将棋の画面（../shogi/js/app.js）をもとに、量子駒の候補の表示・候補のまま持つ持ち駒（量子の持ち駒）・候補の絞り込みと確定の見せ方を足した
+ * 2026-11-07: 取った量子駒は候補のまま持ち駒になるルールに（取るときに正体を選ぶメニューはなくなった） */
 (function () {
   'use strict';
   const K = {};
@@ -12,6 +13,8 @@
   const { Position, BLACK, WHITE, QU } = K;
   // 将棋の画面から引き継いだところのため（量子観測将棋に入玉宣言・手合割はない）
   const DECLARE = -1, HANDICAPS = { hirate: { name: '量子観測将棋' } };
+  // ルールの版: 2 = 取った量子駒は候補のまま持ち駒（2026-11-07 から）。保存した対局・オンラインの相手がこの版のときだけ続ける
+  const RULES_V = 2;
   const PC = KansokuPieces;
   const $ = id => document.getElementById(id);
   const FW = K.FW, KN = K.KN;
@@ -212,7 +215,7 @@
 
   function saveGame() {
     const online = S.online ? { gid: S.online.gid, myColor: S.online.myColor, opp: S.online.opp, myHints: S.online.myHints } : null;
-    store.set('game', { gid: S.gid, handicap: S.handicap, seats: S.seats, moves: S.moves, result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
+    store.set('game', { rv: RULES_V, gid: S.gid, handicap: S.handicap, seats: S.seats, moves: S.moves, result: S.result, flip: S.flip, evals: S.evals.map(v => (v == null ? null : Math.round(v))), online });
   }
 
   function rebuild(n) {
@@ -337,13 +340,31 @@
   function selectSq(sq) { S.sel = { sq }; S.targets = collectTargets(m => !K.isDrop(m) && K.mvFrom(m) === sq); renderBoard(); renderPlayers(); renderSqInfo(); }
   function selectHand(t, keep) {
     S.sel = { hand: t }; S.inspect = -1;
-    S.targets = collectTargets(m => K.isDrop(m) && K.mvDrop(m) === t);
+    S.targets = collectTargets(m => dropMatch(m, t));
     renderBoard(); if (keep) markHand(); else renderPlayers(); renderSqInfo();
   }
 
   const NAMES = ['', '歩兵', '香車', '桂馬', '銀将', '金将', '角行', '飛車', '玉将', 'と金', '成香', '成桂', '成銀', '量子駒', '竜馬', '竜王'];
   const short = t => K.NAME[t];
   const komaHTML = (t, rot, cls = 'koma', c = 0) => `<span class="${cls}">${PC.koma(t, rot, { king: c ? '王' : '玉' })}</span>`;
+  // 持ち駒の印（data-hand・選んだ持ち駒）: 確定した駒は種類 t（1..7）、量子の持ち駒は 256 + 値（候補 | もとの持ち主 << 7）
+  const QHK = 256;
+  const isQKey = k => k >= QHK;
+  const dropKey = m => (K.isQDrop(m) ? QHK + K.mvQV(m) : K.mvDrop(m));
+  const dropMatch = (m, k) => K.isDrop(m) && dropKey(m) === k;
+  const handKoma = (k, rot, cls = 'koma', c = 0, detail = false) => (isQKey(k) ? `<span class="${cls}">${PC.qkoma((k - QHK) & 127, 0, rot, { king: c ? '王' : '玉', detail })}</span>` : komaHTML(k, rot, cls, c));
+  const qCandText = m => K.typesOf(m & 127).reverse().map(t => K.NAME[t]).join('・');
+  // c が持っている持ち駒 k の名前（量子の持ち駒は候補と、もとが自分の駒かどうか）
+  const handName = (k, c) => (isQKey(k) ? `量子駒（候補 ${qCandText(k - QHK)}${((k - QHK) >> 7) === c ? '・もとは自分の駒' : ''}）` : NAMES[k]);
+  const handN = (pos, c, k) => (isQKey(k) ? pos.qHandCount(c, k - QHK) : pos.handCount(c, k));
+  // 駒台に並べる順: 確定した駒（飛..歩）、そのあと量子の持ち駒（候補の多い順）
+  function handKeys(pos, c) {
+    const out = [];
+    for (const t of [K.HI, K.KA, K.KI, K.GI, K.KE, K.KY, K.FU]) if (pos.handCount(c, t)) out.push(t);
+    const qs = [...new Set(pos.qHand(c))].sort((a, b) => K.popcnt(b & 127) - K.popcnt(a & 127) || b - a);
+    for (const v of qs) out.push(QHK + v);
+    return out;
+  }
   // 盤の駒の絵（量子駒は候補の字を並べた駒）
   function pieceHTML(pos, sq, rot, cls = 'koma', detail = false) {
     const p = pos.board[sq], c = p >> 4;
@@ -360,7 +381,7 @@
     const p = pos.board[sq], c = p >> 4;
     if ((p & 15) !== QU) return `${sideName(c)}の${NAMES[p & 15]}`;
     const m = pos.qs[sq];
-    return `${sideName(c)}の量子駒${pos.qp[sq] ? '（成）' : ''}（候補 ${K.typesOf(m).reverse().map(t => tName(t, c, pos.qp[sq])).join('・')}）`;
+    return `${sideName(c)}の量子駒${pos.qp[sq] ? '（成）' : ''}（候補 ${K.typesOf(m).reverse().map(t => tName(t, c, pos.qp[sq])).join('・')}${pos.qo[sq] !== c ? `・もとは${sideName(pos.qo[sq])}の駒` : ''}）`;
   }
   // 王の候補の数（確定していれば「玉確定」）
   function kcHTML(pos, c) {
@@ -374,30 +395,39 @@
     const k = pos.king(c);
     if (!n) return `<span>量子駒はもうありません（すべての駒の正体が決まりました）</span>`;
     const parts = [8, 7, 6, 5, 4, 3, 2, 1].filter(t => pos.pool[c * 9 + t]).map(t => `${tName(t, c, 0)}${pos.pool[c * 9 + t]}`);
-    return `<span>量子駒 <b>${n}枚</b>の残り</span><span>${parts.join(' ')}</span><span>${k >= 0 ? `${c ? '王' : '玉'}は確定（${sqLabel(k)}）` : `王の候補 <b>${pos.kingCands(c).length}枚</b>`}</span>`;
+    // もとは c の駒で、いまは相手が持っている量子駒（相手の持ち駒・相手が打った駒）
+    let away = pos.qHand(c ^ 1).filter(v => (v >> 7) === c).length;
+    for (let sq = 0; sq < 81; sq++) if ((pos.board[sq] & 15) === QU && pos.qo[sq] === c && (pos.board[sq] >> 4) !== c) away++;
+    return `<span>量子駒 <b>${n}枚</b>の残り${away ? `（うち${away}枚は${sideName(c ^ 1)}が持っている）` : ''}</span><span>${parts.join(' ')}</span><span>${k >= 0 ? `${c ? '王' : '玉'}は確定（${sqLabel(k)}）` : `王の候補 <b>${pos.kingCands(c).length}枚</b>`}</span>`;
   }
 
   // ------------------------------------------------------------------ 量子駒の候補の変化（指すたびに）
-  function snapQ(pos) { return { board: pos.board.slice(), qs: pos.qs.slice(), qp: pos.qp.slice(), king: [pos.king(0), pos.king(1)] }; }
+  const poolSum = pos => { let n = 0; for (let i = 0; i < 18; i++) n += pos.pool[i]; return n; };
+  function snapQ(pos) { return { board: pos.board.slice(), qs: pos.qs.slice(), qp: pos.qp.slice(), qo: pos.qo.slice(), king: [pos.king(0), pos.king(1)], pool: poolSum(pos) }; }
   // その手で起きたことの短い説明（情報の行・見返しに出す。HTML）
   function noteOf(b, pos, m) {
     const out = [];
-    const drop = K.isDrop(m), from = drop ? -1 : K.mvFrom(m), to = K.mvTo(m);
-    if (!drop) {
-      const p0 = b.board[from], c = p0 >> 4;
-      if ((p0 & 15) === QU) {
-        const a = pos.board[to], t = a & 15;
-        if (t === QU) { if (pos.qs[to] !== b.qs[from]) out.push(`候補 ${candHTML(pos.qs[to], pos.qp[to], c)}`); }
-        else out.push(`<b>${t === 8 ? (c ? '王' : '玉') : K.NAME[t]}に確定</b>`);
+    const drop = K.isDrop(m), from = drop ? -1 : K.mvFrom(m), to = K.mvTo(m), c = drop ? pos.stm ^ 1 : b.board[from] >> 4;
+    let shown = 0;   // 下の「つじつまで N 枚が確定」から除く、ここで書いた確定
+    const after = (sq, prevMask) => {
+      const a = pos.board[sq], t = a & 15;
+      if (t === QU) { if (pos.qs[sq] !== prevMask) out.push(`候補 ${candHTML(pos.qs[sq], pos.qp[sq], c)}`); }
+      else { out.push(`<b>${t === 8 ? (c ? '王' : '玉') : K.NAME[t]}に確定</b>`); shown++; }
+    };
+    if (K.isQDrop(m)) after(to, K.mvQV(m) & 127);
+    else if (!drop) {
+      const p0 = b.board[from];
+      if ((p0 & 15) === QU) after(to, b.qs[from]);
+      const cp = b.board[to];
+      if ((cp & 15) === QU) {
+        // 取った量子駒: 玉ではないと分かり、残りの候補のまま持ち駒に（候補が1つなら確定した持ち駒）
+        const victim = cp >> 4, mask = b.qs[to] & ~K.OUBIT;
+        const kn = b.qs[to] & K.OUBIT ? `（${victim ? '王' : '玉'}ではなかった）` : '';
+        if (mask & (mask - 1)) out.push(`取った駒は候補 ${candHTML(mask, 0, victim)} のまま持ち駒に${kn}`);
+        else { out.push(`取った駒は<b>${K.NAME[K.lowType(mask)]}に確定</b>${kn}`); shown++; }
       }
-      if (K.mvMeas(m)) out.push(`取った駒を<b>${K.NAME[K.mvMeas(m)]}</b>と観測`);
     }
-    let others = 0;
-    for (let sq = 0; sq < 81; sq++) {
-      if (sq === from || sq === to || (b.board[sq] & 15) !== QU) continue;
-      const p = pos.board[sq];
-      if (p && (p & 15) !== QU && (p >> 4) === (b.board[sq] >> 4)) others++;
-    }
+    const others = Math.max(0, b.pool - poolSum(pos) - shown);
     if (others) out.push(`つじつまで${others}枚が確定`);
     for (const c of [BLACK, WHITE]) if (b.king[c] < 0 && pos.king(c) >= 0) out.push(`<b style="color:var(--q-king)">${sideName(c)}の${c ? '王' : '玉'}が確定</b>（${sqLabel(pos.king(c))}）`);
     return out.join('・');
@@ -434,14 +464,12 @@
     }
     if (fx.kings.length) clack('cap');
   }
-  // 成る・成らない、取った量子駒の正体（観測）を選ぶ小さなメニュー（マスの横に）
+  // 成る・成らないを選ぶ小さなメニュー（マスの横に）
   function showChooser(sq, ms) {
     const pos = S.pos, from = K.mvFrom(ms[0]), p = pos.board[from], t = p & 15, c = p >> 4, rot = c === topColor();
     const promos = [...new Set(ms.map(K.mvPromo))].sort((a, b) => b - a);
-    const meases = [...new Set(ms.map(K.mvMeas))].filter(Boolean);
     const box = document.createElement('div');
     box.className = 'choose'; box.id = 'chooser'; box.setAttribute('role', 'menu');
-    let promo = promos[0];
     // 動いたあとの自分の駒の絵（量子駒は絞られたあとの候補で）
     const after = pr => {
       if (t !== QU) return komaHTML(pr ? t + 8 : t, rot, 'koma minik', c);
@@ -451,19 +479,10 @@
       return komaHTML(P && tt !== 8 ? tt + 8 : tt, rot, 'koma minik', c);
     };
     const draw = () => {
-      let html = '';
-      if (meases.length) {
-        html += `<div class="ttl">${sqLabel(sq)}の量子駒を取ります</div>`;
-        if (promos.length > 1) html += `<div class="seg2">${promos.map(pr => `<button type="button" data-pr="${pr}" aria-pressed="${pr === promo}">${after(pr)}<span>${pr ? '成る' : '成らない'}</span></button>`).join('')}</div>`;
-        html += `<div class="sub">取った駒の正体を決めてください（玉以外の候補から）。その駒があなたの持ち駒になり、相手の残りから1枚消えます</div><div class="types">`;
-        for (const T of [7, 6, 5, 4, 3, 2, 1]) if (meases.includes(T)) html += `<button type="button" data-meas="${T}" role="menuitem">${komaHTML(T, false, 'koma minik', c)}<span>${K.NAME[T]}</span></button>`;
-        html += '</div>';
-      } else {
-        html += `<div class="ttl">${sqLabel(sq)}へ　成りますか？</div><div class="opts">`;
-        for (const pr of promos) html += `<button type="button" class="${pr ? 'act' : ''}" data-go="${pr}" role="menuitem">${after(pr)}<span>${pr ? '成る' : '成らない'}</span></button>`;
-        html += '</div>';
-        if (t === QU && promos.includes(1)) html += '<div class="sub">成ると、金と玉は候補から外れます</div>';
-      }
+      let html = `<div class="ttl">${sqLabel(sq)}へ　成りますか？</div><div class="opts">`;
+      for (const pr of promos) html += `<button type="button" class="${pr ? 'act' : ''}" data-go="${pr}" role="menuitem">${after(pr)}<span>${pr ? '成る' : '成らない'}</span></button>`;
+      html += '</div>';
+      if (t === QU && promos.includes(1)) html += '<div class="sub">成ると、金と玉は候補から外れます</div>';
       html += '<button type="button" class="quiet" data-q="1">やめる</button>';
       box.innerHTML = html;
     };
@@ -473,10 +492,7 @@
       const b = e.target.closest('button');
       if (!b) return;
       if (b.dataset.q) { hideChooser(); return; }
-      if (b.dataset.pr != null) { promo = Number(b.dataset.pr); draw(); return; }
-      let m = 0;
-      if (b.dataset.meas) m = ms.find(x => K.mvMeas(x) === Number(b.dataset.meas) && K.mvPromo(x) === promo);
-      else if (b.dataset.go != null) m = ms.find(x => K.mvPromo(x) === Number(b.dataset.go));
+      const m = b.dataset.go != null ? ms.find(x => K.mvPromo(x) === Number(b.dataset.go)) : 0;
       if (m) { hideChooser(); play(m); }
     });
     S.pending = sq;
@@ -568,13 +584,12 @@
         st = S.result.winner === c ? '<span class="think" style="color:var(--good)">勝ち</span>' : S.result.winner === -1 ? '<span class="think">引き分け</span>' : '<span class="think" style="color:var(--muted)">負け</span>';
       }
       let hand = '';
-      for (const t of [K.HI, K.KA, K.KI, K.GI, K.KE, K.KY, K.FU]) {
-        const n = pos.handCount(c, t);
-        if (!n) continue;
-        const sel = live() && S.sel && S.sel.hand === t && pos.stm === c;
-        const usable = can && S.legal.some(m => K.isDrop(m) && K.mvDrop(m) === t);
-        // 打てない持ち駒も押せる（押すと両者の持ち駒の一覧が開く）
-        hand += `<button class="hp${sel ? ' sel' : ''}${usable ? '' : ' off'}" data-hand="${t}" data-color="${c}"${usable ? '' : ' aria-disabled="true"'} aria-label="${sideName(c)}の持ち駒 ${NAMES[t]} ${n}枚" title="${NAMES[t]}">${komaHTML(t, c === tc, 'koma', c)}${n > 1 ? `<span class="n">${n}</span>` : ''}</button>`;
+      for (const k of handKeys(pos, c)) {
+        const n = handN(pos, c, k), nm = handName(k, c);
+        const sel = live() && S.sel && S.sel.hand === k && pos.stm === c;
+        const usable = can && S.legal.some(m => dropMatch(m, k));
+        // 打てない持ち駒も押せる（押すと両者の持ち駒の一覧が開く）。量子の持ち駒は候補の字の駒
+        hand += `<button class="hp${isQKey(k) ? ' q' : ''}${sel ? ' sel' : ''}${usable ? '' : ' off'}" data-hand="${k}" data-color="${c}"${usable ? '' : ' aria-disabled="true"'} aria-label="${sideName(c)}の持ち駒 ${nm} ${n}枚" title="${nm}">${handKoma(k, c === tc, 'koma', c)}${n > 1 ? `<span class="n">${n}</span>` : ''}</button>`;
       }
       const on = S.online;
       const nm = on ? (c === on.myColor ? 'あなた' : esc(on.opp.name)) : sideName(c);
@@ -644,7 +659,7 @@
     let preview = null, reach = null;
     if (S.inspect >= 0 && pos.board[S.inspect]) reach = new Set(pos.reach(S.inspect));
     else if (settings.reach && !S.sel) {
-      if (S.hoverHand && humanTurn()) preview = new Set(S.legal.filter(m => K.isDrop(m) && K.mvDrop(m) === S.hoverHand).map(K.mvTo));
+      if (S.hoverHand && humanTurn()) preview = new Set(S.legal.filter(m => dropMatch(m, S.hoverHand)).map(K.mvTo));
       else if (S.hover >= 0 && pos.board[S.hover]) {
         const p = pos.board[S.hover];
         if (humanTurn() && (p >> 4) === pos.stm && canMoveFrom(S.hover)) preview = new Set(S.legal.filter(m => !K.isDrop(m) && K.mvFrom(m) === S.hover).map(K.mvTo));
@@ -686,7 +701,7 @@
       html = `${miniSq(pos, S.sel.sq)}<span class="txt"><b>${pieceTitle(pos, S.sel.sq)}</b>${qinfo(S.sel.sq)}　<span class="muted">行き先${S.targets.size}${cap ? `・取る${cap}` : ''}</span></span>`;
       tools = x;
     } else if (live() && S.sel && S.sel.hand) {
-      html = `${komaHTML(S.sel.hand, c === topColor(), 'koma minik', c)}<span class="txt"><b>${NAMES[S.sel.hand]}</b>を打つマスを選んでください</span>`;
+      html = `${handKoma(S.sel.hand, c === topColor(), 'koma minik', c)}<span class="txt"><b>${handName(S.sel.hand, c)}</b>を打つマスを選んでください${isQKey(S.sel.hand) ? '<span class="muted">（量子駒のまま盤に出ます）</span>' : ''}</span>`;
       tools = x;
     } else if (S.inspect >= 0 && pos.board[S.inspect]) {
       html = `${miniSq(pos, S.inspect)}<span class="txt"><b>${pieceTitle(pos, S.inspect)}</b>${qinfo(S.inspect)} の利き</span>`;
@@ -777,7 +792,7 @@
     const [tx, ty] = cxy(K.mvTo(m));
     const drop = K.isDrop(m), cap = !drop && pos.board[K.mvTo(m)];
     const col = cap ? '#c8321e' : '#2e8c50';
-    const label = drop ? `打・${K.NAME[K.mvDrop(m)]}` : [K.mvPromo(m) ? '成' : '', K.mvMeas(m) ? `取→${K.NAME[K.mvMeas(m)]}` : ''].filter(Boolean).join('・');
+    const label = drop ? `打・${K.isQDrop(m) ? '量' : K.NAME[K.mvDrop(m)]}` : K.mvPromo(m) ? '成' : '';
     let html = `<defs><marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="3.2" markerHeight="3.2" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${col}"/></marker></defs>`;
     if (drop) html += `<ellipse cx="${tx}" cy="${ty}" rx="42" ry="46" fill="none" stroke="${col}" stroke-width="6" stroke-dasharray="10 7" opacity=".95"/>`;
     else {
@@ -912,12 +927,18 @@
     const pos = S.pos, to = K.mvTo(m);
     let rect = at; // つかんで置いたときは、離したところから吸い付かせる
     if (!rect) {
-      const el = K.isDrop(m) ? document.querySelector(`.hp[data-hand="${K.mvDrop(m)}"][data-color="${pos.stm}"] .koma`) : sqEl(K.mvFrom(m)).querySelector('.koma');
+      const el = K.isDrop(m) ? document.querySelector(`.hp[data-hand="${dropKey(m)}"][data-color="${pos.stm}"] .koma`) : sqEl(K.mvFrom(m)).querySelector('.koma');
       if (el) rect = el.getBoundingClientRect();
     }
     const cp = K.isDrop(m) ? 0 : pos.board[to], ce = cp ? sqEl(to).querySelector('.koma') : null;
-    const meas = cp && (cp & 15) === QU ? K.mvMeas(m) : 0;
-    return { rect, to, promo: !K.isDrop(m) && !!K.mvPromo(m), cap: ce ? { t: meas || unpromote(cp & 15), c: pos.stm, rect: ce.getBoundingClientRect(), meas } : null };
+    // 取った駒が着く駒台の印（量子駒は玉の候補を外した候補のまま。候補が1つなら確定した駒）
+    let key = 0, notKing = false;
+    if (cp && (cp & 15) === QU) {
+      const mask = pos.qs[to] & ~K.OUBIT;
+      key = mask & (mask - 1) ? QHK + (mask | (pos.qo[to] << 7)) : K.lowType(mask);
+      notKing = !!(pos.qs[to] & K.OUBIT);
+    } else if (cp) key = unpromote(cp & 15);
+    return { rect, to, promo: !K.isDrop(m) && !!K.mvPromo(m), cap: ce ? { t: key, c: pos.stm, rect: ce.getBoundingClientRect(), notKing } : null };
   }
   function runAnim(a, kind) {
     const el = sqEl(a.to).querySelector('.koma');
@@ -928,7 +949,8 @@
     if (a.cap) {
       const h = document.querySelector(`.hp[data-hand="${a.cap.t}"][data-color="${a.cap.c}"] .koma`);
       if (h) Promise.resolve(TM.fly(h, a.cap.rect, { arc: true, delay: 80 })).then(() => {
-        if (a.cap.meas && h.isConnected) { TM.pop(h, 'glow'); TM.float(`${K.NAME[a.cap.meas]}と観測`, h, { size: 14, color: 'var(--q-edge)', ms: 1200 }); }
+        // 王の候補だった駒を取ったときは「玉（王）ではなかった」
+        if (a.cap.notKing && h.isConnected) { TM.pop(h, 'glow'); TM.float(`${a.cap.c ? '玉' : '王'}ではなかった`, h, { size: 14, color: 'var(--q-edge)', ms: 1200 }); }
       });
     }
   }
@@ -982,7 +1004,11 @@
           inner = PC.qkoma(pos.qs[sq], pos.qp[sq], (p >> 4) === topColor(), { king: p >> 4 ? '王' : '玉', detail: true });
         } else if (p) cap = `${sideName(p >> 4)}の${NAMES[p & 15]}`;
       }
-      else if (hp) { const c = Number(hp.dataset.color), t = Number(hp.dataset.hand); cap = `${sideName(c)}の持ち駒 ${NAMES[t]} ${shownPos().handCount(c, t)}枚`; }
+      else if (hp) {
+        const c = Number(hp.dataset.color), k = Number(hp.dataset.hand);
+        cap = `${sideName(c)}の持ち駒 ${handName(k, c)} ${handN(shownPos(), c, k)}枚`;
+        if (isQKey(k)) inner = PC.qkoma((k - QHK) & 127, 0, false, { king: c ? '王' : '玉', detail: true });
+      }
       d.className = 'peek-koma';
       d.style.width = r.width + 'px';
       d.innerHTML = `<span class="koma" style="width:${r.width}px;height:${r.height}px">${inner}</span>${cap ? `<span class="cap" style="font-size:${Math.max(3, r.width / 6.5).toFixed(1)}px">${esc(cap)}</span>` : ''}`;
@@ -998,11 +1024,13 @@
     let html = '';
     for (const c of [tc, tc ^ 1]) {
       let items = '', total = 0;
-      for (const t of [K.HI, K.KA, K.KI, K.GI, K.KE, K.KY, K.FU]) {
-        const n = pos.handCount(c, t);
-        if (!n) continue;
+      for (const k of handKeys(pos, c)) {
+        const n = handN(pos, c, k);
         total += n;
-        items += `<div class="hd-p" data-hand="${t}" data-color="${c}">${komaHTML(t, false, 'koma', c)}<b>${NAMES[t]}</b><span>${n}枚</span></div>`;
+        if (isQKey(k)) {
+          const v = k - QHK;
+          items += `<div class="hd-p q" data-hand="${k}" data-color="${c}">${handKoma(k, false, 'koma', c, true)}<b>量子駒</b><span>${candHTML(v & 127, 0, c)}${(v >> 7) === c ? '<small>もとは自分の駒</small>' : ''}</span><span>${n}枚</span></div>`;
+        } else items += `<div class="hd-p" data-hand="${k}" data-color="${c}">${komaHTML(k, false, 'koma', c)}<b>${NAMES[k]}</b><span>${n}枚</span></div>`;
       }
       html += `<div class="hd-side"><div class="hd-head">${MARK[c]}${sideName(c)}（${S.online ? (c === S.online.myColor ? 'あなた' : esc(S.online.opp.name) + 'さん') : seatLabel(c)}）<span>${total ? `持ち駒${total}枚` : ''}</span></div><div class="hd-list">${items || '<span class="empty-note">持ち駒なし</span>'}</div><div class="hd-pool">${poolHTML(pos, c)}</div></div>`;
     }
@@ -1138,23 +1166,25 @@
         <ul>
           <li>縁が青緑の駒が量子駒。駒に並んでいる字が<b>候補</b>（その駒がなりうる種類）です。候補が多いときは「？」と数で表し、王の候補なら赤い「玉（王）」が付きます。盤が大きいとき・長押ししたとき・設定でオンにしたときは全部の字を出します。</li>
           <li>動かしたときに残る候補の例:<br>${ex(B(1) | B(2) | B(4) | B(5) | B(8) | B(7), '1マス前')}${ex(B(2) | B(7), '2マス以上まっすぐ前')}${ex(B(5) | B(8) | B(7), '1マス横')}${ex(B(4) | B(8) | B(6), '1マス斜め後ろ')}<br>斜めに2マス以上なら角に、桂の跳び方をすれば桂に確定します。</li>
-          <li><b>枚数のつじつま</b>: 各側の種類ごとの枚数は決まっているので、ほかの駒の候補も自動で絞られます（例: 角の候補が1枚だけになれば、その駒が角に確定。玉の候補が1枚だけになれば、それが玉）。割り当てがどうやっても合わなくなる候補は、全部消えます。</li>
+          <li><b>枚数のつじつま</b>: 各側の種類ごとの枚数は決まっているので、ほかの駒の候補も自動で絞られます（例: 角の候補が1枚だけになれば、その駒が角に確定。玉の候補が1枚だけになれば、それが玉）。割り当てがどうやっても合わなくなる候補は、全部消えます。相手に取られた駒も、もとの持ち主の20枚として数えます。</li>
           <li><b>成る</b>: 相手の陣地（向こうの3段）に入る・その中で動く・そこから出るときに成れます。量子駒が成ると、<b>金と玉は候補から外れます</b>。成らずに行き所のなくなる種類（一番奥の段の歩・香、奥の2段の桂）も外れます。</li>
         </ul>
       </div>
-      <div class="card" data-tab="取る・観測">
-        <h3>取ると「観測」</h3>
+      <div class="card" data-tab="取る・打つ">
+        <h3>取ると「玉ではない」と分かる</h3>
         <ul>
-          <li>相手の量子駒を取ると、<b>取った側がその正体を決めます</b>（観測）。選べるのは、その駒の候補のうち<b>玉以外</b>。決めた駒が自分の持ち駒になり、相手の残りの駒からその種類が1枚減ります（相手のほかの駒の候補も絞られます）。</li>
-          <li>高い駒（飛・角）と観測すれば持ち駒は強くなります。相手の玉の候補を減らして、残った駒を玉に確定させる狙いもあります。</li>
-          <li>確定した駒を取ったときは、ふつうの将棋と同じくその駒が持ち駒になります。持ち駒（打つ駒）はいつも確定しています。</li>
+          <li>相手の量子駒を取ると、分かるのは<b>その駒が玉ではなかったこと</b>だけ（候補から玉が消えます）。正体は決まらず、<b>残りの候補のまま自分の持ち駒</b>になります（量子の持ち駒。駒台に候補の字の駒で並びます）。玉の候補が消えた分、相手のほかの駒の候補も絞られます。</li>
+          <li>量子の持ち駒を<b>打つと、量子駒のまま盤に出ます</b>。動かせば、今までどおり動きで候補が絞られます。打つマスで行き所のなくなる種類（一番奥の段の歩・香、奥の2段の桂）は候補から外れます。</li>
+          <li>取った駒の正体は、<b>もとの持ち主の20枚のつじつま</b>で決まっていきます。だれが持っていても、相手の残りと割り当てが合うように絞られ、候補が1つになれば確定します。</li>
+          <li>確定した駒を取ったときは、ふつうの将棋と同じくその駒が持ち駒になります。候補が1つだけ残った量子駒（玉ともう1種類だった駒）も、取るとその種類に確定します。</li>
           <li>まだ正体の決まっていない駒の中身（残りの種類と数）は、駒台を押すと出る一覧で見られます。</li>
         </ul>
       </div>
       <div class="card" data-tab="王手と詰み">
         <h3>王手と詰み</h3>
         <ul>
-          <li>王手と詰みは<b>玉が確定してから</b>。まだ玉の決まっていない側には王手はありません（王の候補の駒を取られても、それは玉以外として観測されます）。駒台の行の「王候補N」が、その側の王の候補の駒の数です。</li>
+          <li>王手と詰みは<b>玉が確定してから</b>。まだ玉の決まっていない側には王手はありません（王の候補の駒を取られても、それは玉ではなかったと分かるだけです）。駒台の行の「王候補N」が、その側の王の候補の駒の数です。</li>
+          <li>取った駒が玉でないとつじつまが合わなくなる取り方（その駒が玉でなければならない）は、確定した玉を取るのと同じなので指せません。</li>
           <li>確定した玉は取れません。ふつうの将棋と同じく、王手を放っておく手・取られるマスへ玉を動かす手は指せません。自分の指し手で自分の玉が確定するときも同じです。</li>
           <li><b>量子駒の利き</b>は、候補のどれか1つでも届くマス全部。候補の多い量子駒は、飛・角・桂を合わせたような強い利きを持ちます。</li>
           <li>相手の王の候補を取って減らすと、残った駒が玉に確定することがあります。確定した瞬間に詰んでいれば勝ちです。</li>
@@ -1169,9 +1199,9 @@
       <div class="card" data-tab="反則">
         <h3>してはいけない手（指せないようにしてあります）</h3>
         <ul>
-          <li><b>二歩</b>: 確定した成っていない歩がある筋（縦の列）に、もう1枚歩を打つこと（量子駒は数えません）。</li>
-          <li><b>打ち歩詰め</b>: 持ち駒の歩を打って詰ませること。</li>
-          <li><b>行き所のない駒</b>: 歩・香を一番奥の段、桂を奥の2段に打つこと（量子駒が成らずにそこへ進むと、その種類は候補から外れます）。</li>
+          <li><b>二歩</b>: 確定した成っていない歩がある筋（縦の列）に、もう1枚確定した歩を打つこと（量子駒は数えません。量子の持ち駒は歩の候補があっても打てます）。</li>
+          <li><b>打ち歩詰め</b>: 確定した持ち駒の歩を打って詰ませること。</li>
+          <li><b>行き所のない駒</b>: 歩・香を一番奥の段、桂を奥の2段に打つこと（量子駒が成らずにそこへ進むとき・量子の持ち駒をそこへ打つときは、その種類が候補から外れます。候補が残らないマスには打てません）。</li>
           <li><b>王手放置</b>: 確定した自分の玉が取られる状態のままにすること。</li>
           <li><b>千日手</b>: 同じ局面（盤・候補・持ち駒・残り・手番）が4回出たら引き分け。その間ずっと一方が王手をかけ続けていたら、かけていた側の負け。</li>
           <li>指せる手が1つもなくなった側の負け。512手で決着がつかなければ引き分け。</li>
@@ -1182,8 +1212,8 @@
         <p>このゲームは、将棋ったーで2013年に公開された<b>量子将棋</b>の「動かすほど駒の正体が絞られる」という遊びに着想を得て、チューリング・テーブルで決まりを作り直した自作の将棋です。名前・ルールの文章・見た目は写していません。ここでの決まりは次のとおりです。</p>
         <ul>
           <li><b>勝ち方</b>: 確定した玉を<b>詰ませたら</b>勝ち。王手は放っておけません（ふつうの将棋と同じ）。</li>
-          <li><b>取った駒</b>: <b>取った側が正体を決める</b>（玉以外の候補から）。持ち駒はいつも確定した駒です。</li>
-          <li><b>候補の絞り込み</b>: 各側の枚数のつじつまで、ほかの駒の候補も自動で絞ります（割り当てが合わなくなる候補を全部消す）。</li>
+          <li><b>取った駒</b>: 玉ではないと分かるだけで、<b>候補のまま持ち駒</b>になり、量子駒のまま打てます。正体は、もとの持ち主の20枚のつじつまで決まっていきます（2026年11月7日から。それまでは取った側が正体を決めていましたが、強い駒を選ぶ1択になりやすかったので変えました）。</li>
+          <li><b>候補の絞り込み</b>: 各側の枚数のつじつまで、ほかの駒の候補も自動で絞ります（割り当てが合わなくなる候補を全部消す。相手に取られた駒も、もとの持ち主の側で数える）。</li>
           <li><b>成り・二歩</b>: 量子駒が成ると金・玉は候補から外れます。二歩は確定した歩だけで数えます。</li>
         </ul>
         <p class="hint">本家の量子将棋の細かい決まりとは違うところがあります。こちらの決まりは、遊びやすさと AI の学習のためにまとめ直したものです。</p>
@@ -1192,7 +1222,7 @@
         <h3>棋譜</h3>
         <ul>
           <li>盤の下の棋譜テープ（⏮ ◀ ▶ ⏭）で、好きな局面に戻って見返せます。見返している局面から「ここから指す」で指し直しもできます。</li>
-          <li>表記: 「量」は量子駒、「(77)」は元のマス、「＝飛」は取った量子駒を飛と観測したこと。情報の行に、その手で候補がどう絞られたか・何が確定したかが出ます。</li>
+          <li>表記: 「量」は量子駒、「(77)」は元のマス、「量打〔飛角銀〕」は量子の持ち駒（候補 飛・角・銀）を打った手（「・自」が付くのは、もとが自分の駒だったとき）。情報の行に、その手で候補がどう絞られたか・何が確定したかが出ます。</li>
           <li>「⋯」→「棋譜を保存」でファイルに、「棋譜を読み込む」でこの形式の棋譜を読み込めます。</li>
         </ul>
       </div>`;
@@ -1253,8 +1283,11 @@
     let values = '';
     const w = W && W.w, F = K.F;
     if (w && gen > 0 && F) {
-      const hv = t => Math.round((w[F.hand + t - 1] + w[F.hand1 + t - 1] * 0.5) * K.EVAL_SCALE), pv = t => Math.round(w[F.pool + t - 1] * K.EVAL_SCALE);
-      values = `<div class="tbl"><table class="lv"><thead><tr><th>種類</th><th>持ち駒1枚</th><th>量子駒の残り1枚</th></tr></thead><tbody>${[7, 6, 5, 4, 3, 2, 1].map(t => `<tr><td>${K.NAME[t]}</td><td>${hv(t) >= 0 ? '+' : ''}${hv(t)}</td><td>${pv(t) >= 0 ? '+' : ''}${pv(t)}</td></tr>`).join('')}</tbody></table></div>`;
+      const E = K.EVAL_SCALE, sg = v => (v >= 0 ? '+' : '') + v;
+      const hv = t => Math.round((w[F.hand + t - 1] + w[F.hand1 + t - 1] * 0.5) * E), pv = t => Math.round(w[F.pool + t - 1] * E), qv = t => Math.round(w[F.qhcand + t - 1] * E);
+      const qbase = F.qhand != null ? Math.round(w[F.qhand] * E) : 0;
+      values = `<div class="tbl"><table class="lv"><thead><tr><th>種類</th><th>確定した持ち駒1枚</th><th>量子の持ち駒の候補にある</th><th>量子駒の残り1枚</th></tr></thead><tbody>${[7, 6, 5, 4, 3, 2, 1].map(t => `<tr><td>${K.NAME[t]}</td><td>${sg(hv(t))}</td><td>${sg(qv(t))}</td><td>${sg(pv(t))}</td></tr>`).join('')}</tbody></table></div>
+        <p class="hint" style="margin:6px 0 0">量子の持ち駒1枚の価値 = ${sg(qbase)} ＋ 候補にある種類の列の合計（候補が全部ある駒なら ${sg(qbase + [1, 2, 3, 4, 5, 6, 7].reduce((a, t) => a + qv(t), 0))}）。</p>`;
     }
     const lvRows = LV && LV.pairs ? LV.pairs.filter(p => CPU[p.a] && CPU[p.b]).map(p => `<tr><td>${CPU[p.a].label} vs ${CPU[p.b].label}${p.note ? `<br><small style="color: var(--muted)">${esc(p.note)}</small>` : ''}</td><td>${p.w}勝${p.l}敗${p.d}分</td><td>${!p.l && !p.d ? '全勝' : `${p.elo >= 0 ? '+' : ''}${p.elo} ±${p.err}`}</td></tr>`).join('') : '';
     $('view-ai').innerHTML = `
@@ -1274,16 +1307,17 @@
       </div>
       <div class="card" data-tab="学んだ駒の価値">
         <h3>AI が自分で見つけた駒の価値</h3>
-        <p class="hint" style="margin:0 0 6px">評価の重みのうち、駒の数にかかる部分（評価値の単位。+1000 で勝率が約73%）。どれも自己対局の勝ち負けだけから出てきた値で、最初は全部 0 でした。量子駒は、取られるときに一番高い種類と観測されるので、まだ正体の決まっていない駒の値打ちは持ち駒とは別に学んでいます。</p>
+        <p class="hint" style="margin:0 0 6px">評価の重みのうち、駒の数にかかる部分（評価値の単位。+1000 で勝率が約73%）。どれも自己対局の勝ち負けだけから出てきた値で、最初は全部 0 でした。取った量子駒は候補のまま持ち駒になるので、その値打ち（候補にどの種類があると高いか）は確定した持ち駒とは別に学んでいます。</p>
         ${values || '<p>まだ学習していません。</p>'}
       </div>
       <div class="card" data-tab="しくみ">
         <h3>しくみ（すべて自作・人の知識なし）</h3>
         <ul>
           <li><b>何も知らない状態から</b>: 最初（第0世代）は評価が全部 0。駒の価値も、玉の守り方も教えていません。人の棋譜・定跡・ほかのソフトも使っていません。</li>
-          <li><b>評価</b>: 局面を約${K.NF || 210}種類の特徴（持ち駒の数・確定した駒の種類と段・量子駒の残り・王の候補の数・確定した玉のまわりの守りと利き・取られそうな駒・候補に入っている種類…）にし、特徴ごとの重みを足します（手番の側 − 相手）。重みはロジスティック回帰で「その局面から勝つ確率」に合わせます。</li>
-          <li><b>探索</b>: αβ探索（反復深化・PVS・置換表・Null Move・LMR）。量子駒は取るときに一番高い種類を選べるので、序盤から盤じゅうで取り合いが起きます。静止探索では、取り合いの見積もり（SEE。駒の価値は評価と同じ値）で損な取り合いを省き、順番違いの同じ局面を置換表でまとめます。枝刈りの幅は評価の大きさに合わせて伸び縮みさせます（学び直すたびに評価の大きさが変わっても、読み方が変わらないように）。</li>
+          <li><b>評価</b>: 局面を約${K.NF || 220}種類の特徴（持ち駒の数・量子の持ち駒の候補・確定した駒の種類と段・量子駒の残り・王の候補の数・確定した玉のまわりの守りと利き・取られそうな駒・候補に入っている種類・取って打った駒…）にし、特徴ごとの重みを足します（手番の側 − 相手）。重みはロジスティック回帰で「その局面から勝つ確率」に合わせます。</li>
+          <li><b>探索</b>: αβ探索（反復深化・PVS・置換表・Null Move・LMR）。候補の多い量子駒は遠くまで利くので、序盤から盤じゅうで取り合いが起きます。静止探索では、取り合いの見積もり（SEE。駒の価値は評価と同じ値）で損な取り合いを省き、順番違いの同じ局面を置換表でまとめます。枝刈りの幅は評価の大きさに合わせて伸び縮みさせます（学び直すたびに評価の大きさが変わっても、読み方が変わらないように）。</li>
           <li><b>強化学習</b>: 今の重みどうしで自己対局 → 出てきた局面（取り合いを読み切った先の局面）と勝ち負けで重みを学び直す → 前の重みと対戦して負け越さなければ採用（僅差のときはもう200局指して決める）、をくり返します。重みはニュートン法で解きます（確率的な方法だと、めったに出ない特徴の重みにゆらぎが残り、探索がそこを突いて弱くなりました）。学習は2スレッド・優先度を下げて動かしています。</li>
+          <li><b>ルールを変えたとき</b>: 2026年11月7日に、取った量子駒を候補のまま持ち駒にするルールへ変えました。前のルールで育った重み（第28世代まで）は使わず、第0世代（全部 0）から学び直しています。</li>
           <li><b>評価値</b>: 勝率 = 1 / (1 + e<sup>−評価値/1000</sup>)。+1000 で約73%。</li>
         </ul>
       </div>
@@ -1370,7 +1404,7 @@
       if (!b || !NET) return;
       if (b.dataset.ch) { lobby.msg = '申し込みました。返事を待っています…'; NET.challenge(b.dataset.ch); renderLobby(); return; }
       const act = b.dataset.act;
-      if (act === 'wait') { lobby.msg = ''; NET.wait({ h: 'hirate' }, '量子観測'); renderLobby(); renderOnlineBadge(); }
+      if (act === 'wait') { lobby.msg = ''; NET.wait({ h: 'hirate', v: RULES_V }, '量子観測'); renderLobby(); renderOnlineBadge(); }
       else if (act === 'unwait') { NET.unwait(); renderLobby(); renderOnlineBadge(); }
       else if (act === 'ai') { const on = !aiOn(); setSetting('showEval', on, true); setSetting('arrow', on); renderLobby(); }
       else if (act === 'copy') {
@@ -1554,7 +1588,7 @@
       if (!S.result) { S.result = { winner: o.myColor, reason: `${o.opp.name}さんの投了` }; afterChange(); }
     } else if (msg.t === 're') { o.oppRe = true; maybeRematch(); renderSqInfo(); }
     else if (msg.t === 'rego' && typeof msg.gid === 'string') {
-      NET.start({ mid: msg.gid.slice(0, 20), myColor: msg.oc ? 1 : 0, r: { h: 'hirate' }, opp: { id: msg.from, name: o.opp.name, ai: o.opp.ai } });
+      NET.start({ mid: msg.gid.slice(0, 20), myColor: msg.oc ? 1 : 0, r: { h: 'hirate', v: RULES_V }, opp: { id: msg.from, name: o.opp.name, ai: o.opp.ai } });
     }
   }
   // 相手の手を順に指す（相手の番で、合法手のときだけ）
@@ -1580,11 +1614,11 @@
     if (oppId && NET.id > oppId) return;
     const gid = Math.random().toString(36).slice(2, 12);
     NET.send({ t: 'rego', gid, oc: o.myColor });
-    NET.start({ mid: gid, myColor: o.myColor ^ 1, r: { h: 'hirate' }, opp: { id: oppId, name: o.opp.name, ai: o.opp.ai } });
+    NET.start({ mid: gid, myColor: o.myColor ^ 1, r: { h: 'hirate', v: RULES_V }, opp: { id: oppId, name: o.opp.name, ai: o.opp.ai } });
   }
   function tryRoom() {
     if (!roomCode || !NET || NET.status !== 'on' || NET.game) return;
-    const p = NET.list().find(x => x.s === 'wait' && x.g === GAME && x.c === roomCode.toUpperCase());
+    const p = NET.list().find(x => x.s === 'wait' && x.g === GAME && x.r && x.r.v === RULES_V && x.c === roomCode.toUpperCase());
     if (!p) return;
     roomCode = null;
     history.replaceState(null, '', location.pathname);
@@ -1615,7 +1649,7 @@
     const st = NET ? NET.status : 'off', all = NET ? NET.counts() : null, me = NET ? NET.me : null;
     const c = all && Object.assign({ online: all.online }, all.byGame[GAME] ? { wait: all.byGame[GAME].wait, play: all.byGame[GAME].play } : { wait: 0, play: 0 });
     const num = v => (st === 'on' && c ? v : '—');
-    const waits = NET && st === 'on' ? NET.list().filter(p => p.s === 'wait' && p.g === GAME) : [];
+    const waits = NET && st === 'on' ? NET.list().filter(p => p.s === 'wait' && p.g === GAME && p.r && p.r.v === RULES_V) : [];
     const waiting = me && me.s === 'wait';
     const link = me && me.c ? `${location.origin}${location.pathname}?room=${me.c}` : '';
     $('on-body').innerHTML = `
@@ -1699,7 +1733,8 @@
   if (ONLINE_OK) { net(); renderOnlineBadge(); }
   if (roomCode && ONLINE_OK) openOnline();
   const saved = store.get('game', null);
-  if (saved && Array.isArray(saved.moves) && saved.seats) {
+  // 前のルール（取るときに正体を選ぶ版）で保存した対局は続けられないので、新しい対局から
+  if (saved && Array.isArray(saved.moves) && saved.seats && saved.rv === RULES_V) {
     try {
       if (saved.online && (!ONLINE_OK || saved.result)) { saved.online = null; saved.seats = saved.seats.map(x => (x === 'remote' ? 'human' : x)); }
       if (saved.online) saved.online = Object.assign({ myHints: 0 }, saved.online, { oppPresent: true, lostAt: 0, myRe: false, oppRe: false });
