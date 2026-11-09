@@ -25,14 +25,16 @@
   document.addEventListener('pointerdown', e => { pointerType = e.pointerType || 'mouse'; }, true);
 
   // ------------------------------------------------------------------ CPU の強さ
-  // 「最強」は共有メモリが使えるとき、すべてのスレッドで同じ置換表を使って読む（Lazy SMP）。超最強は、長く読むほど強くなると測れたときだけ足す
+  // 「最強」「超最強」は共有メモリが使えるとき、すべてのスレッドで同じ置換表を使って読む（Lazy SMP）。
+  // 超最強は最強と同じ AI で時間だけ延ばしたもの（第23世代で、最強の4倍の時間が最強に 91勝28敗1分・+203 ±73 と測れたので足した。CONVENTIONS §3）
   const CPU = {
     easy: { label: 'やさしい', stars: 1, desc: 'すぐ指します。指したあとの形だけを見て、少しでたらめに選びます', easy: true, temp: 350 },
     normal: { label: 'ふつう', stars: 2, desc: '数手先まで読みます', nodes: 6000, noise: 60 },
     strong: { label: 'つよい', stars: 3, desc: '学習した評価で深く読みます', time: 2000 },
     max: { label: '最強', stars: 4, desc: 'すべてのスレッドで、じっくり読みます', time: 8000, parallel: true },
+    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、さらに長く読みます', time: 30000, parallel: true },
   };
-  const CPU_KEYS = ['easy', 'normal', 'strong', 'max'];
+  const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   const ANALYZE_MS = 6000, HINT_MS = 2500;
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -1324,9 +1326,9 @@
       <div class="card" data-tab="CPU の強さ">
         <h3>CPU の${CPU_KEYS.length}段階</h3>
         <div class="tbl"><table class="lv"><thead><tr><th>強さ</th><th>読み</th><th>特徴</th></tr></thead><tbody>
-          ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time ? `1手${CPU[k].time / 1000}秒` : CPU[k].nodes ? `${CPU[k].nodes.toLocaleString()}局面` : '読まない'}</td><td>${CPU[k].desc}</td></tr>`).join('')}
+          ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time ? `1手${CPU[k].time / 1000}秒${CPU[k].parallel ? '・全スレッド' : ''}` : CPU[k].nodes ? `${CPU[k].nodes.toLocaleString()}局面` : '読まない'}</td><td>${CPU[k].desc}</td></tr>`).join('')}
         </tbody></table></div>
-        ${lvRows ? `<p class="hint" style="margin:12px 0 4px">段階どうしの対戦（${LV.note ? esc(LV.note) + '。' : ''}同じ序盤から先後入れ替え）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>Elo</th></tr></thead><tbody>${lvRows}</tbody></table></div>` : ''}
+        ${lvRows ? `<p class="hint" style="margin:12px 0 4px">段階どうしの対戦（${LV.note ? esc(LV.note) + '。' : ''}同じ序盤から先後入れ替え。測るときは時間を縮めて1スレッドで指したので、画面ですべてのスレッドで読む「最強」「超最強」は、実際はもっと差があります）</p><div class="tbl"><table class="lv"><thead><tr><th>対戦</th><th>結果</th><th>Elo</th></tr></thead><tbody>${lvRows}</tbody></table></div>` : ''}
       </div>`;
     docTabs($('view-ai'), 'ai');
   }

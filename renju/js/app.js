@@ -26,10 +26,12 @@
   const CPU = {
     easy: { label: 'やさしい', stars: 1, desc: 'すぐ打ちます。ときどき甘い手も', time: 300, depth: 3, noise: 40, vcfNodes: 0, qvcf: 0, randomTop: 0.15 },
     normal: { label: 'ふつう', stars: 2, desc: '少し先まで読み、四追いも見ます', time: 1000, depth: 10, noise: 5, vcfNodes: 15000, qvcf: 200 },
-    strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習した評価で深く読みます', time: 2000 },
-    max: { label: '最強', stars: 4, desc: '1手8秒。複数のスレッドで全力で読みます', time: 8000, parallel: true },
+    strong: { label: 'つよい', stars: 3, desc: '1手2秒。学習した評価で深く読みます', time: 2000, tm: '1手 約2秒' },
+    max: { label: '最強', stars: 4, desc: '1手8秒。複数のスレッドで全力で読みます', time: 8000, parallel: true, tm: '1手 約8秒' },
+    // 超最強は最強と同じ AI で時間だけ延ばしたもの（2026-11-09、最強の約4倍の時間で最強に 124勝74敗2分・+89 ±25 と測れたので足した。CONVENTIONS §3）
+    ultra: { label: '超最強', stars: 5, desc: '最強と同じ AI で、1手30秒じっくり読みます', time: 30000, parallel: true, tm: '1手 約30秒' },
   };
-  const CPU_KEYS = ['easy', 'normal', 'strong', 'max'];
+  const CPU_KEYS = ['easy', 'normal', 'strong', 'max', 'ultra'];
   const ANALYZE_MS = 6000, HINT_MS = 2500;
 
   // ------------------------------------------------------------------ 設定（このブラウザに保存）
@@ -38,6 +40,7 @@
     set(k, v) { try { localStorage.setItem('renju-' + k, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
   };
   let cfg = Object.assign({ mode: 'cpu', cpu: 'normal', side: 'black', cpuB: 'strong', cpuW: 'strong', rule: 'renju', opening: 'tengen' }, store.get('cfg', {}));
+  for (const [k, d] of [['cpu', 'normal'], ['cpuB', 'strong'], ['cpuW', 'strong']]) if (!CPU[cfg[k]]) cfg[k] = d;   // 保存した段階がもうないとき
   if (!R.RULES[cfg.rule]) cfg.rule = 'renju';
   if (!R.OPENINGS[cfg.opening]) cfg.opening = 'tengen';
   // AI補助: showEval = 形勢、best = 最善手の印、threat = 四・三の表示
@@ -760,7 +763,7 @@
   function drawNew() {
     const seg = (id, items, val) => { $(id).innerHTML = items.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${val === v}">${l}</button>`).join(''); };
     seg('ng-mode', [['cpu', 'CPUと対局'], ['pvp', 'ふたりで対局'], ['watch', 'CPUどうしを観戦'], ['online', 'オンライン対戦']], draft.mode);
-    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(4 - CPU[k].stars)}</span><b>${CPU[k].label}</b><small>${CPU[k].desc}</small></button>`).join('');
+    $('ng-cpu').innerHTML = CPU_KEYS.map(k => `<button type="button" data-v="${k}" aria-pressed="${draft.cpu === k}"><span class="stars">${'★'.repeat(CPU[k].stars)}${'☆'.repeat(Math.max(0, CPU_KEYS.length - CPU[k].stars))}</span><b>${CPU[k].label}</b>${CPU[k].tm ? `<span class="tm">${CPU[k].tm}</span>` : ''}<small>${CPU[k].desc}</small></button>`).join('');
     $('ng-cpu-desc').textContent = CPU[draft.cpu] ? CPU[draft.cpu].desc : '';
     seg('ng-side', [['black', '黒（先手）'], ['white', '白（後手）'], ['random', 'ランダム']], draft.side);
     seg('ng-cpu-b', CPU_KEYS.map(k => [k, CPU[k].label]), draft.cpuB);
@@ -947,7 +950,7 @@
           <li><b>形の表</b>：石を置いたとき、縦・横・斜めの前後5マスの並び（約6万通り）から「五・四・達四・三…」を表で引きます。三・四の定義はルールのとおりに計算して作った表です。</li>
           <li><b>脅威の探索</b>：相手の四は必ず止める、相手に三があれば防ぐ手か自分の四だけを読む、四を打ち続けて勝つ手順（四追い）を探す、という連珠の決まりごとを使って、読む手を大きく絞ります。</li>
           <li><b>評価と手の順番</b>：各マスの「4方向の形の組（1365通り）」ごとの重みの和。重みは自己対局の勝ち負けと、深く読んだときに選んだ手から学習します。</li>
-          <li><b>探索</b>：αβ探索（反復深化・置換表・手の順番での枝刈り）。「最強」は複数のスレッドで同じ局面を読みます。</li>
+          <li><b>探索</b>：αβ探索（反復深化・置換表・手の順番での枝刈り）。「最強」「超最強」は複数のスレッドで同じ局面を読みます（超最強は最強と同じ AI で、考える時間だけを長くしたもの）。</li>
         </ul>
         <table class="lv wide-only" style="margin-top:8px"><thead><tr><th>CPUの強さ</th><th>1手の考える時間</th><th>特徴</th></tr></thead><tbody>
           ${CPU_KEYS.map(k => `<tr><td>${CPU[k].label}</td><td>${CPU[k].time / 1000}秒</td><td>${CPU[k].desc}</td></tr>`).join('')}

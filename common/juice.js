@@ -11,7 +11,7 @@
   const GAMES = [
     { slug: 'gungi', em: '軍', accent: '#b8862b', name: '軍儀', en: 'Gungi', ultra: 1 },
     { slug: 'reversi', em: '石', accent: '#2f4f9a', name: 'リバーシ', en: 'Reversi' },
-    { slug: 'renju', em: '五', accent: '#8a5a2b', name: '連珠', en: 'Renju' },
+    { slug: 'renju', em: '五', accent: '#8a5a2b', name: '連珠', en: 'Renju', ultra: 1 },
     { slug: 'koikoi', em: '花', accent: '#b0343c', name: '花札こいこい', short: 'こいこい', en: 'Koi-Koi' },
     { slug: 'holdem', em: '♠', accent: '#1f7a55', name: 'ホールデム', en: "Texas Hold'em" },
     { slug: 'shogi', em: '将', accent: '#9a6b2f', name: '将棋', en: 'Shogi', ultra: 1 },
@@ -24,7 +24,7 @@
     { slug: 'yacht', em: '骰', accent: '#c0622a', name: 'ヨット', en: 'Yacht' },
     { slug: 'amazons', em: '矢', accent: '#3d7a46', name: 'アマゾンズ', en: 'Amazons', ultra: 1 },
     { slug: 'gunjin', em: '兵', accent: '#5e6640', name: '軍人将棋', en: 'Gunjin Shogi' },
-    { slug: 'kansoku', em: '量', accent: '#1b7f8c', name: '量子観測将棋', short: '量子観測', en: 'Quantum Kansoku Shogi' },
+    { slug: 'kansoku', em: '量', accent: '#1b7f8c', name: '量子観測将棋', short: '量子観測', en: 'Quantum Kansoku Shogi', ultra: 1 },
     { slug: 'goita', em: '能', accent: '#2b4a6f', name: 'ごいた', en: 'Goita' },
     { slug: 'dudo', em: '嘘', accent: '#8c2f4b', name: 'うそつきダイス', short: 'うそダイス', en: 'Dudo' },
   ];

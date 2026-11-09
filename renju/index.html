@@ -7,6 +7,14 @@
 <meta name="description" content="AI が一から作った連珠（五目並べ）の AI と対局。禁手（三三・四四・長連）の表示、形勢と最善手・四と三の表示、オンライン対戦。">
 <meta name="theme-color" content="#efe8d8">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23dcae5e'/%3E%3Cpath d='M8 32H56M32 8V56' stroke='%233d2a12' stroke-width='3'/%3E%3Ccircle cx='24' cy='24' r='10' fill='%23111'/%3E%3Ccircle cx='40' cy='40' r='10' fill='%23f6f2e8' stroke='%23b8ae98' stroke-width='1.5'/%3E%3C/svg%3E">
+<script>
+// 「最強」「超最強」を複数スレッドで読むには共有メモリが要る。公開先が必要な見出しを付けないので、このフォルダだけの Service Worker（sw.js）で付けて、初回だけ1回読み直す
+if (!self.crossOriginIsolated && 'serviceWorker' in navigator && self.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => {
+    try { if (!self.crossOriginIsolated && !sessionStorage.getItem('renju-coi')) { sessionStorage.setItem('renju-coi', '1'); location.reload(); } } catch (e) { /* 読み直さなくても1スレッドで動く */ }
+  }).catch(() => { /* 使えない環境では1スレッドで読む */ });
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
@@ -296,6 +304,7 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
 .cards button b { font-size: 15px; }
 .cards button small { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .cards button .stars { color: var(--gold); letter-spacing: 2px; font-size: 12px; }
+.cards button .tm { font-size: 11px; color: var(--muted); font-weight: 700; }
 .cards button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
 .hint { font-size: 12px; color: var(--muted); }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
@@ -308,11 +317,12 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; flex: 1 1 auto; min-heigh
   .field { margin-bottom: 11px; gap: 6px; }
   .seg { gap: 4px; }
   .seg button { padding: 6px 10px; font-size: 13px; }
-  .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-  .cards button { padding: 7px 4px; text-align: center; border-radius: 10px; }
-  .cards button b { font-size: 13px; }
+  .cards { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .cards button { padding: 6px 2px; text-align: center; border-radius: 10px; }
+  .cards button b { font-size: 12.5px; white-space: nowrap; }
+  .cards button .tm { font-size: 9.5px; letter-spacing: -.02em; }
   .cards button small { display: none; }
-  .cards button .stars { letter-spacing: 0; font-size: 10px; }
+  .cards button .stars { letter-spacing: -1px; font-size: 9px; }
   .on-stats { gap: 16px; margin-bottom: 6px; }
   .on-stats .stat b { font-size: 24px; }
   #dlg-online .field { margin-bottom: 9px; }
@@ -412,7 +422,7 @@ table.lv th, table.lv td { border-bottom: 1px solid var(--line); padding: 6px 8p
   .onbtn small { display: none; }
   .tabs button { padding: 5px 9px; }
 }
-@media (max-width: 360px) { .controls .btn { padding: 6px 8px; font-size: 12px; } .brand h1 .seal { display: none; } }
+@media (max-width: 360px) { .controls .btn { padding: 6px 8px; font-size: 12px; } .brand h1 .seal { display: none; } .cards button b { font-size: 11px; letter-spacing: -.04em; } .cards button .tm { font-size: 8.5px; } }
 /* 横向きの低い画面: 盤を左、そのほかを右 */
 @media (orientation: landscape) and (max-height: 560px) and (max-width: 979px) {
   .top { padding-block: 6px 4px; }

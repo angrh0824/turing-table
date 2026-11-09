@@ -8,5 +8,6 @@
   "status": "ready",
   "ai": "自己対局で学んだ小さなニューラルネットの評価＋αβ探索",
   "levels": ["やさしい", "ふつう", "つよい", "最強", "超最強"],
-  "online": true
+  "online": true,
+  "publish": ["sw.js"]
 }

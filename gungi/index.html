@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>軍儀 — チューリング・テーブル</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<script>
+// 「最強」「超最強」を複数スレッドで読むには共有メモリが要る。公開先が必要な見出しを付けないので、このフォルダだけの Service Worker（sw.js）で付けて、初回だけ1回読み直す
+if (!self.crossOriginIsolated && 'serviceWorker' in navigator && self.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => {
+    try { if (!self.crossOriginIsolated && !sessionStorage.getItem('gungi-coi')) { sessionStorage.setItem('gungi-coi', '1'); location.reload(); } } catch (e) { /* 読み直さなくても1スレッドで動く */ }
+  }).catch(() => { /* 使えない環境では1スレッドで読む */ });
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
